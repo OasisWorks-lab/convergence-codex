@@ -1,0 +1,16 @@
+{
+  "name": "phoenixcore-convergence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.12.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.ts",
+    "test": "node --test test/*.test.ts"
+  },
+  "optionalDependencies": {
+    "pg": "8.16.3"
+  }
+}

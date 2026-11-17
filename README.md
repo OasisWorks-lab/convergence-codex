@@ -17,3 +17,7 @@ Visitor theme choices are saved on the visitor's device using browser localStora
 Edit entries offline in the separate V4 Owner Studio, export the update ZIP, and upload the updated `assets/data.js` and any added files in `assets/uploads/` to matching repository paths. Owner administration files must never be uploaded to the public site.
 
 Animated GIF, PNG, JPEG, and WebP card art is supported via local uploads in the Owner Studio. Original V3 placeholders are retained until replaced.
+
+## PhoenixCore character sheets
+
+Open **PhoenixCore** in the main navigation to browse Discord players and their character cards. The offline walkthrough lets you submit a sheet edit and try the owner review. The live service sends approvals to the owner in Discord. [Dashboard](phoenixcore/index.html) · [Bot and dashboard setup](phoenixcore-service/README.md)
