@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#130b12">
+<title>Phoenix Core Dashboard · Convergence Codex</title>
+<link rel="icon" href="../assets/brand.png">
+<link rel="stylesheet" href="../assets/styles.css">
+<link rel="stylesheet" href="../assets/themes.css">
+<style>
+  .pc-page{--pc-edge:color-mix(in srgb,var(--ct-border) 60%,transparent);background:var(--ct-background);color:var(--ct-text)}
+  .pc-main{max-width:1370px;margin:auto;padding:36px 5% 85px}
+  .pc-alert{display:flex;gap:12px;align-items:start;flex-wrap:wrap;padding:14px 18px;border:1px solid var(--ct-border);background:var(--ct-card);border-radius:10px;font-size:12px;line-height:1.7;color:var(--ct-muted)}
+  .pc-alert strong{color:var(--ct-accent);letter-spacing:.08em}
+  .pc-intro{display:flex;gap:25px;align-items:end;justify-content:space-between;margin:52px 0 32px}
+  .pc-intro h1{font:600 clamp(45px,6vw,82px)/1 var(--serif);letter-spacing:-.03em;margin:12px 0}
+  .pc-intro em{font-weight:500;color:var(--ct-accent)}
+  .pc-intro p{font-size:13px;line-height:1.8;max-width:720px;color:var(--ct-muted)}
+  .pc-account{min-width:220px;border:1px solid var(--pc-edge);background:var(--ct-panel);padding:18px;border-radius:11px;display:grid;gap:7px}
+  .pc-account small{font-size:10px;color:var(--ct-muted)}.pc-account strong{font-size:15px}
+  .pc-board{display:grid;grid-template-columns:235px minmax(0,1fr);gap:21px;align-items:start}
+  .pc-sidebar{border:1px solid var(--pc-edge);background:var(--ct-panel);border-radius:12px;padding:11px;display:grid;gap:7px;position:sticky;top:89px}
+  .pc-sidebar button{width:100%;text-align:left;color:var(--ct-muted);border:1px solid transparent;background:transparent;padding:14px;border-radius:8px;font-size:12px;font-weight:750}
+  .pc-sidebar button:hover,.pc-sidebar button.active{background:var(--ct-card);color:var(--ct-accent);border-color:var(--pc-edge)}
+  .pc-panel{min-height:380px;border:1px solid var(--pc-edge);border-radius:13px;background:var(--ct-panel);padding:28px}
+  .pc-section-head{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:22px}
+  .pc-kicker{color:var(--ct-accent);font-size:10px;letter-spacing:.17em;font-weight:800;text-transform:uppercase}
+  .pc-section-head h2{font:600 clamp(29px,3vw,43px) var(--serif);margin:7px 0}
+  .pc-section-head p{font-size:12px;line-height:1.7;color:var(--ct-muted);max-width:600px;margin:0}
+  .pc-input,.pc-modal :is(input,textarea,select){border:1px solid var(--pc-edge);background:var(--ct-card);color:var(--ct-text);border-radius:8px;padding:12px 13px;min-width:0;font:inherit}
+  .pc-input{width:min(100%,280px)}
+  .pc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  .pc-tile{display:block;width:100%;text-align:left;padding:18px;border:1px solid var(--pc-edge);background:var(--ct-card);border-radius:11px;color:var(--ct-text);transition:border-color .15s,transform .15s}
+  .pc-tile:hover{border-color:var(--ct-accent);transform:translateY(-2px)}
+  .pc-tile strong{font-size:14px;display:block;margin:8px 0}
+  .pc-avatar{height:56px;width:56px;display:grid;place-items:center;background:linear-gradient(135deg,var(--ct-secondary),var(--ct-panel));border-radius:13px;color:var(--ct-text);font-size:24px;font-weight:800}
+  .pc-art{height:117px;width:100%;background:radial-gradient(circle at center,color-mix(in srgb,var(--ct-secondary) 35%,transparent),transparent),var(--ct-panel);border-radius:8px;display:grid;place-items:center}
+  .pc-art img{width:94px;height:94px;object-fit:contain}
+  .pc-muted{font-size:12px;line-height:1.75;color:var(--ct-muted)}
+  .pc-chip{display:inline-block;color:var(--ct-accent);border:1px solid var(--pc-edge);padding:6px 9px;border-radius:20px;font-size:10px;margin-top:8px}
+  .pc-link,.pc-back{background:none;border:0;color:var(--ct-accent);font-size:12px;font-weight:800;padding:0;cursor:pointer}
+  .pc-link:hover,.pc-back:hover{text-decoration:underline}
+  .pc-back{margin-bottom:18px}
+  .pc-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:20px}
+  .pc-stat{padding:16px;border:1px solid var(--pc-edge);border-radius:10px;background:var(--ct-card)}
+  .pc-stat small{display:block;font-size:11px;color:var(--ct-muted);margin-bottom:8px}
+  .pc-stat strong{font-size:20px}
+  .pc-subtitle{font:600 25px var(--serif);margin:29px 0 12px}
+  .pc-tags{display:flex;gap:8px;flex-wrap:wrap}.pc-tags span{padding:9px 11px;border-radius:8px;border:1px solid var(--pc-edge);color:var(--ct-muted);font-size:11px}
+  .pc-primary{display:inline-block;padding:11px 15px;border:1px solid var(--ct-accent);border-radius:8px;background:var(--ct-accent);color:var(--ct-background);font-size:12px;font-weight:800;cursor:pointer}
+  .pc-primary:disabled{opacity:.55;cursor:not-allowed}
+  .pc-queue{display:grid;gap:11px}
+  .pc-request{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:18px;background:var(--ct-card);border:1px solid var(--pc-edge);border-radius:11px}
+  .pc-request strong{display:block}.pc-request small{color:var(--ct-muted);font-size:11px;display:block;margin-top:6px}
+  .pc-note{padding:18px;background:var(--ct-card);border-left:3px solid var(--ct-accent);color:var(--ct-muted);font-size:12px;line-height:1.8;border-radius:8px;margin:20px 0}
+  .pc-note strong{color:var(--ct-text)}
+  .pc-modal{width:min(94vw,600px);max-height:90vh;overflow:auto;background:var(--ct-panel);color:var(--ct-text);border:1px solid var(--ct-border);border-radius:13px;padding:26px;box-shadow:0 25px 80px #0009}
+  .pc-modal::backdrop{background:#03050bdc}
+  .pc-modal h2{font:600 38px var(--serif);margin:10px 0}
+  .pc-modal form{display:grid;gap:10px}
+  .pc-modal label{font-size:12px;font-weight:700;margin-top:10px}
+  .pc-modal-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:18px}
+  .pc-cancel{padding:11px 15px;border-radius:8px;border:1px solid var(--pc-edge);background:var(--ct-card);color:var(--ct-text);cursor:pointer}
+  .pc-message{padding:15px;border:1px solid var(--ct-accent);background:var(--ct-card);color:var(--ct-text);border-radius:8px;margin-bottom:20px;font-size:12px}
+  .pc-guide{margin-top:50px}.pc-guide h2{font:600 35px var(--serif)}.pc-guide p{color:var(--ct-muted);line-height:1.8;max-width:800px}
+  @media(max-width:1080px){.pc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:800px){.pc-main{padding:20px 5% 60px}.pc-intro{display:block;margin-top:44px}.pc-account{margin-top:20px}.pc-board{display:block}.pc-sidebar{position:static;display:flex;overflow-x:auto;margin-bottom:18px}.pc-sidebar button{white-space:nowrap;width:auto}.pc-panel{padding:18px}.pc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-request{display:block}.pc-request .pc-chip{margin-top:10px}}
+  @media(max-width:560px){.pc-grid{grid-template-columns:1fr}.pc-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-intro h1{font-size:46px}.pc-section-head{align-items:stretch}.pc-input{width:100%}}
+</style>
+</head>
+<body class="pc-page">
+<header class="site-header">
+ <div class="header-inner">
+  <a class="nav-brand" href="../index.html"><img class="brand-icon" src="../assets/brand.png" alt="" aria-hidden="true"><span>CONVERGENCE <em>CODEX</em></span></a>
+  <nav id="nav" aria-label="Primary navigation"><a href="../index.html">Codex</a><a href="../races.html">Races &amp; Forms</a><a href="../worlds.html">Worlds</a><a href="./index.html" class="active">Dashboard</a></nav>
+  <button class="mobile-menu" type="button" id="menuBtn" aria-label="Toggle navigation" aria-controls="nav" aria-expanded="false">☰</button>
+ </div>
+</header>
+<main class="pc-main">
+ <div class="pc-alert"><strong>INTERACTIVE PROTOTYPE</strong><span>All users, characters and values are fictional. No Discord authentication, live edits, owner approvals, or bot notifications are connected.</span></div>
+ <section class="pc-intro">
+  <div><div class="eyebrow">PHOENIX CORE · PLAYER HUB</div><h1>Every character.<br><em>One living story.</em></h1><p>Explore the proposed player directory, character sheets, and approval system while we build the real Phoenix Core integration.</p></div>
+  <div class="pc-account"><div class="pc-kicker">PREVIEW IDENTITY</div><strong>ExamplePlayer01</strong><small>Fictional viewer · not logged into Discord</small></div>
+ </section>
+ <div class="pc-board">
+  <aside class="pc-sidebar" aria-label="Dashboard sections">
+   <button type="button" data-view="players" class="active">Player Directory</button>
+   <button type="button" data-view="mine">My Characters</button>
+   <button type="button" data-view="requests">Request History</button>
+   <button type="button" data-view="owner">Owner Console Preview</button>
+  </aside>
+  <div class="pc-panel"><div id="pcMessage" class="pc-message" hidden role="status"></div><div id="pcContent"></div></div>
+ </div>
+ <section class="pc-guide"><div class="eyebrow">THE PRODUCTION ARCHITECTURE</div><h2>Discord identity. Owner-approved changes.</h2><p>The finished dashboard will load registered player records from a private database through a secure API. Players can propose edits only for their own characters. Phoenix Core will notify you in Discord, and an owner-verified action will approve or deny each request before any approved stats, inventory or wallet values change.</p></section>
+</main>
+<footer class="site-footer"><div class="footer-main"><img class="brand-icon" src="../assets/brand.png" alt="" aria-hidden="true"><span>CONVERGENCE <em>CODEX</em></span></div><div class="footer-note">Phoenix Core dashboard prototype · No live data or authentication</div></footer>
+<dialog id="proposalDialog" class="pc-modal" aria-labelledby="proposalTitle">
+ <form id="proposalForm">
+  <div class="pc-kicker">CHARACTER CHANGE REQUEST · PREVIEW</div>
+  <h2 id="proposalTitle">Propose a change</h2>
+  <p class="pc-muted">This preview stores a pending request only in this page's memory. It does not notify Discord or modify a real sheet.</p>
+  <label for="proposalField">Statistic</label><select id="proposalField" required></select>
+  <label for="proposalCurrent">Current value</label><input id="proposalCurrent" readonly>
+  <label for="proposalValue">Proposed value</label><input id="proposalValue" type="number" min="0" step="1" required>
+  <label for="proposalReason">Evidence or reason</label><textarea id="proposalReason" rows="4" minlength="10" maxlength="800" required placeholder="Explain why this stat should change."></textarea>
+  <div class="pc-modal-actions"><button type="button" class="pc-cancel" id="proposalCancel">Cancel</button><button type="submit" class="pc-primary">Preview submission</button></div>
+ </form>
+</dialog>
+<script src="../assets/data.js"></script>
+<script src="../assets/themes.js"></script>
+<script>
+(()=>{
+'use strict';
+const players=[
+{id:'one',name:'ExamplePlayer01',characters:['ember','lumen']},
+{id:'two',name:'ExamplePlayer02',characters:['kairo']},
+{id:'three',name:'ExamplePlayer03',characters:['selene']}
+];
+const chars={
+ember:{id:'ember',owner:'one',name:'Ember Voss',race:'Saiyan',path:'Primal',stats:{BPL:15000,Strength:12,Speed:10,Durability:11,'Energy Control':8,Mastery:6},wallet:'250 credits',items:['Training weights','Travel capsule'],forms:['Foundational Form']},
+lumen:{id:'lumen',owner:'one',name:'Lumen Vale',race:'Namekian',path:'Dragon Clan',stats:{BPL:9200,Strength:8,Speed:9,Durability:13,'Energy Control':14,Mastery:7},wallet:'95 credits',items:['Healing supplies'],forms:['Foundational Form']},
+kairo:{id:'kairo',owner:'two',name:'Kairo Ash',race:'Arcosian',path:'Ascension',stats:{BPL:13000,Strength:10,Speed:12,Durability:11,'Energy Control':10,Mastery:5},wallet:'300 credits',items:['Armor'],forms:[]},
+selene:{id:'selene',owner:'three',name:'Selene Morrow',race:'Vampyre',path:'Revenant',stats:{BPL:7000,Strength:9,Speed:10,Durability:9,'Energy Control':12,Mastery:9},wallet:'120 credits',items:[],forms:[]}
+};
+const viewer='one', pending=[];
+const content=document.getElementById('pcContent');
+const message=document.getElementById('pcMessage');
+const dialog=document.getElementById('proposalDialog');
+const form=document.getElementById('proposalForm');
+let view='players', selected=null;
+function e(tag,cls,txt){const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n}
+function add(p,...children){p.append(...children);return p}
+function head(kicker,title,sub){const n=e('div','pc-section-head');const c=e('div');add(c,e('div','pc-kicker',kicker),e('h2',null,title),e('p',null,sub));n.append(c);return n}
+function clear(){content.replaceChildren()}
+function notice(t){message.hidden=false;message.textContent=t}
+function setView(v){view=v;document.querySelectorAll('[data-view]').forEach(b=>{const on=b.dataset.view===v;b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on))});render()}
+function player(id){return players.find(p=>p.id===id)}
+function characterCard(c){const b=e('button','pc-tile');b.type='button';const art=e('div','pc-art');const logo=document.createElement('img');logo.src='../assets/brand.png';logo.alt='';art.append(logo);add(b,art,e('div','pc-kicker',c.race),e('strong',null,c.name),e('div','pc-muted','Path: '+c.path),e('span','pc-chip','BPL '+c.stats.BPL.toLocaleString()));b.addEventListener('click',()=>renderCharacter(c));return b}
+function showPlayers(){const header=head('COMMUNITY DIRECTORY','Registered Players','This demonstration uses fictional accounts. Only eligible, registered players will appear in the live version.');const search=e('input','pc-input');search.type='search';search.placeholder='Search sample users';search.setAttribute('aria-label','Search sample users');header.append(search);add(content,header);const grid=e('div','pc-grid');content.append(grid);function update(){grid.replaceChildren();const term=search.value.toLowerCase();players.filter(p=>p.name.toLowerCase().includes(term)).forEach(p=>{const b=e('button','pc-tile');b.type='button';add(b,e('div','pc-avatar',p.name.slice(0,1)),e('strong',null,p.name),e('div','pc-muted',p.characters.length+' character(s)'),e('span','pc-chip','View characters'));b.addEventListener('click',()=>showPlayer(p));grid.append(b)});if(!grid.childElementCount)grid.append(e('p','pc-muted','No results'))}search.addEventListener('input',update);update()}
+function showPlayer(p){clear();const back=e('button','pc-back','← Player directory');back.onclick=render;add(content,back,head('PLAYER COLLECTION',p.name,'Every character owns its own approved stats, equipment and wallet.'));const grid=e('div','pc-grid');p.characters.forEach(id=>grid.append(characterCard(chars[id])));content.append(grid)}
+function showMine(){add(content,head('YOUR CHARACTER COLLECTION','My Characters','This uses a fictional current viewer; the live page will require Discord sign-in.'));const grid=e('div','pc-grid');player(viewer).characters.forEach(id=>grid.append(characterCard(chars[id])));content.append(grid)}
+function showTags(title,items){content.append(e('h3','pc-subtitle',title));const t=e('div','pc-tags');(items.length?items:['None recorded']).forEach(x=>t.append(e('span',null,x)));content.append(t)}
+function renderCharacter(c){selected=c;clear();const back=e('button','pc-back','← Back to directory');back.onclick=render;add(content,back,head('APPROVED CHARACTER SHEET',c.name,c.race+' · '+c.path));content.append(e('p','pc-muted','Hybrid attributes below are illustrative placeholders, not finalized RPG mechanics.'));const stats=e('div','pc-stat-grid');Object.entries(c.stats).forEach(([key,value])=>{const cell=e('div','pc-stat');add(cell,e('small',null,key),e('strong',null,value.toLocaleString()));stats.append(cell)});content.append(stats);showTags('Transformations',c.forms);showTags('Character wallet & equipment',[c.wallet,...c.items]);if(c.owner===viewer){const block=e('div','pc-note','As the sample character owner, you can preview a stat-change request. Approved values will remain unchanged.');content.append(block);const button=e('button','pc-primary','Propose a stat change');button.onclick=openProposal;content.append(button)}else content.append(e('p','pc-note','You can view this example character but cannot propose changes to someone else’s sheet.'))}
+function listRequest(req){const row=e('div','pc-request');const info=e('div');add(info,e('strong',null,req.character+' · '+req.field),e('small',null,'Requested: '+req.from+' → '+req.to),e('small',null,'Reason: '+req.reason));add(row,info,e('span','pc-chip','PENDING · DEMO'));return row}
+function showRequests(){add(content,head('YOUR REQUESTS','Request History','Submitted examples exist only in this browser tab. They are not saved or sent to Discord.'));const list=e('div','pc-queue');pending.forEach(r=>list.append(listRequest(r)));if(!pending.length)list.append(e('p','pc-note','No sample requests yet. Open My Characters and propose a stat change to preview the queue.'));content.append(list)}
+function showOwner(){add(content,head('OWNER ONLY · MOCKUP','Approval Inbox','In production, this requires the owner’s verified Discord identity.'));content.append(e('div','pc-note','This screen is a visual concept only. It contains no working approval or settings controls because a public page cannot establish owner permissions.'));const list=e('div','pc-queue');list.append(listRequest({character:'Kairo Ash',field:'BPL',from:'13,000',to:'13,250',reason:'Example training record'}));pending.forEach(r=>list.append(listRequest(r)));content.append(list);content.append(e('div','pc-note','Future settings: approval destination channel, character visibility, permitted request fields, bot features and notification preferences. Only server-side owner authorization can save them.'))}
+function render(){clear();if(view==='mine')showMine();else if(view==='requests')showRequests();else if(view==='owner')showOwner();else showPlayers()}
+function setOriginal(){if(!selected)return;const field=document.getElementById('proposalField').value;const val=selected.stats[field];document.getElementById('proposalCurrent').value=String(val);document.getElementById('proposalValue').value=String(val)}
+function openProposal(){if(!selected||selected.owner!==viewer)return;form.reset();const s=document.getElementById('proposalField');s.replaceChildren();Object.keys(selected.stats).forEach(field=>{const option=e('option',null,field);option.value=field;s.append(option)});setOriginal();dialog.showModal()}
+document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+document.getElementById('proposalField').addEventListener('change',setOriginal);
+document.getElementById('proposalCancel').addEventListener('click',()=>dialog.close());
+document.getElementById('menuBtn').addEventListener('click',()=>{const nav=document.getElementById('nav');const opened=nav.classList.toggle('open');document.getElementById('menuBtn').setAttribute('aria-expanded',String(opened))});
+form.addEventListener('submit',ev=>{ev.preventDefault();if(!selected||selected.owner!==viewer)return;const field=document.getElementById('proposalField').value, proposed=Number(document.getElementById('proposalValue').value), reason=document.getElementById('proposalReason').value.trim();if(!Number.isSafeInteger(proposed)||proposed<0||reason.length<10||proposed===selected.stats[field]){notice('Enter a different nonnegative whole number and a reason of at least 10 characters.');return}pending.push({character:selected.name,field,from:selected.stats[field].toLocaleString(),to:proposed.toLocaleString(),reason});dialog.close();notice('Local demonstration request added. No Discord message or database change occurred.');setView('requests')});
+render();
+})();
+</script>
+</body>
+</html>
