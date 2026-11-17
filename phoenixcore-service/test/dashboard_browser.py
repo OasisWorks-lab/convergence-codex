@@ -1,5 +1,4 @@
 from pathlib import Path
-from shutil import which
 from os import environ
 from playwright.sync_api import sync_playwright
 base = (Path(__file__).resolve().parents[2] / "phoenixcore" / "index.html").as_uri()
@@ -10,7 +9,7 @@ def screenshot(page, name):
     if art_dir:
         page.screenshot(path=art_dir / name, full_page=True)
 with sync_playwright() as p:
-    browser=p.chromium.launch(executable_path=environ.get("PHOENIX_CHROME") or which("google-chrome"), headless=True)
+    browser=p.chromium.launch(executable_path=environ.get("PHOENIX_CHROME"), headless=True)
     page=browser.new_page(viewport={"width":1280,"height":850},device_scale_factor=1)
     problems=[]
     page.on("pageerror", lambda e: problems.append(str(e)))

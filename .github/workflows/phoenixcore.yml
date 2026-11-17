@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   character-sheets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     services:
       postgres:
@@ -22,8 +22,8 @@ jobs:
         options: >-
           --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: Test sheets, Discord interactions and persistent storage
@@ -40,3 +40,9 @@ jobs:
           python -m pip install playwright==1.56.0
           python -m playwright install chromium
           python phoenixcore-service/test/dashboard_browser.py
+      - name: Attach dashboard screenshots for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: phoenixcore-dashboard
+          path: ${{ runner.temp }}/phoenixcore-screens
+          retention-days: 3
