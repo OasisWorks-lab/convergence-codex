@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>Convergence — Owner Content Studio</title>
+<link rel="icon" href="assets/brand.png"><link rel="stylesheet" href="assets/styles.css">
+<link rel="stylesheet" href="assets/admin.css"></head>
+<body class="admin-page"><header class="admin-header"><a href="index.html" class="admin-identity"><img src="assets/brand.png" alt=""> <span>CONVERGENCE <em>CONTENT STUDIO</em></span></a>
+<div class="admin-top-tools"><a href="index.html">← Return to Codex</a><button class="studio-btn accent" id="downloadData">Export updated data.js</button></div></header>
+<main class="studio-shell">
+<div class="studio-intro"><span class="eyebrow">PRIVATE LOCAL EDITOR • OWNER KIT</span><h1>Shape the Codex.</h1><p>Make changes here, preview them, then export a replacement <code>assets/data.js</code>. Public viewers cannot publish changes; GitHub repository write permissions control deployment.</p>
+<div class="studio-warning"><strong>Security:</strong> This is a local editing workspace, <em>not</em> a password-protected web admin or authenticated publishing service. <strong>Do not upload admin.html or assets/admin.js/css to GitHub Pages.</strong> Do not enter GitHub passwords or access tokens here.</div></div>
+<div class="studio-layout">
+<aside class="studio-panel studio-siderail"><h2>Find an entry</h2><label for="entryType">Content type</label><select id="entryType"><option value="world">World lore</option><option value="raceAbout">Race — basic information</option><option value="form">Race — transformation / form</option><option value="universal">Universal Path form</option><option value="system">Server system</option><option value="chronicle">Chronicle / story</option></select>
+<div id="entrySelectors"></div><div class="studio-count"><strong id="changedCount">0</strong> saved change(s) in this editing session</div>
+<h2>Publishing checklist</h2><ol><li>Edit an entry and click <strong>Save entry</strong>.</li><li>Click <strong>Export updated data.js</strong>.</li><li>In your own GitHub repository, replace <code>assets/data.js</code> and commit it.</li><li>GitHub Pages will publish your new content.</li></ol><button class="studio-btn secondary" id="resetChanges">Discard session changes</button></aside>
+<section class="studio-panel studio-editor"><div class="studio-editor-bar"><div><span class="eyebrow">EDIT ARCHIVED CONTENT</span><h2 id="editingLabel">Select an entry</h2></div><span id="saveState" class="save-state">No changes</span></div>
+<label for="editTitle">Title</label><input id="editTitle" autocomplete="off" spellcheck="true">
+<div id="summaryBlock"><label for="editSummary">Card summary / description</label><textarea id="editSummary" rows="4" spellcheck="true"></textarea></div>
+<label id="bodyLabel" for="richEditor">Entry content</label><div class="format-bar" role="toolbar" aria-label="Format content"><button data-command="bold" title="Bold" type="button"><b>B</b></button><button data-command="italic" title="Italic" type="button"><i>I</i></button><button data-command="formatBlock" data-value="h2" type="button">Heading</button><button data-command="formatBlock" data-value="p" type="button">Paragraph</button><button data-command="insertUnorderedList" type="button">• List</button><button data-command="insertOrderedList" type="button">1. List</button></div>
+<div id="richEditor" class="rich-edit rich-text" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Edit Codex entry" spellcheck="true"></div>
+<div class="studio-editor-footer"><span id="feedback" role="status">Changes are not saved until you click Save entry.</span><div><button id="undoEntry" class="studio-btn secondary">Revert entry</button><button id="saveEntry" class="studio-btn accent">Save entry</button></div></div>
+<div class="studio-preview"><div class="section-header"><div><span class="eyebrow">LIVE PREVIEW</span><h2>How readers will see the content</h2></div></div><div id="previewTitle" class="preview-title"></div><div id="previewContent" class="rich-text"></div></div>
+</section></div>
+<div class="studio-footnote">Only the exported <code>data.js</code> controls public content. This editor does not directly modify HTML pages, styling, or server settings. Back up your existing data.js before replacing it.</div>
+</main><script src="assets/data.js"></script><script src="assets/admin.js"></script></body></html>
