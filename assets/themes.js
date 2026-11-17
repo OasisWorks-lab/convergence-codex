@@ -1,7 +1,8 @@
 (()=>{
 'use strict';
 const D=window.CONVERGENCE_DATA||{};
-const fallback=[{id:'phoenix',name:'Phoenix Embers',background:'#0b080f',panel:'#1b101b',card:'#261621',text:'#fff2e2',muted:'#c8abb9',accent:'#ffb76b',secondary:'#db5d35',border:'#ae5f5d'}];
+// Built-in presets are independent from data.js so a cached V3 data file cannot hide them.
+const fallback=[{"id":"phoenix","name":"Phoenix Embers","background":"#0b080f","panel":"#1b101b","card":"#261621","text":"#fff2e2","muted":"#c8abb9","accent":"#ffb76b","secondary":"#db5d35","border":"#ae5f5d"},{"id":"astral","name":"Astral Violet","background":"#0b0a1a","panel":"#18132f","card":"#251c40","text":"#f6efff","muted":"#b9afda","accent":"#c49afa","secondary":"#8260c6","border":"#7556a4"},{"id":"midnight","name":"Midnight Sapphire","background":"#080f1e","panel":"#101c32","card":"#192b47","text":"#f2f8ff","muted":"#a8bcd5","accent":"#85c6fb","secondary":"#337bd0","border":"#45699c"},{"id":"jade","name":"Jade Sanctuary","background":"#071511","panel":"#0f251e","card":"#1b382d","text":"#edfff4","muted":"#accfbe","accent":"#91e5a4","secondary":"#31a580","border":"#4c927c"},{"id":"crimson","name":"Crimson Eclipse","background":"#16070c","panel":"#290f1b","card":"#3a1824","text":"#fff0f0","muted":"#d5aab5","accent":"#ff9a9a","secondary":"#d03c60","border":"#a95770"},{"id":"parchment","name":"Solar Parchment","background":"#f4e8cf","panel":"#fff6e5","card":"#f6e4c8","text":"#35251c","muted":"#715b4b","accent":"#8b3f23","secondary":"#b86e2a","border":"#a98264"}];
 const themes=(Array.isArray(D.themes)&&D.themes.length?D.themes:fallback).filter(t=>t&&/^[a-z0-9-]{1,40}$/.test(t.id));
 const get=id=>themes.find(t=>t.id===id);
 let preferred=null;
