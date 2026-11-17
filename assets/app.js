@@ -14,6 +14,13 @@ const art=p=>{const path=String(p||'');if(/^https?:\/\//.test(path)||path.starts
 const isCustom=p=>String(p||'').includes('assets/uploads/');
 const entryArt=(p,alt)=>p&&isCustom(p)?`<figure class="entry-visual"><img src="${E(art(p))}" alt="${E(alt||'Entry illustration')}" loading="lazy"></figure>`:'';
 const nav=byId('nav');
+if (nav && !nav.querySelector('[data-link="phoenixcore"]')) {
+  const directoryLink = document.createElement('a');
+  directoryLink.href = prefix + 'phoenixcore/index.html';
+  directoryLink.dataset.link = 'phoenixcore';
+  directoryLink.textContent = 'PhoenixCore';
+  nav.appendChild(directoryLink);
+}
 const menuBtn=byId('menuBtn');
 if(menuBtn)menuBtn.addEventListener('click',()=>{const open=nav.classList.toggle('open');menuBtn.setAttribute('aria-expanded',String(open));});
 [...document.querySelectorAll('[data-link]')].forEach(a=>a.classList.toggle('active',a.dataset.link===(page==='race'?'races':page)));
