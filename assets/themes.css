@@ -1,0 +1,80 @@
+/* Convergence Codex · configurable reader themes */
+:root{--ct-background:#0b080f;--ct-panel:#1b101b;--ct-card:#261621;--ct-text:#fff2e2;--ct-muted:#c8abb9;--ct-accent:#ffb76b;--ct-secondary:#db5d35;--ct-border:#ae5f5d}
+body:not(.admin-page){color:var(--ct-text);background:radial-gradient(ellipse at 78% 0%,color-mix(in srgb,var(--ct-secondary) 18%,transparent),transparent 54%),var(--ct-background)}
+body:not(.admin-page) .site-header{background:color-mix(in srgb,var(--ct-background) 93%,transparent);border-bottom-color:var(--ct-border)}
+body:not(.admin-page) .site-header nav a{color:var(--ct-muted)}
+body:not(.admin-page) .site-header nav a:is(:hover,.active),body:not(.admin-page) .nav-brand em,body:not(.admin-page) .eyebrow{color:var(--ct-accent)}
+body:not(.admin-page) .site-header nav a.active{border-bottom-color:var(--ct-accent)}
+body:not(.admin-page) .global-search{color:var(--ct-muted);border-color:var(--ct-border)}
+body:not(.admin-page) .global-search>span:first-child{color:var(--ct-accent)}
+body:not(.admin-page) .home-hero{background:radial-gradient(ellipse at 74% 44%,color-mix(in srgb,var(--ct-secondary) 30%,transparent),transparent 50%),linear-gradient(125deg,var(--ct-panel),var(--ct-background))}
+body:not(.admin-page) :is(.stats-ribbon strong,.section-header h2 em,.page-hero h1 em,.home-hero h1 span,.universal-hero h1,.race-hero h1,.race-hero h1 em,.race-card-footer strong,.text-link,.source-link,.footer-main em,.modal-head .eyebrow){color:var(--ct-accent)}
+body:not(.admin-page) .hero-lede,body:not(.admin-page) .section-header p,body:not(.admin-page) .portal p,body:not(.admin-page) .race-hero p,body:not(.admin-page) .page-hero>p,body:not(.admin-page) .footer-note{color:var(--ct-muted)}
+body:not(.admin-page) .portal{background:radial-gradient(circle at 97% 5%,color-mix(in srgb,var(--ct-secondary) 33%,transparent),transparent 54%),var(--ct-panel);border-color:var(--ct-border)}
+body:not(.admin-page) :is(.world-card,.race-card,.doc-card,.path-column,.about-card,.sparking-info,.sparking-path,.universal-card){background:var(--ct-panel);color:var(--ct-text);border-color:color-mix(in srgb,var(--ct-border) 65%,transparent)}
+body:not(.admin-page) :is(.world-card,.race-card,.doc-card,.path-column,.universal-card):hover{border-color:var(--ct-accent)}
+body:not(.admin-page) .world-info p,body:not(.admin-page) .race-card p,body:not(.admin-page) .universal-card p,body:not(.admin-page) .path-column-header p{color:var(--ct-muted)}
+body:not(.admin-page) :is(.world-info h3,.race-card h3,.path-column-header h3,.universal-card h3,.about-card h3,.sparking-path>h3,.sparking-info h3,.section-header h2,.portal h3){color:var(--ct-text)}
+body:not(.admin-page) :is(.path-column-header,.modal-head,.modal-footer){background:var(--ct-card);border-color:var(--ct-border)}
+body:not(.admin-page) .form-card{background:var(--ct-card);color:var(--ct-text);border-color:var(--ct-border)}
+body:not(.admin-page) .form-card:hover{border-color:var(--ct-accent)}
+body:not(.admin-page) .form-card-heading,body:not(.admin-page) .form-card-bottom span:last-child,body:not(.admin-page) .card-action{color:var(--ct-accent)}
+body:not(.admin-page) .form-card-image{background:radial-gradient(circle,color-mix(in srgb,var(--ct-secondary) 28%,var(--ct-panel)),var(--ct-card))}
+body:not(.admin-page) .form-card-image:after{color:var(--ct-muted)}
+body:not(.admin-page) .form-card-image.has-custom-art:after{content:none}
+body:not(.admin-page) .form-card-image.has-custom-art img{mix-blend-mode:normal;opacity:1;filter:none;max-width:100%;padding:0;object-fit:contain!important}
+body:not(.admin-page) :is(.race-card>img,.race-hero-body>img).has-custom-art{mix-blend-mode:normal;filter:none;padding:0;object-fit:contain!important}
+body:not(.admin-page) :is(.chip.selected,.chip:hover){background:var(--ct-accent);border-color:var(--ct-accent);color:var(--ct-background)}
+body:not(.admin-page) :is(.codex-modal,.search-modal){background:var(--ct-panel);border-color:var(--ct-border);color:var(--ct-text)}
+body:not(.admin-page) .rich-text{color:var(--ct-muted)}
+body:not(.admin-page) .rich-text :is(h1,h2,h3,h4,strong,b){color:var(--ct-text)}
+body:not(.admin-page) .rich-text a{color:var(--ct-accent)}
+body:not(.admin-page) .site-footer{background:var(--ct-background);border-color:var(--ct-border)}
+body:not(.admin-page) .btn-primary{background:var(--ct-accent);color:var(--ct-background);border-color:var(--ct-accent)}
+body:not(.admin-page) .btn-secondary{background:var(--ct-card);color:var(--ct-text);border-color:var(--ct-border)}
+body:not(.admin-page) :is(.universal-card-art,.world-art:after){background:var(--ct-card)}
+body:not(.admin-page) .search-modal input{background:var(--ct-card);color:var(--ct-text);border-color:var(--ct-border)}
+body:not(.admin-page) .search-row:hover{background:var(--ct-card)}
+body:not(.admin-page) .soft-note{background:var(--ct-card);border-color:var(--ct-border);color:var(--ct-muted)}
+body:not(.admin-page) .race-hero{background:radial-gradient(circle at 88% 30%,color-mix(in srgb,var(--ct-secondary) 25%,transparent),transparent 53%),var(--ct-panel)}
+body:not(.admin-page) .universal-hero{background:var(--ct-background)}
+body:not(.admin-page) .universal-about,body:not(.admin-page) .universal-about p{color:var(--ct-muted)}
+body:not(.admin-page) .universal-chips span{color:var(--ct-accent);background:var(--ct-card);border-color:var(--ct-border)}
+.entry-visual{margin:0 0 20px;display:flex;justify-content:center;background:var(--ct-card);border-radius:9px;border:1px solid var(--ct-border);overflow:hidden}
+.entry-visual img{width:100%;max-height:330px;object-fit:contain}
+.document-preview-image{width:100%;height:105px;object-fit:contain;margin-bottom:10px}
+.theme-switcher{position:relative;flex-shrink:0;z-index:60}
+.theme-trigger{padding:9px 10px;border:1px solid var(--ct-border);border-radius:7px;background:var(--ct-card);color:var(--ct-text);font-size:11px;font-weight:750;display:flex;gap:7px;align-items:center;cursor:pointer}
+.theme-trigger>span:first-child{color:var(--ct-accent);font-size:17px;line-height:1}
+.theme-trigger:hover{border-color:var(--ct-accent)}
+.theme-panel{position:absolute;right:0;top:calc(100% + 11px);width:min(310px,calc(100vw - 25px));padding:17px;background:var(--ct-panel);color:var(--ct-text);border:1px solid var(--ct-border);border-radius:11px;box-shadow:0 20px 70px #000b}
+.theme-panel>strong{font:600 23px Georgia,serif}.theme-panel>p{font:12px/1.6 system-ui;color:var(--ct-muted);margin:7px 0 13px}
+.theme-options{display:grid;gap:6px;max-height:min(55vh,450px);overflow:auto}
+.theme-choice{display:flex;gap:11px;align-items:center;text-align:left;width:100%;border:1px solid transparent;border-radius:7px;padding:9px;background:var(--ct-card);color:var(--ct-text);cursor:pointer;font:600 12px system-ui}
+.theme-choice:hover,.theme-choice.selected{border-color:var(--ct-accent)}
+.theme-choice .theme-swatch{height:26px;width:36px;flex-shrink:0;border:1px solid #ffffff55;border-radius:4px}
+.theme-choice .theme-name{flex:1}.theme-check{color:var(--ct-accent);opacity:0}.theme-choice.selected .theme-check{opacity:1}
+@media(max-width:780px){.theme-switcher{margin-left:auto}.theme-trigger-label{display:none}.theme-trigger{padding:9px}.theme-panel{right:-40px}}
+/* Keep the accessible design stable in light reader themes. */
+:root[data-codex-theme="parchment"] body:not(.admin-page) .modal-head,
+:root[data-codex-theme="parchment"] body:not(.admin-page) .about-card,
+:root[data-codex-theme="parchment"] body:not(.admin-page) .sparking-info{color:var(--ct-text)}
+/* Accessibility and contrast, including the light reader theme */
+body:not(.admin-page) .home-hero h1{color:var(--ct-text)}
+body:not(.admin-page) .hero-lede strong{color:var(--ct-accent)}
+body:not(.admin-page) :is(.hero-bottom,.stats-ribbon span,.form-card-bottom span:first-child){color:var(--ct-muted)}
+body:not(.admin-page) .home-hero:after{background:linear-gradient(transparent,var(--ct-background))}
+body:not(.admin-page) .btn-secondary{color:var(--ct-text);border-color:var(--ct-border);background:var(--ct-card)}
+body:not(.admin-page) .global-search{background:var(--ct-card);color:var(--ct-text)}
+body:not(.admin-page) :is(.modal-footer,.modal-head) button{color:var(--ct-text)}
+body:not(.admin-page) .theme-trigger{background:var(--ct-card);border-color:var(--ct-border);color:var(--ct-text)}
+[data-codex-theme="parchment"]{color-scheme:light}
+[data-codex-theme="parchment"] body:not(.admin-page) :is(.nav-brand,.site-header nav a,.site-footer,.hero-lede,.page-hero h1,.section-header h2,.portal h3){color:var(--ct-text)}
+[data-codex-theme="parchment"] body:not(.admin-page) .site-header nav a:is(.active,:hover){color:var(--ct-accent)}
+[data-codex-theme="parchment"] body:not(.admin-page) .home-hero{background:radial-gradient(ellipse at 78% 35%,#e2c4a45e,transparent 44%),var(--ct-background)}
+[data-codex-theme="parchment"] body:not(.admin-page) :is(.home-hero h1,.section-header h2,.page-hero h1,.portal h3,.race-hero h1,.world-info h3,.race-card h3){color:var(--ct-text)}
+[data-codex-theme="parchment"] body:not(.admin-page) .hero-lede strong{color:var(--ct-accent)}
+[data-codex-theme="parchment"] body:not(.admin-page) .hero-bottom, [data-codex-theme="parchment"] body:not(.admin-page) .stats-ribbon span{color:var(--ct-muted)}
+[data-codex-theme="parchment"] body:not(.admin-page) .theme-panel{background:var(--ct-panel);color:var(--ct-text)}
+[data-codex-theme="parchment"] body:not(.admin-page) .theme-choice{color:var(--ct-text)}
+@media(max-width:780px){body:not(.admin-page) .site-header nav.open{background:var(--ct-panel);border-bottom:1px solid var(--ct-border)}}

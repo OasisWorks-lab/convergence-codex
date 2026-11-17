@@ -1,20 +1,19 @@
-# Convergence Codex V3 — Lightweight public edition
+# Convergence Codex V4 — Public Website (GitHub Pages)
 
-This is the **public** website. It contains no editing interface and requires no server-side software.
+A mobile-friendly Convergence: Phoenix Rising encyclopedia using the pre-existing server lore and gameplay documentation.
 
-## Upload to GitHub Pages
+## First deployment / upgrade from V3
 
-1. Create or use the `convergence-codex` GitHub repository.
-2. Upload the **contents** of this `Convergence_Codex` folder (the `index.html`, the subdirectories, and `assets/`) to its root. The package has **fewer than 100 files** in total.
-3. In GitHub, visit Settings → Pages, choose Deploy from a branch, `main`, `/ (root)`, then Save.
-4. Copy the link GitHub gives you into the Discord server.
+1. Extract this ZIP.
+2. Upload **the contents** of this folder (not the enclosing folder itself) to the root of your GitHub Pages repository.
+3. Include `.nojekyll`, `index.html`, `assets/`, `races/`, `universal/`, and the other top-level HTML pages.
+4. Commit changes to the Pages publishing branch.
+5. Open your normal `https://<username>.github.io/<repository>/` link. No custom domain is required.
 
-`assets/data.js` stores all publicly visible lore, mechanics, and transformations. Its content remains based on the old server exports and is not an approved rules redesign.
+Visitor theme choices are saved on the visitor's device using browser localStorage when available.
 
-All individual form illustrations were replaced with the same original Convergence phoenix logo; each world keeps its illustrative landscape. This reduces the file count dramatically.
+## Future edits
 
-## Editing and security
+Edit entries offline in the separate V4 Owner Studio, export the update ZIP, and upload the updated `assets/data.js` and any added files in `assets/uploads/` to matching repository paths. Owner administration files must never be uploaded to the public site.
 
-A **separate owner-only local editing kit** is available. The public site has no admin page. In the kit, open `admin.html`, edit entries, download an updated `data.js`, and upload that one file to `assets/data.js` on GitHub. Only accounts with write access to the repository can commit changes. This workflow does not require storing passwords, tokens, or secrets in the website.
-
-GitHub Pages itself cannot authenticate users or write to the repository without a secure backend. Do not add client-side password gates or publish a GitHub token in your site.
+Animated GIF, PNG, JPEG, and WebP card art is supported via local uploads in the Owner Studio. Original V3 placeholders are retained until replaced.
