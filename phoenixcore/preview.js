@@ -13,53 +13,81 @@
     {id:'cd169004-e171-4a86-bc21-0e57af604fe6',ownerId:ids.player,version:1,sheet:{...base,name:'Sola',lineage:'Namekian',bio:'An apprentice healer collecting oral histories.',bpl:'3200',wallet:'45',gear:['Field journal']}},
     {id:'a4a12b86-6d0c-4aa9-80f1-c219352fb93f',ownerId:ids.judge,version:1,sheet:{...base,name:'Vey',lineage:'Cerealian',bio:'A scout learning to trust a partner.',bpl:'8600',wallet:'70'}}
   ];
-  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'',reviewChannel:'',currency:'Credits'}};
-  const clone=x=>JSON.parse(JSON.stringify(x));
+  const forms=window.PhoenixForms, sampleChannel='555555555555555555';
+  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'',reviewChannel:'',currency:'Credits',rpChannels:sampleChannel}};
+  const tags=[],defaults=[],clone=x=>JSON.parse(JSON.stringify(x));
   function state() {
-    const id=ids[role],owner=role==='owner';
-    return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:owner||role==='judge'},players,characters,
-      requests:requests.filter(r=>owner||r.ownerId===id||r.authorId===id),currency:settings.value.currency,settings:owner?settings:null});
+    const id=ids[role],owner=role==='owner',judge=owner||role==='judge',channels=settings.value.rpChannels.split(/\s+/).filter(Boolean);
+    return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:judge},players,characters,
+      requests:requests.filter(r=>owner||r.ownerId===id||r.authorId===id||(judge&&r.kind==='training')),
+      catalogue:requests.filter(r=>r.status==='approved'&&forms.catalogue.includes(r.kind)).map(r=>({id:r.id,fields:r.after,kind:r.kind,authorId:r.authorId})),
+      posting:{tags:tags.filter(t=>t.owner===id),defaults:defaults.filter(d=>d.owner===id&&channels.includes(d.channel)),channels},
+      currency:settings.value.currency,settings:owner?settings:null});
   }
   function propose(form) {
-    const who=state().actor;
+    const who=state().actor, design=forms.catalogue.includes(form.kind);
     const c=characters.find(x=>x.id===form.characterId);
-    const create=form.kind==='create',award=form.kind==='award';
-    if (!create && (!c || form.version!==c.version)) throw Error('Sheet changed. Reload the current sheet.');
-    if (!who.isJudge && award) throw Error('A training judge must assign awards.');
-    if (!create && !award && c.ownerId!==who.id) throw Error('Only the character owner can propose edits.');
-    const before=c?clone(c.sheet):null;
-    let after={...(before||clone(base)),...form.fields},amount=null;
-    if(award) {
-      const a=form.award;
-      if(!/^(0|[1-9]\d{0,7})(\.\d{1,2})?$/.test(a.percent) || !/^(0|[1-9]\d{0,59})$/.test(a.currency)) throw Error('Enter an award percentage and a whole currency amount.');
-      const [w,f='']=a.percent.split('.');
-      const gain=BigInt(before.bpl)*(BigInt(w)*100n+BigInt(f.padEnd(2,'0')))/10000n;
-      after={...before,bpl:String(BigInt(before.bpl)+gain),wallet:String(BigInt(before.wallet)+BigInt(a.currency)),gear:[...before.gear,...a.gear]};
-      amount={...a,gain:String(gain)};
+    const create=form.kind==='create',award=form.kind==='award',targeted=!design&&!create;
+    if(targeted&&(!c||form.version!==c.version))throw Error('Sheet changed. Reload the current sheet.');
+    if(award&&!who.isJudge)throw Error('A training judge must assign awards.');
+    if(targeted&&!award&&c.ownerId!==who.id)throw Error('Choose your own character.');
+    const before=targeted?clone(c.sheet):null;
+    let after,amount=null,details=null;
+    if(design)after=forms.normalize(form.kind,form.fields);
+    else if(create)after={wallet:'0',gear:[],...forms.normalize('create',form.fields)};
+    else if(award)({next:after,award:amount}=forms.calculateAward(before,form.award));
+    else if(form.kind==='training'){after=before;details=forms.normalize('training',form.details);}
+    else {
+      after={...before,...forms.normalize('create',form.fields,true)};
+      if(form.details)details=forms.normalize('edit',form.details);
+      if(JSON.stringify(before)===JSON.stringify(after))throw Error('Change a field before submitting.');
     }
-    if (!after.name.trim() || !/^(0|[1-9]\d{0,59})$/.test(after.bpl)) throw Error('A name and whole-number BPL are required.');
-    if(!form.reason.trim()) throw Error('Enter a reason for the request.');
-    if(JSON.stringify(before)===JSON.stringify(after)) throw Error('There are no changes to review.');
+    if(!form.reason.trim())throw Error('Enter a reason for the request.');
     const r={id:form.id,characterId:c?.id||form.id,ownerId:c?.ownerId||who.id,authorId:who.id,kind:form.kind,
-      version:c?.version||0,before,after,award:amount,reason:form.reason,status:'pending',created:Date.now(),delivery:'Practice notification'};
+      version:c?.version||0,before,after,award:amount,details,judgment:null,reason:form.reason,
+      status:form.kind==='training'?'awaiting_judge':'pending',created:Date.now(),delivery:'Practice notification'};
     requests.unshift(r);return {id:r.id,status:r.status};
   }
-  function decision(id,approve) {
-    if(role!=='owner') throw Error('Only the owner can confirm a change.');
+  function judge(id,input){
+    if(!state().actor.isJudge)throw Error('A training judge must assess the claim.');
     const r=requests.find(x=>x.id===id);
-    if(!r||r.status!=='pending') return;
+    if(r?.status!=='awaiting_judge')throw Error('This claim was already reviewed.');
+    const result=forms.calculateAward(r.before,input.award);
+    if(!input.note.trim())throw Error('Enter your judgment.');
+    r.award=result.award;r.after=result.next;r.judgment={note:input.note,judgeId:ids[role]};
+    r.status=characters.find(c=>c.id===r.characterId)?.version===r.version?'pending':'stale';
+    return r;
+  }
+  function decision(id,approve) {
+    if(role!=='owner')throw Error('Only the owner can confirm a change.');
+    const r=requests.find(x=>x.id===id);
+    if(approve&&r?.status==='awaiting_judge')throw Error('Staff must assess the claim first.');
+    if(!r||!['pending','awaiting_judge'].includes(r.status))return;
     const c=characters.find(x=>x.id===r.characterId);
     r.decided=Date.now();r.decidedBy=ids.owner;
     if(!approve){r.status='declined';return;}
     if((c?.version||0)!==r.version){r.status='stale';return;}
     r.status='approved';
+    if(forms.catalogue.includes(r.kind))return;
     if(c){c.version++;c.sheet=clone(r.after);}
     else characters.push({id:r.characterId,ownerId:r.ownerId,version:1,sheet:clone(r.after)});
   }
-  window.PhoenixPreview={state,propose,decision,role:()=>role,switchRole:value=>{if(['player','judge','owner'].includes(value))role=value;},
+  function savePosting(input){
+    const owner=ids[role];
+    if(input.characterId&&!characters.some(c=>c.id===input.characterId&&c.ownerId===owner))throw Error('Choose your approved character.');
+    const isTag=input.kind==='tag',list=isTag?tags:defaults;
+    const tag=(input.tag||'').trim().toLowerCase();
+    if(isTag&&tag&&(!/^[a-z0-9][a-z0-9_-]{0,23}$/.test(tag)||tags.some(t=>t.owner===owner&&t.tag===tag&&t.characterId!==input.characterId)))throw Error('Choose a valid, unused character tag.');
+    if(!isTag&&!state().posting.channels.includes(input.channel))throw Error('Choose an enabled channel.');
+    const index=list.findIndex(t=>t.owner===owner&&(isTag?t.characterId===input.characterId:t.channel===input.channel));
+    if(index>=0)list.splice(index,1);
+    if((isTag&&tag)||(!isTag&&input.characterId))list.push({...input,owner,tag});
+  }
+  window.PhoenixPreview={state,propose,decision,judge,savePosting,role:()=>role,switchRole:value=>{if(['player','judge','owner'].includes(value))role=value;},
     saveSettings:input=>{
-      if(role!=='owner') throw Error('Only the owner can change settings.');
-      if(input.revision!==settings.revision) throw Error('Reload current settings.');
-      settings={revision:settings.revision+1,value:{...input.value}};
+      if(role!=='owner')throw Error('Only the owner can change settings.');
+      if(input.revision!==settings.revision)throw Error('Reload current settings.');
+      if(input.value.rpChannels.trim().split(/[\s,]+/).filter(Boolean).some(id=>!/^\d{17,20}$/.test(id)))throw Error('Enter valid roleplay channel IDs.');
+      settings={revision:settings.revision+1,value:{...input.value,rpChannels:input.value.rpChannels.trim().split(/[\s,]+/).join('\n')}};
     }};
 })();

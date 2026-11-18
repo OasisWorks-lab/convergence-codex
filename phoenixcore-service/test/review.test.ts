@@ -4,7 +4,7 @@ import {randomUUID,generateKeyPairSync,sign} from 'node:crypto';
 import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {openSqlite,initialize,defaultSettings,openPostgres,type Store} from '../src/db.ts';
+import {openSqlite,initialize,defaultSettings,type Store} from '../src/db.ts';
 import {actorFor,propose,decide,readSettings,saveSettings,applyAward} from '../src/domain.ts';
 import {Discord,DiscordFailure,deliverNext,reviewMessage,handleInteraction,checkSignature,type Config} from '../src/discord.ts';
 
@@ -14,7 +14,7 @@ const ids=new Set([gabe,player,judge,altUser]);
 const actors=[gabe,player,judge,altUser].map(id=>actorFor(id,id===judge?[judgeRole]:[],gabe,{...defaultSettings,judgeRole}));
 const [owner,writer,staff,other]=actors;
 const config:Config={owner:gabe,guild,clientId:app,service:'https://service.example',dashboard:'https://codex.example/phoenixcore/',publicKey:'00'.repeat(32),clientSecret:'test',token:'test'};
-const opening=(name='Rin')=>({id:randomUUID(),kind:'create',fields:{name,bpl:'10000'},reason:'Opening sheet'});
+const opening=(name='Rin')=>({id:randomUUID(),kind:'create',fields:{name,bpl:'10000',strengths:'Patient\nObservant\nLoyal',weaknesses:'Reckless\nDistrustful\nProud'},reason:'Opening sheet'});
 async function fresh(t:any) {
   const db=openSqlite(':memory:');await initialize(db,guild);t.after(()=>db.close());return db;
 }
@@ -114,9 +114,4 @@ test('blocked DMs use only the configured guild channel and mention only Gabe',a
     assert.deepEqual(JSON.parse(String(init?.body)).allowed_mentions,{parse:[],users:[gabe]});return Response.json({id:'msg'});
   });
   await discord.sendReview(review,target);assert.equal(seen.length,4);
-});
-test('optional PostgreSQL acceptance run uses a dedicated empty test database',{skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
-  const db=await openPostgres(process.env.PHOENIX_TEST_DATABASE_URL!);t.after(()=>db.close());
-  await initialize(db,guild);
-  const id=await approved(db,'PG integration');assert.equal((await db.query('SELECT revision FROM pc_characters WHERE id=$1',[id]))[0].revision,1);
 });

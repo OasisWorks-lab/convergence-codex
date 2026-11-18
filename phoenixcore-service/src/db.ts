@@ -6,6 +6,7 @@ export type Params = (string | number | null)[];
 export type Row = Record<string, any>;
 export type Query = (sql: string, values?: Params) => Promise<Row[]>;
 export interface Store {
+  dialect: 'sqlite' | 'postgres';
   query: Query;
   transaction<T>(fn: (query: Query) => Promise<T>): Promise<T>;
   close(): Promise<void>;
@@ -31,6 +32,7 @@ export function openSqlite(file: string): Store {
     return next;
   }
   return {
+    dialect:'sqlite',
     query: (sql, values) => exclusive(() => query(sql, values)),
     transaction: fn => exclusive(async () => {
       db.exec('BEGIN IMMEDIATE');
@@ -51,6 +53,7 @@ export async function openPostgres(url: string): Promise<Store> {
   const { default: pg } = await import('pg');
   const pool = new pg.Pool({ connectionString: url, connectionTimeoutMillis: 5000, max: 8 });
   return {
+    dialect:'postgres',
     query: async (sql, values) => (await pool.query(sql, values)).rows,
     transaction: async fn => {
       const client = await pool.connect();
@@ -68,7 +71,7 @@ export async function openPostgres(url: string): Promise<Store> {
   };
 }
 
-export const defaultSettings = { playerRole: '', judgeRole: '', reviewChannel: '', currency: 'Credits' };
+export const defaultSettings = { playerRole: '', judgeRole: '', reviewChannel: '', currency: 'Credits', rpChannels: '' };
 const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_config (slot INTEGER PRIMARY KEY, guild_id TEXT NOT NULL, revision INTEGER NOT NULL, value TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_settings_history (revision INTEGER PRIMARY KEY, actor TEXT NOT NULL, old_value TEXT NOT NULL, new_value TEXT NOT NULL, at_ms BIGINT NOT NULL)',
@@ -82,6 +85,9 @@ const ddl = [
     notified INTEGER NOT NULL DEFAULT 0, notify_after BIGINT NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0, last_notify_error TEXT)`,
   'CREATE INDEX IF NOT EXISTS pc_requests_delivery ON pc_requests(status,notified,notify_after)',
+  'CREATE TABLE IF NOT EXISTS pc_post_tags (owner_id TEXT NOT NULL, tag TEXT NOT NULL, character_id TEXT NOT NULL UNIQUE, PRIMARY KEY(owner_id,tag))',
+  'CREATE TABLE IF NOT EXISTS pc_post_defaults (owner_id TEXT NOT NULL, channel_id TEXT NOT NULL, character_id TEXT NOT NULL, PRIMARY KEY(owner_id,channel_id))',
+  'CREATE TABLE IF NOT EXISTS pc_posts (source_id TEXT PRIMARY KEY, posted_id TEXT UNIQUE, channel_id TEXT NOT NULL, author_id TEXT NOT NULL, character_id TEXT NOT NULL, character_name TEXT NOT NULL, created_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_auth_state (id TEXT PRIMARY KEY, binding TEXT NOT NULL, challenge TEXT NOT NULL, expires BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_exchanges (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, challenge TEXT NOT NULL, expires BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires BIGINT NOT NULL)'
@@ -89,6 +95,7 @@ const ddl = [
 
 export async function initialize(db: Store, guildId: string) {
   await db.transaction(async q => {
+    if(db.dialect==='postgres') await q('SELECT pg_advisory_xact_lock(739124861)');
     for (const statement of ddl) await q(statement);
     await q('INSERT INTO pc_config(slot,guild_id,revision,value) VALUES(1,$1,1,$2) ON CONFLICT(slot) DO NOTHING', [guildId, JSON.stringify(defaultSettings)]);
     const [config] = await q('SELECT guild_id FROM pc_config WHERE slot=1');

@@ -1,3 +1,4 @@
+import forms from '../../phoenixcore/templates.js';
 import { createPublicKey, verify, createHash } from 'node:crypto';
 import { Problem, requireThat, readSettings, visibleRequest, decide } from './domain.ts';
 import type { Store } from './db.ts';
@@ -83,39 +84,45 @@ export class Discord {
 }
 
 function brief(value: any, max=140) {
-  const s=Array.isArray(value) ? value.join(', ') : String(value ?? '');
+  const s=Array.isArray(value) ? value.map(v=>typeof v==='object' ? v.name+' +'+v.amount : v).join(', ') : String(value ?? '');
   const escaped=s.replace(/[\u0000-\u001f]/g,' ').replace(/([*_~`|>\\])/g,'\\$1');
   return escaped.length>max ? escaped.slice(0,max-1)+'…' : escaped || '—';
 }
-const labels:Record<string,string>={name:'Name',lineage:'Lineage',portrait:'Portrait',bio:'Background',bpl:'Base Power Level',strength:'Strength',speed:'Speed',
-  durability:'Durability',intelligence:'Intelligence',control:'Energy control',wallet:'Wallet',gear:'Gear'};
 export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config) {
-  const differences=Object.entries(r.after).filter(([k,v])=>JSON.stringify(r.before?.[k])!==JSON.stringify(v) && (r.before || (v!=='' && (!Array.isArray(v)||v.length))));
-  const lines=differences.map(([k,v])=>'**' + (labels[k]??k) + '** ' + (r.before ? brief(r.before[k],80)+' → ' : '') + brief(v,110));
-  const details=lines.join('\n');
-  return {content:'<@'+c.owner+'> A character request is ready for your decision.',allowed_mentions:{parse:[],users:[c.owner]},
-    nonce:createHash('sha256').update(r.id).digest('hex').slice(0,24),enforce_nonce:true,
-    embeds:[{title:({create:'New character',edit:'Sheet edit',award:'Staff award'}[r.kind as string]??'Character request')+' · '+brief(r.after.name,70),
-      description:details.slice(0,3400), color:0xea875b,fields:[
-        {name:'Submitted by',value:'<@'+r.authorId+'>'},{name:'Character owner',value:'<@'+r.ownerId+'>'},
-        {name:'Reason',value:brief(r.reason,590)},...(r.award?[{name:'Staff judgment',value:'+'+r.award.percent+'% BPL · +'+r.award.gain+' whole points'}]:[])],
-      footer:{text:'Revision '+r.version+' · Open full request for unabridged values.'}}],
-    components:[{type:1,components:[{type:2,style:3,label:'Approve',custom_id:'pc:approve:'+r.id},{type:2,style:4,label:'Decline',custom_id:'pc:decline:'+r.id},
-      {type:2,style:5,label:'Full request',url:c.dashboard+'#request-'+r.id}]}]};
+  const waiting=r.status==='awaiting_judge';
+  const type=forms.forms[r.kind]?.title??'Staff award';
+  const fieldKind=forms.catalogue.includes(r.kind)?r.kind:'create';
+  const captions:Record<string,string>=Object.fromEntries(forms.allFields(fieldKind).map((f:any)=>[f.key,f.label]));
+  Object.assign(captions,{gear:'Gear',wallet:'Wallet',progress:'Training stats'});
+  const notes=Object.entries(r.after).filter(([k,v])=>v!=='' && JSON.stringify(r.before?.[k])!==JSON.stringify(v) && (r.before || !Array.isArray(v) || v.length));
+  const lines=notes.map(([k,v])=>'**'+(captions[k]??k)+'** '+(r.before?brief(r.before[k],70)+' → ':'')+brief(v,100));
+  const fields=[{name:'Submitted by',value:'<@'+r.authorId+'>'},{name:'Reason',value:brief(r.reason,550)}];
+  if(r.details?.claimed) fields.push({name:'Player claim',value:brief(r.details.claimed,400)});
+  if(r.details?.approval) fields.push({name:'Approval requested',value:brief(r.details.approval,400)});
+  if(r.judgment) fields.push({name:'Staff judgment',value:'<@'+r.judgment.judgeId+'> · '+brief(r.judgment.note,350)});
+  if(r.award) fields.push({name:'Calculated award',value:'+'+r.award.gain+' BPL · +'+r.award.currency+' currency'+(r.award.stats?.length?' · '+r.award.stats.length+' stat gain(s)':'')});
+  const buttons=[];
+  if(!waiting) buttons.push({type:2,style:3,label:'Approve',custom_id:'pc:approve:'+r.id});
+  buttons.push({type:2,style:4,label:'Decline',custom_id:'pc:decline:'+r.id},{type:2,style:5,label:'Full request',url:c.dashboard+'#request-'+r.id});
+  return {content:'<@'+c.owner+'> '+(waiting?'A training claim is waiting for staff judgment.':'A submission is ready for your decision.'),
+    allowed_mentions:{parse:[],users:[c.owner]},nonce:createHash('sha256').update(r.id+':'+r.status).digest('hex').slice(0,24),enforce_nonce:true,
+    embeds:[{title:type+' · '+brief(r.after.name,70),description:lines.join('\n').slice(0,2700)||'The full claim is available in PhoenixCore.',
+      color:0xea875b,fields,footer:{text:'Open the full request for complete values and history.'}}],
+    components:[{type:1,components:buttons}]};
 }
 
 export async function deliverNext(db: Store, discord: Discord, now=Date.now()) {
   const [r]=await db.query(`UPDATE pc_requests SET notify_after=$1,attempts=attempts+1
-    WHERE id=(SELECT id FROM pc_requests WHERE status='pending' AND notified=0 AND notify_after<=$2 ORDER BY created_ms LIMIT 1)
-    AND notified=0 AND status='pending' AND notify_after<=$2 RETURNING *`,[now+120000,now]);
+    WHERE id=(SELECT id FROM pc_requests WHERE status IN ('pending','awaiting_judge') AND notified=0 AND notify_after<=$2 ORDER BY created_ms LIMIT 1)
+    AND notified=0 AND status IN ('pending','awaiting_judge') AND notify_after<=$2 RETURNING *`,[now+120000,now]);
   if (!r) return false;
   try {
     const {value}=await readSettings(db);
     await discord.sendReview(reviewMessage(visibleRequest(r),discord.settings),value.reviewChannel);
-    await db.query('UPDATE pc_requests SET notified=1,last_notify_error=NULL WHERE id=$1',[r.id]);
+    await db.query('UPDATE pc_requests SET notified=1,last_notify_error=NULL WHERE id=$1 AND status=$2 AND attempts=$3',[r.id,r.status,r.attempts]);
   } catch(e) {
     const wait=Math.max(Math.min(3600000,5000 * 2**Math.min(Number(r.attempts),10)),e instanceof DiscordFailure?e.retryMs:0);
-    await db.query('UPDATE pc_requests SET notify_after=$1,last_notify_error=$2 WHERE id=$3',[now+wait,e instanceof DiscordFailure?'Discord '+e.status:'Delivery unavailable',r.id]);
+    await db.query('UPDATE pc_requests SET notify_after=$1,last_notify_error=$2 WHERE id=$3 AND status=$4 AND attempts=$5',[now+wait,e instanceof DiscordFailure?'Discord '+e.status:'Delivery unavailable',r.id,r.status,r.attempts]);
   }
   return true;
 }
