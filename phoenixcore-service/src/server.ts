@@ -108,6 +108,9 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         res.end(method==='HEAD'?undefined:Buffer.from(image.bytes));return;
       }
       if (method==='GET' && path==='/health') {json(res,200,{ok:true});return;}
+      if(method==='GET' && uiOrigin!==config.service && ['/','/phoenixcore','/phoenixcore/','/phoenixcore/index.html'].includes(path)){
+        redirect(res,config.dashboard+(url.searchParams.get('demo')==='1'?'?demo=1':''));return;
+      }
       if (method==='GET' && (path==='/'||path==='/phoenixcore')) {redirect(res,'/phoenixcore/');return;}
       if (method==='GET' && (codexAssets.has(path) || /^\/assets\/uploads\/[a-zA-Z0-9_/-]+\.(png|jpe?g|webp|gif)$/i.test(path))) {
         let content;
@@ -307,7 +310,7 @@ async function start() {
     const address=server.address();
     console.log('PhoenixCore is listening on port',typeof address==='object' && address ? address.port : port);
     if(process.env.DISCORD_RP_ENABLED==='true'){
-      const register=async()=>{try{await discord.registerCommands();console.log('Registered Convergence character commands.');}
+      const register=async()=>{try{await discord.registerCommands();console.log('Registered /transform, /revert-form, Character sheet and Catalog submission in Convergence.');}
         catch{if(!stopping)setTimeout(register,60000).unref();console.warn('Character commands could not register. Retrying in one minute.');}};
       void register();
     }

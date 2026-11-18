@@ -55,6 +55,7 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
     const signature=sign(null,Buffer.from(stamp+body),privateKey).toString('hex');
     return (await get('/discord/interactions',{method:'POST',headers:{'x-signature-timestamp':stamp,'x-signature-ed25519':signature},body})).json();
   }
+  for(const address of ['/','/phoenixcore/','/phoenixcore/index.html'])assert.equal((await get(address)).headers.get('location'),config.dashboard);
   assert.equal((await get('/api/state')).status,401);
   assert.equal(await login('899999999999999999'),'');
   const writer=await login(ids.writer),owner=await login(ids.owner),judge=await login(ids.judge),extra=await login(ids.extra);
