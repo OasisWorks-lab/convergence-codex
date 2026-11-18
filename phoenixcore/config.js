@@ -1,2 +1,1 @@
-// Set the public HTTPS origin of the PhoenixCore service when publishing the live dashboard.
-window.PHOENIXCORE_API = "";
+window.PHOENIXCORE_API = "https://xr65xgo3xl.apps.bot-hosting.cloud";

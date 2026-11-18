@@ -1,10 +1,10 @@
 name: PhoenixCore checks
 on:
   pull_request:
-    paths: ['phoenixcore/**', 'phoenixcore-service/**', 'assets/app.js', '.github/workflows/phoenixcore.yml']
+    paths: ['index.js', 'package.json', 'phoenixcore/**', 'phoenixcore-service/**', 'assets/app.js', '.github/workflows/phoenixcore.yml']
   push:
     branches: [main]
-    paths: ['phoenixcore/**', 'phoenixcore-service/**', 'assets/app.js', '.github/workflows/phoenixcore.yml']
+    paths: ['index.js', 'package.json', 'phoenixcore/**', 'phoenixcore-service/**', 'assets/app.js', '.github/workflows/phoenixcore.yml']
 permissions:
   contents: read
 jobs:
@@ -27,7 +27,6 @@ jobs:
         with:
           node-version: '24'
       - name: Test sheets, Discord interactions and persistent storage
-        working-directory: phoenixcore-service
         env:
           PHOENIX_TEST_DATABASE_URL: postgresql://phoenixcore_test:local_test@127.0.0.1:${{ job.services.postgres.ports[5432] }}/phoenixcore_test
         run: |

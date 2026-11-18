@@ -47,6 +47,21 @@ Use **Node 24.12 or newer**. Deploy the repository on a host that can run a pers
 
 For a local first run, open a terminal in `phoenixcore-service` and copy `.env.example` to `.env` (`Copy-Item .env.example .env` in PowerShell). Fill in the settings below. `npm start` then serves the dashboard at `http://localhost:4100/phoenixcore/`. Discord needs a publicly reachable HTTPS interaction endpoint for live approval buttons. Locally you can run `npm test` or open the practice dashboard without Discord credentials.
 
+### Start the existing Bot-Hosting.net deployment
+
+1. Open **Files**, click the **GitHub** icon, and select `https://github.com/OasisWorks-lab/convergence-codex`, branch `main`. Select **Merge**, then **Sync**. In **Files**, open the top folder and check that `index.js`, `package.json`, and `phoenixcore-service` are side by side.
+2. In **Startup**, keep **Entry File** set to `index.js` and select Node **24.12 or later**. The top-level package installs PhoenixCore's dependencies. Leave `PORT` empty so the bot listens on the port the host supplies.
+3. In the deployment's **Environment** tab, enter the Discord settings from the next section. Mark the bot token and OAuth2 client secret as secrets. Also add the three settings below.
+
+| Host setting | Value for Convergence |
+| --- | --- |
+| `SERVICE_ORIGIN` | `https://xr65xgo3xl.apps.bot-hosting.cloud` |
+| `DASHBOARD_URL` | `https://oasisworks-lab.github.io/convergence-codex/phoenixcore/` |
+| `SQLITE_FILE` | `/home/container/.phoenixcore/convergence.sqlite` |
+
+4. Click **Start**. The console should say `PhoenixCore is listening on port` followed by the assigned number. Open [the health check](https://xr65xgo3xl.apps.bot-hosting.cloud/health) and look for `{"ok":true}`.
+5. In the Discord Developer Portal, add `https://xr65xgo3xl.apps.bot-hosting.cloud/auth/callback` under **OAuth2 → Redirects**. Save `https://xr65xgo3xl.apps.bot-hosting.cloud/discord/interactions` under **General Information → Interactions Endpoint URL**. Open the [player dashboard](https://oasisworks-lab.github.io/convergence-codex/phoenixcore/) and sign in with Discord.
+
 ### Connect the Discord application
 
 1. Open your **PhoenixCore** application in the Discord Developer Portal. Under **General Information**, copy **Application ID** into `DISCORD_CLIENT_ID` and **Public Key** into `DISCORD_PUBLIC_KEY`.
