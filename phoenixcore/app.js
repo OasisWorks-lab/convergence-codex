@@ -114,7 +114,7 @@
   function filterPlayers(){
     if(!$('#players'))return;
     const query=($('#filter')?.value||'').trim().toLowerCase();
-    const lookup=$('#attributionForm button'),isPost=/^(?:\\d{17,20}|https:\\/\\/(?:(?:ptb|canary)\\.)?discord(?:app)?\\.com\\/channels\\/\\d{17,20}\\/\\d{17,20}\\/\\d{17,20}\\/?)$/.test(query);
+    const lookup=$('#attributionForm button'),isPost=/^(?:\d{17,20}|https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\/?)$/.test(query);
     if(lookup){lookup.hidden=!isPost;$('#attribution').textContent='';}
     const players=state.players.filter(p=>(p.display+' '+p.username+' '+p.id).toLowerCase().includes(query)).sort((a,b)=>a.display.localeCompare(b.display));
     $('#players').innerHTML=players.map(playerCard).join('')||(lookup&&isPost?'':'<p class="empty">No players match this view.</p>');

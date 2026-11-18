@@ -74,5 +74,6 @@
   }
   const live={root,dash,ready,copy,request,access,get entries(){return rows;},get editing(){return editing;},get authorized(){return authorized;},setEditing};
   window.CodexLive=live;
+  window.addEventListener('focus',()=>{if(read('session')&&!local)void access();});
   ready.then(()=>{if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',access,{once:true});else access();});
 })();
