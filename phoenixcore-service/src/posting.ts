@@ -1,3 +1,4 @@
+import {activeForm} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
 import type { RoleplayScope } from './scope.ts';
 import { assignTag } from './tags.ts';
@@ -11,7 +12,7 @@ export async function preferences(db:Store,actor:Actor,settings:Settings,liveCha
     db.query('SELECT character_id,tag FROM pc_post_tags WHERE owner_id=$1 ORDER BY tag',[actor.id]),
     db.query('SELECT channel_id,character_id FROM pc_post_defaults WHERE owner_id=$1 ORDER BY channel_id',[actor.id])
   ]);
-  const channels=settings.rpDivider?(liveChannels??[]):channelIds(settings);
+  const channels=settings.rpDivider?(liveChannels??[]):[...new Set([...channelIds(settings),...(liveChannels||[])])];
   return {tags:tags.map(t=>({characterId:t.character_id,tag:t.tag})),channels,
     defaults:defaults.filter(d=>channels.includes(d.channel_id)).map(d=>({channel:d.channel_id,characterId:d.character_id}))};
 }
@@ -31,40 +32,46 @@ export async function savePosting(db:Store, actor:Actor, input:any, coverage?:{d
     } else {
       const [row]=await q('SELECT value FROM pc_config WHERE slot=1');
       const settings=JSON.parse(row.value);
-      const allowed=settings.rpDivider?(coverage?.divider===settings.rpDivider?coverage.channels:[]):channelIds(settings);
+      const allowed=settings.rpDivider?(coverage?.divider===settings.rpDivider?coverage.channels:[]):[...new Set([...channelIds(settings),...(coverage?.divider===''?coverage.channels:[])])];
       requireThat(discordId.test(input.channel) && allowed.includes(input.channel),400,'Choose an enabled roleplay channel.');
-      if(!input.characterId)await q('DELETE FROM pc_post_defaults WHERE owner_id=$1 AND channel_id=$2',[actor.id,input.channel]);
+      if(!input.characterId && !input.account)await q('DELETE FROM pc_post_defaults WHERE owner_id=$1 AND channel_id=$2',[actor.id,input.channel]);
       else await q('INSERT INTO pc_post_defaults(owner_id,channel_id,character_id) VALUES($1,$2,$3) ON CONFLICT(owner_id,channel_id) DO UPDATE SET character_id=excluded.character_id',[actor.id,input.channel,input.characterId]);
     }
   });
 }
-export async function lookupAuthor(db:Store,actor:Actor,message:string){
+export async function lookupAuthor(db:Store,actor:Actor,message:string,guild=''){
   requireThat(actor.isJudge,403,'Only staff can look up the writer of a character post.');
+  const link=/^https:\/\/(?:(?:canary|ptb)\.)?discord(?:app)?\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})\/?$/.exec(message);
+  if(link){requireThat(link[1]===guild,400,'Choose a message from Convergence.');message=link[3];}
   requireThat(discordId.test(message),400,'Use a Discord message ID.');
   const [row]=await db.query('SELECT author_id,character_name FROM pc_posts WHERE posted_id=$1',[message]);
   requireThat(row,404,'PhoenixCore has no recorded character post with that message ID.');
   return {authorId:row.author_id,characterName:row.character_name};
 }
 
-type IncomingPost={id:string;channel:string;guild:string;author:string;roles:string[];content:string};
+type IncomingPost={id:string;channel:string;parent?:string;guild:string;author:string;roles:string[];content:string};
 type CharacterPost={content:string;name:string;portrait:string};
 export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean){
   if(source.guild!==config.guild || !source.content.trim() || source.content.length>2000 || /^\s*(?:\/\/|\(\()/.test(source.content))return;
   const {value}=await readSettings(db);
-  if(!(value.rpDivider?inScope?.(value):channelIds(value).includes(source.channel)) || (value.playerRole&&!source.roles.includes(value.playerRole)))return;
-  const explicit=/^([a-z0-9][a-z0-9_-]{0,23})>\s*([\s\S]*)$/i.exec(source.content);
-  if(!explicit && /^[^\s>]+>/.test(source.content))return;
-  const content=explicit?explicit[2]:source.content;
+  if(!(value.rpDivider?inScope?.(value):[source.channel,source.parent||''].some(id=>channelIds(value).includes(id))) || (value.playerRole&&!source.roles.includes(value.playerRole)))return;
+  const tags=await db.query('SELECT tag,character_id FROM pc_post_tags WHERE owner_id=$1 ORDER BY LENGTH(tag) DESC,tag',[source.author]);
+  const lower=source.content.toLowerCase();
+  const tagged=tags.find(t=>lower.startsWith(forms.trigger(t.tag)));
+  const trigger=tagged?forms.trigger(tagged.tag):'';
+  if(!tagged && /^[^\\s>]+>/.test(source.content))return;
+  let content=source.content;
+  if(tagged){content=content.slice(trigger.length);if(!trigger.endsWith('>')&&content.startsWith('>'))content=content.slice(1);content=content.trimStart();}
   if(!content.trim())return;
-  const [sheet]=explicit
-    ?await db.query('SELECT c.* FROM pc_characters c JOIN pc_post_tags t ON t.character_id=c.id AND t.owner_id=c.owner_id WHERE t.owner_id=$1 AND t.tag=$2',[source.author,explicit[1].toLowerCase()])
-    :await db.query('SELECT c.* FROM pc_characters c JOIN pc_post_defaults d ON d.character_id=c.id AND d.owner_id=c.owner_id WHERE d.owner_id=$1 AND d.channel_id=$2',[source.author,source.channel]);
+  const [choice]=tagged?[tagged]:await db.query('SELECT character_id FROM pc_post_defaults WHERE owner_id=$1 AND channel_id IN ($2,$3) ORDER BY CASE WHEN channel_id=$2 THEN 0 ELSE 1 END LIMIT 1',[source.author,source.channel,source.parent||source.channel]);
+  if(!choice?.character_id)return;
+  const [sheet]=await db.query('SELECT c.*,a.form_key FROM pc_characters c LEFT JOIN pc_active_forms a ON a.character_id=c.id WHERE c.id=$1 AND c.owner_id=$2',[choice.character_id,source.author]);
   if(!sheet)return;
-  const character=JSON.parse(sheet.sheet);
+  const character=JSON.parse(sheet.sheet),form=activeForm(character,sheet.form_key);
   const reserved=await db.query('INSERT INTO pc_posts(source_id,channel_id,author_id,character_id,character_name,created_ms) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(source_id) DO NOTHING RETURNING source_id',
     [source.id,source.channel,source.author,sheet.id,character.name,Date.now()]);
   if(!reserved.length)return;
-  const posted=await send({name:character.name,portrait:character.portrait||'',content});
+  const posted=await send({name:character.name,portrait:form?.portrait||character.portrait||'',content});
   requireThat(discordId.test(posted),502,'Discord did not confirm a character post.');
   await db.query('UPDATE pc_posts SET posted_id=$1 WHERE source_id=$2',[posted,source.id]);
   await remove();
@@ -100,7 +107,7 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
       !parent.permissionsFor(message.guild.members.me)?.has(PermissionFlagsBits.ManageWebhooks))return;
     const original=message.content;
     try {
-      await relay(db,config,{id:message.id,channel:channel.id,guild:message.guildId,author:message.author.id,roles:[...message.member.roles.cache.keys()],content:original},async post=>{
+      await relay(db,config,{id:message.id,channel:channel.id,parent:channel.isThread()?channel.parentId??undefined:undefined,guild:message.guildId,author:message.author.id,roles:[...message.member.roles.cache.keys()],content:original},async post=>{
         let pending=hooks.get(parent.id);
         if(!pending){pending=channelHook(parent);hooks.set(parent.id,pending);}
         try{

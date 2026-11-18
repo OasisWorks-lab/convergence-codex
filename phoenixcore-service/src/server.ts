@@ -9,14 +9,16 @@ import { judgeTraining, actorFor, discordId, Problem, requireThat, readSettings,
 import { mediaPath, maxImageBytes, saveImage } from './media.ts';
 import { RoleplayScope } from './scope.ts';
 import { preferences, savePosting, lookupAuthor, startPosting } from './posting.ts';
-import { Discord, DiscordFailure, deliverNext, checkSignature, handleInteraction, type Config } from './discord.ts';
+import {archiveRequest,removeCharacter} from './characters.ts';
+import { accountAvatar, Discord, DiscordFailure, deliverNext, checkSignature, handleInteraction, type Config } from './discord.ts';
 
+import {editorRole, published, publish} from './codex.ts';
 const webDir=fileURLToPath(new URL('../../phoenixcore/',import.meta.url));
 const token=()=>randomBytes(32).toString('base64url');
 export const hash=(value:string)=>createHash('sha256').update(value).digest('base64url');
 const tokenPattern=/^[A-Za-z0-9_-]{43}$/;
 const allowedFiles=new Set(['index.html','config.js','app.js','templates.js','preview.js','styles.css']);
-const codexAssets=new Set(['/assets/brand.png','/assets/art/world-planet-sadala.svg','/assets/themes.js','/assets/themes.css','/assets/data.js']);
+const codexAssets=new Set(['/assets/brand.png','/assets/art/world-planet-sadala.svg','/assets/themes.js','/assets/themes.css','/assets/data.js','/assets/content-model.js','/assets/live.js','/assets/live.css','/assets/editor.js']);
 const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.svg':'image/svg+xml'};
 
 function safeUrl(value:string, name:string) {
@@ -93,6 +95,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
           else requireThat(req.headers['content-type']?.split(';')[0]==='application/json',415,'Use JSON.');
         }
       }
+      if(method==='GET' && path==='/api/codex'){json(res,200,{entries:await published(db)});return;}
       const media=mediaPath.exec(path);
       if(media && (method==='GET'||method==='HEAD')){
         const [image]=await db.query('SELECT bytes,mime,size FROM pc_images WHERE id=$1',[media[1]]);
@@ -168,6 +171,8 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       }
       const [member,settings]=await Promise.all([discord.member(session.user_id),readSettings(db)]);
       const actor=actorFor(session.user_id,member.roles,config.owner,settings.value);
+      if(path==='/api/codex/access' && method==='GET'){json(res,200,{canEdit:member.roles.includes(editorRole)});return;}
+      if(path==='/api/codex' && method==='POST'){json(res,200,await publish(db,member.roles,actor.id,parse(await rawBody(req))));return;}
       if(method==='POST' && path==='/api/media'){
         requireThat(actor.isPlayer,403,'Only Convergence players can upload submission artwork.');
         const image=await saveImage(db,actor.id,await rawBody(req,maxImageBytes),config.service);
@@ -179,13 +184,22 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       if (method==='POST' && path==='/api/settings') {
         await saveSettings(db,actor,parse(await rawBody(req)));json(res,200,{ok:true});return;
       }
+      const ownerAction=/^\/api\/(requests|characters)\/([\da-f-]{36})\/(archive|remove)$/.exec(path);
+      if(method==='POST'&&ownerAction){
+        requireThat(actor.isOwner,403,'Only the configured PhoenixCore owner can make this change.');
+        const input=parse(await rawBody(req));
+        if(ownerAction[1]==='requests'&&ownerAction[3]==='archive'&&typeof input?.archived==='boolean')await archiveRequest(db,actor,ownerAction[2],input.archived);
+        else if(ownerAction[1]==='characters'&&ownerAction[3]==='remove')await removeCharacter(db,actor,ownerAction[2],input?.version);
+        else throw new Problem(400,'Unknown owner action.');
+        json(res,200,{ok:true});return;
+      }
       if(method==='POST' && path==='/api/posting'){
         const input=parse(await rawBody(req));
-        const coverage=input?.kind==='default' && settings.value.rpDivider?{divider:settings.value.rpDivider,channels:(await scope.inventory(settings.value,actor)).locations.map(c=>c.id)}:undefined;
+        const coverage=input?.kind==='default'?{divider:settings.value.rpDivider,channels:(await scope.inventory(settings.value,actor)).locations.map(c=>c.id)}:undefined;
         await savePosting(db,actor,input,coverage);json(res,200,{ok:true});return;
       }
       if(method==='GET' && path.startsWith('/api/posting/lookup/')){
-        json(res,200,await lookupAuthor(db,actor,path.slice('/api/posting/lookup/'.length)));return;
+        json(res,200,await lookupAuthor(db,actor,decodeURIComponent(path.slice('/api/posting/lookup/'.length)),config.guild));return;
       }
       const roster=(await discord.members()).filter(m=>!settings.value.playerRole||m.roles.includes(settings.value.playerRole));
       const active=new Set(roster.map(m=>m.user.id));
@@ -201,14 +215,13 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       requireThat(method==='GET' && path==='/api/state',404,'Unknown route.');
       const inventory=await scope.inventory(settings.value,actor);
       const [sheets,requests,designs,posting]=await Promise.all([
-        db.query('SELECT c.*,t.tag FROM pc_characters c LEFT JOIN pc_post_tags t ON c.id=t.character_id AND c.owner_id=t.owner_id ORDER BY c.id'),
-        db.query(actor.isOwner?'SELECT * FROM pc_requests ORDER BY created_ms DESC,id':
-          "SELECT * FROM pc_requests WHERE author_id=$1 OR owner_id=$1 OR (kind='training' AND $2=1) ORDER BY created_ms DESC,id",actor.isOwner?[]:[actor.id,actor.isJudge?1:0]),
+        db.query('SELECT c.*,t.tag,a.form_key FROM pc_characters c LEFT JOIN pc_active_forms a ON a.character_id=c.id LEFT JOIN pc_post_tags t ON c.id=t.character_id AND c.owner_id=t.owner_id ORDER BY c.id'),
+        db.query('SELECT r.*,a.request_id AS archived FROM pc_requests r LEFT JOIN pc_archives a ON a.request_id=r.id '+(actor.isOwner?'':"WHERE a.request_id IS NULL AND (author_id=$1 OR owner_id=$1 OR (kind='training' AND $2=1)) ")+'ORDER BY created_ms DESC,id',actor.isOwner?[]:[actor.id,actor.isJudge?1:0]),
         db.query("SELECT id,kind,after_sheet,author_id FROM pc_requests WHERE status='approved' AND kind IN ('technique','item','race','transformation') ORDER BY created_ms DESC,id"),
         actor.isPlayer?preferences(db,actor,settings.value,inventory.locations.map(c=>c.id)):null
       ]);
-      json(res,200,{actor,players:roster.map(m=>({id:m.user.id,username:m.user.username,display:m.nick||m.user.global_name||m.user.username})),
-        characters:sheets.filter(s=>active.has(s.owner_id)).map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',sheet:JSON.parse(s.sheet)})),
+      json(res,200,{actor,players:roster.map(m=>({id:m.user.id,username:m.user.username,avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
+        characters:sheets.filter(s=>active.has(s.owner_id)).map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',activeForm:s.form_key||'',sheet:JSON.parse(s.sheet)})),
         posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(visibleRequest),currency:settings.value.currency,settings:actor.isOwner?settings:null});
     } catch(e) {
       if (res.headersSent) {res.end();return;}
@@ -255,6 +268,11 @@ async function start() {
   server.listen(port,()=>{
     const address=server.address();
     console.log('PhoenixCore is listening on port',typeof address==='object' && address ? address.port : port);
+    if(process.env.DISCORD_RP_ENABLED==='true'){
+      const register=async()=>{try{await discord.registerCommands();console.log('Registered Convergence character commands.');}
+        catch{if(!stopping)setTimeout(register,60000).unref();console.warn('Character commands could not register. Retrying in one minute.');}};
+      void register();
+    }
     void tick();
   });
   const stop=()=>{stopping=true;clearTimeout(retry);if(stopPosting)void stopPosting();clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};

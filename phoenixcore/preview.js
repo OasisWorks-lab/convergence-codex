@@ -20,7 +20,7 @@
     const id=ids[role],owner=role==='owner',judge=owner||role==='judge',channels=settings.value.rpChannels.split(/\s+/).filter(Boolean);
     return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:judge},players,characters:characters.map(c=>({...c,tag:tags.find(t=>t.characterId===c.id)?.tag||''})),
       scope:{online:true,categories:[{id:'566666666666666666',name:'Roleplay channels below'}],locations:channels.map(id=>({id,name:'Practice scene',type:0})),incomplete:0,scanning:false},
-      requests:requests.filter(r=>owner||r.ownerId===id||r.authorId===id||(judge&&r.kind==='training')),
+      requests:requests.filter(r=>owner||(!r.archived&&(r.ownerId===id||r.authorId===id||(judge&&r.kind==='training')))),
       catalogue:requests.filter(r=>r.status==='approved'&&forms.catalogue.includes(r.kind)).map(r=>({id:r.id,fields:r.after,kind:r.kind,authorId:r.authorId})),
       posting:{tags:tags.filter(t=>t.owner===id),defaults:defaults.filter(d=>d.owner===id&&channels.includes(d.channel)),channels},
       currency:settings.value.currency,settings:owner?settings:null});
@@ -98,9 +98,21 @@
     if(!isTag&&!state().posting.channels.includes(input.channel))throw Error('Choose an enabled channel.');
     const index=list.findIndex(t=>t.owner===owner&&(isTag?t.characterId===input.characterId:t.channel===input.channel));
     if(index>=0)list.splice(index,1);
-    if((isTag&&tag)||(!isTag&&input.characterId))list.push({...input,owner,tag});
+    if((isTag&&tag)||(!isTag&&(input.characterId||input.account)))list.push({...input,owner,tag});
   }
-  window.PhoenixPreview={state,propose,decision,judge,savePosting,role:()=>role,switchRole:value=>{if(['player','judge','owner'].includes(value))role=value;},
+  function archive(id,on){
+    if(role!=='owner')throw Error('Owner access required.');
+    const r=requests.find(r=>r.id===id);r.archived=on;
+    if(on&&['pending','awaiting_judge'].includes(r.status)){r.previous=r.status;r.status='archived';}
+    else if(!on&&r.status==='archived')r.status=r.previous;
+  }
+  function remove(id){
+    if(role!=='owner')throw Error('Owner access required.');
+    characters=characters.filter(c=>c.id!==id);
+    for(const list of [tags,defaults])for(let i=list.length-1;i>=0;i--)if(list[i].characterId===id)list.splice(i,1);
+    for(const r of requests)if(r.characterId===id&&['pending','awaiting_judge','archived'].includes(r.status))r.status='stale';
+  }
+  window.PhoenixPreview={state,archive,remove,propose,decision,judge,savePosting,role:()=>role,switchRole:value=>{if(['player','judge','owner'].includes(value))role=value;},
     saveSettings:input=>{
       if(role!=='owner')throw Error('Only the owner can change settings.');
       if(input.revision!==settings.revision)throw Error('Reload current settings.');

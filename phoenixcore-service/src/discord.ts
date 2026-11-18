@@ -1,10 +1,16 @@
+import {characterCommand} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
 import { createPublicKey, verify, createHash } from 'node:crypto';
 import { Problem, requireThat, readSettings, visibleRequest, decide } from './domain.ts';
 import type { Store } from './db.ts';
 
 export type Config = { service: string; dashboard: string; clientId: string; clientSecret: string; publicKey: string; token: string; guild: string; owner: string };
-type Member = { user: { id:string; username:string; global_name?:string; bot?:boolean }; nick?:string; roles:string[] };
+type Member = { user: { id:string; username:string; global_name?:string; avatar?:string|null; discriminator?:string; bot?:boolean }; nick?:string; roles:string[] };
+export function accountAvatar(user:Member['user']){
+  if(user.avatar&&/^(a_)?[a-f0-9]+$/i.test(user.avatar))return 'https://cdn.discordapp.com/avatars/'+user.id+'/'+user.avatar+(user.avatar.startsWith('a_')?'.gif':'.png')+'?size=128';
+  const index=user.discriminator&&user.discriminator!=='0'?Number(user.discriminator)%5:Number((BigInt(user.id)>>22n)%6n);
+  return 'https://cdn.discordapp.com/embed/avatars/'+index+'.png';
+}
 export class DiscordFailure extends Error {
   status: number;
   retryMs: number;
@@ -69,6 +75,13 @@ export class Discord {
     }
     this.cache={value:all,until:Date.now()+30000};
     return all;
+  }
+  async registerCommands(){
+    const path='/applications/'+this.settings.clientId+'/guilds/'+this.settings.guild+'/commands';
+    const specs=[{name:'Character sheet',type:3},{name:'transform',type:1,description:'Switch your approved character to an attained form or base.',options:[
+      {name:'character',description:'Your character name, posting tag or sheet ID',type:3,required:true,autocomplete:true},
+      {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
+    for(const spec of specs)await this.call(path,{method:'POST',body:JSON.stringify(spec)});
   }
   async sendReview(body: object, fallback: string) {
     try {
@@ -137,6 +150,7 @@ export async function handleInteraction(db:Store, config:Config, body:any) {
   const reply=(content:string)=>({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
   if(body.application_id!==config.clientId || (body.guild_id && body.guild_id!==config.guild)) return reply('This action belongs to a different installation.');
   const actor=body.member?.user?.id ?? body.user?.id;
+  if((body.type===2||body.type===4) && ['Character sheet','transform'].includes(body.data?.name))return characterCommand(db,config.guild,config.dashboard,body);
   if (actor !== config.owner) return reply('Only the configured PhoenixCore owner can decide this request.');
   const match=/^pc:(approve|decline):([0-9a-f-]{36})$/i.exec(body.data?.custom_id??'');
   if (body.type!==3 || !match) return reply('Unknown PhoenixCore action.');

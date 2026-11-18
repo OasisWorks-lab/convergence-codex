@@ -1,4 +1,5 @@
-(()=>{
+(async()=>{
+await window.CodexLive?.ready;
 'use strict';
 const D=window.CONVERGENCE_DATA;
 if(!D){console.error('Codex source data was not loaded.');return;}
@@ -11,7 +12,7 @@ const textOnly=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim
 const art=p=>{const path=String(p||'');if(/^https?:\/\//.test(path)||path.startsWith('data:')||path.startsWith('blob:'))return path;
  if(path.startsWith('assets/'))return prefix+path;
  return path;};
-const isCustom=p=>String(p||'').includes('assets/uploads/');
+const isCustom=p=>/^(https:\/\/|assets\/uploads\/)/i.test(String(p||''));
 const entryArt=(p,alt)=>p&&isCustom(p)?`<figure class="entry-visual"><img src="${E(art(p))}" alt="${E(alt||'Entry illustration')}" loading="lazy"></figure>`:'';
 const nav=byId('nav');
 if (nav && !nav.querySelector('[data-link="phoenixcore"]')) {
@@ -64,9 +65,48 @@ byId('copyModal').addEventListener('click',async e=>{
  const text=window.location.href;
  try{await navigator.clipboard.writeText(text);e.currentTarget.textContent='Copied!';setTimeout(()=>e.currentTarget.textContent='Copy link',1500)}catch(_){const t=document.createElement('textarea');t.value=text;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();e.currentTarget.textContent='Copied!';setTimeout(()=>e.currentTarget.textContent='Copy link',1500)}
 });
-function worldCard(w){return `<button class="world-card" type="button" data-world="${E(w.slug)}" aria-label="Read lore for ${E(w.title)}"><div class="world-art"><img src="${E(art(w.art))}" alt="Original illustrative artwork for ${E(w.title)}" loading="lazy"></div><div class="world-info"><span>${E(w.type)} · LORE ARCHIVE</span><h3>${E(w.title)}</h3><p>${E(cut(w.excerpt,220))}</p><div class="card-action">Uncover its story ↗</div></div></button>`;}
-function openWorld(slug){const w=D.worlds.find(x=>x.slug===slug);if(!w)return;openDetail({title:w.title,eyebrow:`ATLAS / ${w.type.toUpperCase()}`,body:entryArt(w.art,w.title)+rich(w.messages),source:w.source,hash:'#'+slug});}
-function hookWorldCards(container){container.querySelectorAll('[data-world]').forEach(btn=>btn.addEventListener('click',()=>openWorld(btn.dataset.world)));}
+function worldCard(w){return `<button class="world-card" type="button" data-world="${E(w.slug)}" aria-label="Explore ${E(w.title)}"><div class="world-art"><img src="${E(art(w.art))}" alt="Original illustrative artwork for ${E(w.title)}" loading="lazy"></div><div class="world-info"><span>${E(w.type)} · LORE ARCHIVE</span><h3>${E(w.title)}</h3><p>${E(cut(w.excerpt,220))}</p><div class="card-action">Explore location ↗</div></div></button>`;}
+function editButton(key,label,kind=''){
+ return '<button type="button" class="atlas-action codex-edit-only" data-codex-edit="'+E(key)+'" data-new-kind="'+E(kind)+'">'+E(label)+'</button>';
+}
+const atlasHref=segments=>(page==='worlds'?'':prefix+'worlds.html')+'#'+segments.map(encodeURIComponent).join('/');
+function atlasRow(href,name,description=''){
+ return '<a href="'+E(href)+'"><strong>'+E(name)+'</strong><small>'+E(description)+' ↗</small></a>';
+}
+function openWorld(route){
+ const [slug,section,id]=route.split('/'),w=D.worlds.find(x=>x.slug===slug);if(!w)return;
+ const base='worlds/'+slug;
+ const heading={lore:'Lore',guilds:'Location Guild(s)',items:'Mystical Items'};
+ const top=section?'<div class="atlas-toolbar"><a class="atlas-back" href="'+E(atlasHref(id?[slug,section]:[slug]))+'">← '+E(id?heading[section]:w.title)+'</a></div>':'';
+ let title=w.title,body='',source='';
+ if(!section){
+  body=editButton(base,'Edit location')+'<div class="atlas-links">'+Object.entries(heading).map(([k,n])=>atlasRow(atlasHref([slug,k]),n,k==='lore'?'':String(w[k].length))).join('')+'</div>';
+ }else if(section==='lore'){
+  title=w.title+' · Lore';source=w.source;
+  body=entryArt(w.art,w.title)+'<div class="atlas-lore">'+w.messages.map((m,i)=>editButton(base+'/messages/'+i,'Edit '+(w.messages.length===1?'lore':'lore section '+(i+1)))+(w.messages.length>1?'<h3>'+E(m.title)+'</h3>':'')+rich([m])).join('')+'</div>';
+ }else if(section==='guilds'||section==='items'){
+  title=heading[section]+' · '+w.title;
+  const kind=section==='guilds'?'guild':'item',entries=w[section],key=base+'/'+section;
+  if(id){
+   const entry=entries.find(x=>x.id===id);
+   if(!entry){body='<p>This entry is unavailable.</p>';}
+   else {
+    title=entry.name;source=entry.source;
+    body=editButton(key+'/'+id,'Edit '+kind)+'<article class="atlas-entry">'+(entry.art?'<img alt="" src="'+E(art(entry.art))+'">':'')+
+     window.CodexModel.groupFields[kind].filter(k=>!['name','art','source'].includes(k)&&entry[k]).map(k=>'<h3>'+E(k[0].toUpperCase()+k.slice(1))+'</h3><p>'+E(entry[k])+'</p>').join('')+'</article>';
+   }
+  }else{
+   body=editButton(key+'/'+crypto.randomUUID(),'Add '+(kind==='item'?'mystical item':'guild'),kind)+
+    (entries.length?'<div class="atlas-links">'+entries.map(e=>atlasRow(atlasHref([slug,section,e.id]),e.name)).join('')+'</div>':'<p class="muted">No '+(kind==='guild'?'guilds':'mystical items')+' have been listed for this location.</p>');
+  }
+ }else return;
+ openDetail({title,eyebrow:'ATLAS / '+w.title,body:top+body,source});
+}
+function visitWorld(slug){
+ if(page==='worlds' && location.hash!=='#'+slug)location.hash=slug;
+ else openWorld(slug);
+}
+function hookWorldCards(container){container.querySelectorAll('[data-world]').forEach(btn=>btn.addEventListener('click',()=>visitWorld(btn.dataset.world)));}
 function drawWorlds(filter){const w=filter==='all'?D.worlds:D.worlds.filter(x=>x.type===filter);byId('worldList').innerHTML=w.map(worldCard).join('');byId('worldCount').textContent=w.length+' locations';hookWorldCards(byId('worldList'));}
 function raceCard(r){return `<a class="race-card" href="${E(prefix)}races/${E(r.slug)}.html" style="--race-color:${E(r.accent)}"><img src="${E(art(r.art||'assets/art/world-planet-earth.svg'))}" loading="lazy" alt="Illustration for ${E(r.name)}" class="${isCustom(r.art)?'has-custom-art':''}"><div class="race-card-body"><div class="eyebrow">RACIAL FAMILY</div><h3>${E(r.name)}</h3><p>${E(cut(r.description,185))}</p><div class="race-card-footer"><span>${r.paths.length} paths · ${r.formCount} entries</span><strong>Explore lineage ↗</strong></div></div></a>`;}
 function docCard(doc,label){const cover=doc.art?`<img class="document-preview-image" src="${E(art(doc.art))}" alt="${E(doc.title)}">`:"";const text=doc.excerpt||doc.messages?.map(m=>textOnly(m.html)).join(' ').slice(0,170)||'';return `<button class="doc-card" type="button" data-doc="${E(doc.slug)}" data-group="${E(label)}">${cover}<span class="eyebrow">${E(label)}</span><h3>${E(doc.title)}</h3><p>${E(cut(text,205))}</p><span class="card-action">Read source entry ↗</span></button>`;}
@@ -83,7 +123,9 @@ if(page==='home'){
 if(page==='worlds'){
  drawWorlds('all');
  byId('worldFilters').addEventListener('click',e=>{const b=e.target.closest('button[data-filter]');if(!b)return;byId('worldFilters').querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));drawWorlds(b.dataset.filter);});
- if(location.hash)openWorld(decodeURIComponent(location.hash.slice(1)));
+ const readAtlas=()=>{if(location.hash)openWorld(location.hash.slice(1));else if(modal.open)modal.close();};
+ readAtlas();window.addEventListener('hashchange',readAtlas);
+ modal.addEventListener('close',()=>{if(location.hash)history.replaceState(null,'',location.pathname+location.search);});
 }
 function universalCard(u){
  const count=u.messages.filter(m=>textOnly(m.html).length>60).length;
@@ -168,6 +210,7 @@ if(page==='chronicles'){
 // Lightweight client-side search over the bundled archive, including transformation names.
 let searchIndex=[];
 D.worlds.forEach(w=>searchIndex.push({type:'World',title:w.title,desc:w.excerpt,href:'worlds.html#'+w.slug}));
+D.worlds.forEach(w=>['guilds','items'].forEach(k=>w[k].forEach(e=>searchIndex.push({type:k==='guilds'?'Guild':'Mystical Item',title:e.name,desc:w.title+' '+(e.summary||''),href:atlasHref([w.slug,k,e.id]).replace(/^.*#/,'worlds.html#')}))));
 D.races.forEach(r=>{searchIndex.push({type:'Race',title:r.name,desc:r.description,href:`races/${r.slug}.html`});r.paths.forEach((p,pi)=>p.forms.forEach((f,fi)=>searchIndex.push({type:r.name+' / '+p.name,title:f.title,desc:textOnly(f.html).slice(0,280),href:`races/${r.slug}.html#form-${pi}-${fi}`})));});
 D.systems.forEach(s=>searchIndex.push({type:'System',title:s.title,desc:s.excerpt,href:'systems.html#'+s.slug}));
 D.universal.forEach(s=>{searchIndex.push({type:'Universal Path',title:s.title,desc:s.messages.map(m=>textOnly(m.html)).join(' ').slice(0,170),href:'universal/'+s.slug+'.html'});s.messages.filter(m=>textOnly(m.html).length>60).forEach((m,i)=>searchIndex.push({type:s.title,title:m.title,desc:textOnly(m.html).slice(0,230),href:'universal/'+s.slug+'.html#form-'+i}));});

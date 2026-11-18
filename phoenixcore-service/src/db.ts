@@ -73,6 +73,9 @@ export async function openPostgres(url: string): Promise<Store> {
 
 export const defaultSettings = { playerRole: '', judgeRole: '', reviewChannel: '', currency: 'Credits', rpChannels: '', rpDivider: '' };
 const ddl = [
+  'CREATE TABLE IF NOT EXISTS pc_codex (entry_key TEXT PRIMARY KEY, revision INTEGER NOT NULL, fields TEXT NOT NULL, editor TEXT NOT NULL, edited_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_archives (request_id TEXT PRIMARY KEY, previous_status TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_active_forms (character_id TEXT PRIMARY KEY, form_key TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_config (slot INTEGER PRIMARY KEY, guild_id TEXT NOT NULL, revision INTEGER NOT NULL, value TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_settings_history (revision INTEGER PRIMARY KEY, actor TEXT NOT NULL, old_value TEXT NOT NULL, new_value TEXT NOT NULL, at_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_characters (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision INTEGER NOT NULL, sheet TEXT NOT NULL)',

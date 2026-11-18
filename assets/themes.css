@@ -56,9 +56,9 @@ body:not(.admin-page) .universal-chips span{color:var(--ct-accent);background:va
 .theme-choice .theme-name{flex:1}.theme-check{color:var(--ct-accent);opacity:0}.theme-choice.selected .theme-check{opacity:1}
 @media(max-width:780px){.theme-switcher{margin-left:auto}.theme-trigger-label{display:none}.theme-trigger{padding:9px}.theme-panel{right:-40px}}
 /* Keep the accessible design stable in light reader themes. */
-:root[data-codex-theme="parchment"] body:not(.admin-page) .modal-head,
-:root[data-codex-theme="parchment"] body:not(.admin-page) .about-card,
-:root[data-codex-theme="parchment"] body:not(.admin-page) .sparking-info{color:var(--ct-text)}
+:root[data-codex-tone="light"] body:not(.admin-page) .modal-head,
+:root[data-codex-tone="light"] body:not(.admin-page) .about-card,
+:root[data-codex-tone="light"] body:not(.admin-page) .sparking-info{color:var(--ct-text)}
 /* Accessibility and contrast, including the light reader theme */
 body:not(.admin-page) .home-hero h1{color:var(--ct-text)}
 body:not(.admin-page) .hero-lede strong{color:var(--ct-accent)}
@@ -68,13 +68,13 @@ body:not(.admin-page) .btn-secondary{color:var(--ct-text);border-color:var(--ct-
 body:not(.admin-page) .global-search{background:var(--ct-card);color:var(--ct-text)}
 body:not(.admin-page) :is(.modal-footer,.modal-head) button{color:var(--ct-text)}
 body:not(.admin-page) .theme-trigger{background:var(--ct-card);border-color:var(--ct-border);color:var(--ct-text)}
-[data-codex-theme="parchment"]{color-scheme:light}
-[data-codex-theme="parchment"] body:not(.admin-page) :is(.nav-brand,.site-header nav a,.site-footer,.hero-lede,.page-hero h1,.section-header h2,.portal h3){color:var(--ct-text)}
-[data-codex-theme="parchment"] body:not(.admin-page) .site-header nav a:is(.active,:hover){color:var(--ct-accent)}
-[data-codex-theme="parchment"] body:not(.admin-page) .home-hero{background:radial-gradient(ellipse at 78% 35%,#e2c4a45e,transparent 44%),var(--ct-background)}
-[data-codex-theme="parchment"] body:not(.admin-page) :is(.home-hero h1,.section-header h2,.page-hero h1,.portal h3,.race-hero h1,.world-info h3,.race-card h3){color:var(--ct-text)}
-[data-codex-theme="parchment"] body:not(.admin-page) .hero-lede strong{color:var(--ct-accent)}
-[data-codex-theme="parchment"] body:not(.admin-page) .hero-bottom, [data-codex-theme="parchment"] body:not(.admin-page) .stats-ribbon span{color:var(--ct-muted)}
-[data-codex-theme="parchment"] body:not(.admin-page) .theme-panel{background:var(--ct-panel);color:var(--ct-text)}
-[data-codex-theme="parchment"] body:not(.admin-page) .theme-choice{color:var(--ct-text)}
+[data-codex-tone="light"]{color-scheme:light}
+[data-codex-tone="light"] body:not(.admin-page) :is(.nav-brand,.site-header nav a,.site-footer,.hero-lede,.page-hero h1,.section-header h2,.portal h3){color:var(--ct-text)}
+[data-codex-tone="light"] body:not(.admin-page) .site-header nav a:is(.active,:hover){color:var(--ct-accent)}
+[data-codex-tone="light"] body:not(.admin-page) .home-hero{background:radial-gradient(ellipse at 78% 35%,#e2c4a45e,transparent 44%),var(--ct-background)}
+[data-codex-tone="light"] body:not(.admin-page) :is(.home-hero h1,.section-header h2,.page-hero h1,.portal h3,.race-hero h1,.world-info h3,.race-card h3){color:var(--ct-text)}
+[data-codex-tone="light"] body:not(.admin-page) .hero-lede strong{color:var(--ct-accent)}
+[data-codex-tone="light"] body:not(.admin-page) .hero-bottom, [data-codex-tone="light"] body:not(.admin-page) .stats-ribbon span{color:var(--ct-muted)}
+[data-codex-tone="light"] body:not(.admin-page) .theme-panel{background:var(--ct-panel);color:var(--ct-text)}
+[data-codex-tone="light"] body:not(.admin-page) .theme-choice{color:var(--ct-text)}
 @media(max-width:780px){body:not(.admin-page) .site-header nav.open{background:var(--ct-panel);border-bottom:1px solid var(--ct-border)}}

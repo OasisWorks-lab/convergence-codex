@@ -1,5 +1,8 @@
 from base64 import b64decode
 from pathlib import Path
+import json
+import mimetypes
+from urllib.parse import urlsplit
 from os import environ
 from playwright.sync_api import expect, sync_playwright
 base = (Path(__file__).resolve().parents[2] / "phoenixcore" / "index.html").as_uri()
@@ -134,7 +137,7 @@ with sync_playwright() as p:
     expect(page.locator(".big-number")).to_have_text("11,550")
     expect(page.get_by_role("heading",name="Training stats")).to_be_visible()
     page.get_by_label("Practice role").select_option("player")
-    page.get_by_role("link",name="RP posting").click()
+    expect(page.get_by_role("heading",name="Posting preferences")).to_be_visible()
     page.get_by_label("Rin’s tag").fill("rin")
     page.locator(".tag-form").filter(has_text="Rin’s tag").get_by_role("button").click()
     expect(page.get_by_label("Rin’s tag")).to_have_value("rin")
@@ -167,6 +170,86 @@ with sync_playwright() as p:
     expect(phone.get_by_role("heading", name="New Submission")).to_be_visible()
     assert phone.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(phone,"mobile-submission.png")
+    # Exercise the actual atlas and editor scripts on a same-origin fixture.
+    web_root=Path(__file__).resolve().parents[2]
+    edits={}
+    def site(context, owner=False):
+        def serve(route):
+            url=urlsplit(route.request.url)
+            if url.netloc!="codex.test":
+                route.abort()
+                return
+            if url.path=="/api/codex/access":
+                route.fulfill(json={"canEdit":owner})
+            elif url.path=="/api/codex":
+                if route.request.method=="GET":
+                    route.fulfill(json={"entries":list(edits.values())})
+                    return
+                assert owner
+                patch=route.request.post_data_json
+                edits[patch["key"]]={"key":patch["key"],"revision":patch["revision"]+1,"fields":{**edits.get(patch["key"],{}).get("fields",{}),**patch["fields"]}}
+                route.fulfill(json=edits[patch["key"]])
+            elif url.path=="/phoenixcore/config.js":
+                route.fulfill(content_type="text/javascript",body="window.PHOENIXCORE_API='https://codex.test';")
+            else:
+                path=web_root/url.path.lstrip("/")
+                if path.is_file():
+                    route.fulfill(path=str(path),content_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+                else: route.fulfill(status=404,body="")
+        context.route("**/*",serve)
+        if owner: context.add_init_script("sessionStorage.setItem('pc:/phoenixcore/:session','fixture')")
+        tab=context.new_page()
+        tab.on("pageerror",on_error)
+        return tab
+    owner_tab=site(browser.new_context(),True)
+    owner_tab.goto("https://codex.test/worlds.html#planet-earth")
+    expect(owner_tab.get_by_role("heading",name="Planet Earth",exact=True)).to_be_visible()
+    owner_tab.get_by_role("link",name="Location Guild(s)").click()
+    expect(owner_tab.get_by_text("No guilds have been listed",exact=False)).to_be_visible()
+    owner_tab.get_by_role("button",name="Close details").click()
+    owner_tab.get_by_role("button",name="Edit Mode",exact=True).click()
+    owner_tab.get_by_role("button",name="Explore Planet Earth",exact=True).click()
+    owner_tab.get_by_role("link",name="Location Guild(s)").click()
+    owner_tab.get_by_role("button",name="Add guild").click()
+    owner_tab.get_by_label("Name",exact=True).fill("Earth Watch")
+    owner_tab.get_by_label("Leadership").fill("The elected wardens")
+    owner_tab.get_by_role("button",name="Publish changes").click()
+    owner_tab.get_by_role("link",name="Earth Watch").click()
+    expect(owner_tab.get_by_text("The elected wardens")).to_be_visible()
+    item_page="https://codex.test/worlds.html#planet-earth/items"
+    owner_tab.goto(item_page)
+    owner_tab.get_by_role("button",name="Add mystical item").click()
+    owner_tab.get_by_label("Name",exact=True).fill("First Bell")
+    owner_tab.get_by_label("Abilities").fill("Marks the start of the trial.")
+    owner_tab.get_by_role("button",name="Publish changes").click()
+    owner_tab.get_by_role("link",name="First Bell").click()
+    expect(owner_tab.get_by_text("Marks the start of the trial.")).to_be_visible()
+    item_link=owner_tab.url
+    guest=site(browser.new_context(viewport={"width":390,"height":844}))
+    guest.goto(item_link)
+    expect(guest.get_by_text("Marks the start of the trial.")).to_be_visible()
+    expect(guest.get_by_role("button",name="Edit Mode",exact=True)).to_have_count(0)
+    guest.get_by_role("button",name="Close details").click()
+    guest.get_by_role("button",name="Choose your Codex theme").click()
+    expect(guest.locator(".theme-choice")).to_have_count(30)
+    guest.locator('[data-theme-id="forest"]').click()
+    guest.reload()
+    expect(guest.locator("html")).to_have_attribute("data-codex-theme","forest")
+    assert guest.evaluate("document.body.scrollWidth <= innerWidth")
+    guest.goto("https://codex.test/worlds.html#planet-sadala/guilds")
+    expect(guest.get_by_text("No guilds have been listed",exact=False)).to_be_visible()
+    owner_tab.goto("https://codex.test/worlds.html")
+    owner_tab.get_by_role("button",name="Edit content").click()
+    owner_tab.get_by_label("Section",exact=True).select_option("themes")
+    owner_tab.get_by_label("Entry",exact=True).select_option("themes/forest")
+    owner_tab.get_by_label("Name",exact=True).fill("Forest Green")
+    owner_tab.get_by_role("button",name="Publish changes").click()
+    expect(owner_tab.get_by_role("button",name="Exit Edit Mode",exact=True)).to_be_visible()
+    guest.goto("https://codex.test/worlds.html")
+    guest.get_by_role("button",name="Choose your Codex theme").click()
+    expect(guest.locator('[data-theme-id="forest"]')).to_have_text("Forest Green✓")
+    screenshot(owner_tab,"atlas-owner.png")
+    screenshot(guest,"atlas-themes-mobile.png")
     assert not problems,problems
     browser.close()
     print("Desktop and mobile dashboard verified, including seven templates, draft switching, approvals, staff judgment and RP preferences.")

@@ -4,6 +4,7 @@ import {generateKeyPairSync,randomBytes,randomUUID,sign} from 'node:crypto';
 import {once} from 'node:events';
 import {openSqlite,initialize,defaultSettings} from '../src/db.ts';
 import {application,hash,configuration} from '../src/server.ts';
+import {editorRole} from '../src/codex.ts';
 import {Discord,deliverNext,type Config} from '../src/discord.ts';
 
 test('Codex sign-in, current directory, player edit, Discord approval, and staff award through HTTP',async t=>{
@@ -58,6 +59,19 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await get('/api/state')).status,401);
   assert.equal(await login('899999999999999999'),'');
   const writer=await login(ids.writer),owner=await login(ids.owner),judge=await login(ids.judge),extra=await login(ids.extra);
+  const publicEntries=()=>get('/api/codex',{headers:{origin}}).then(r=>r.json());
+  const access=(s:string)=>get('/api/codex/access',{headers:{Authorization:'Bearer '+s,origin}}).then(r=>r.json());
+  const patch={key:'worlds/planet-earth',revision:0,fields:{excerpt:'Revised for the next session.'}};
+  assert.deepEqual(await publicEntries(),{entries:[]});
+  assert.equal((await post('/api/codex',patch)).status,401);
+  assert.equal((await post('/api/codex',patch,owner)).status,403);
+  const roleHolder=members.find(m=>m.user.id===ids.owner)!;roleHolder.roles.push(editorRole);
+  assert.deepEqual(await access(owner),{canEdit:true});
+  assert.equal((await post('/api/codex',patch,owner)).status,200);
+  assert.equal((await publicEntries()).entries[0].fields.excerpt,patch.fields.excerpt);
+  roleHolder.roles.pop();
+  assert.deepEqual(await access(owner),{canEdit:false});
+  assert.equal((await post('/api/codex',{...patch,revision:1},owner)).status,403);
   const start=await state(writer);assert.equal(start.players.length,4);assert.equal(start.settings,null);
   const cfg={revision:1,value:{...defaultSettings,judgeRole:ids.role}};
   assert.equal((await post('/api/settings',cfg,judge)).status,403);

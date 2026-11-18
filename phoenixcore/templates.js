@@ -14,6 +14,20 @@
     if (tag && !tagPattern.test(tag)) throw Error('Use 1–24 letters, numbers, underscores or hyphens for the posting tag. Start with a letter or number.');
     return tag;
   }
+  const trigger=tag=>tag?tag+(/[-_]$/.test(tag)?'':'>'):'';
+  function readForms(value){
+    if(!value)return [];
+    let list;
+    try{list=JSON.parse(value);}catch{throw Error('Choose the attained forms on the character sheet.');}
+    if(!Array.isArray(list)||list.length>40)throw Error('Choose up to 40 attained forms.');
+    const ids=new Set(),names=new Set();
+    return list.map(f=>{
+      if(!f||typeof f.id!=='string'||!/^[a-z0-9_-]{1,90}$/.test(f.id)||typeof f.name!=='string'||!f.name.trim()||f.name.length>100||f.name.trim().toLowerCase()==='base'||typeof f.portrait!=='string'||f.portrait.length>2048||(f.portrait&&!validImage(f.portrait)))throw Error('Check each form name and portrait.');
+      const name=f.name.trim(),key=name.toLowerCase();
+      if(ids.has(f.id)||names.has(key))throw Error('Each attained form needs a unique name.');
+      ids.add(f.id);names.add(key);return {id:f.id,name,portrait:f.portrait};
+    });
+  }
   function validImage(value) {
     if (/^\.\.\/assets\/uploads\/[a-zA-Z0-9_./-]+\.(png|jpe?g|webp|gif)$/i.test(value) && !value.slice(3).includes('..')) return true;
     try {
@@ -26,7 +40,7 @@
   const character = [
     section('History',
       line('name','Character name',{max:64,required:true}), line('alias','Alias'),
-      line('tag','RP posting tag',{max:24,hint:'For example, rin lets you post as Rin with rin> followed by your message.'}),
+      line('tag','RP posting tag',{max:24,hint:'Use test- exactly as typed. For a word tag like rin, type rin> before your message.'}),
       pick('characterType','Character type',[['OC','Player character (OC)'],['NPC','Non-player character (NPC)']],{initial:'OC'}),
       prose('bio','Lore / backstory',{max:18000,hint:'Long backstories are welcome. Paragraph breaks are preserved.'}),
       prose('family','Family in RP',{hint:'Known relatives, living or deceased.'}), prose('enemies','Enemies in RP',{hint:'Rivals, grudges or vendettas.'}),
@@ -35,7 +49,7 @@
       line('age','Age'),line('gender','Gender'),line('lineage','Race / lineage',{max:80}),
       line('path','Path'),line('className','Class'),line('height','Height'),line('weight','Weight'),
       prose('personality','Personality & mannerisms',{hint:'Speech, behavior, quirks and emotional tone.'}),
-      line('alignment','Alignment'),image('portrait','Character portrait')),
+      line('alignment','Alignment'),image('portrait','Character portrait'),line('attainedForms','Attained transformations',{max:100000})),
     section('Strengths, weaknesses & equipment',
       prose('strengths','Personal strengths',{required:true,minLines:3,hint:'Enter at least three distinct personal strengths, one per line. Think beyond racial abilities.'}),
       prose('weaknesses','Personal weaknesses',{required:true,minLines:3,hint:'Enter at least three distinct flaws that affect play, one per line.'}),
@@ -119,7 +133,7 @@
       }
       if (f.key==='scene' && value && !/^https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\/?$/.test(value)) throw Error('Use a Discord message link for the training scene.');
       if (f.media && value && !validImage(value)) throw Error('Use an HTTPS image or GIF link, or upload an image.');
-      output[f.key]=f.key==='tag'?normalizeTag(value):value;
+      output[f.key]=f.key==='tag'?normalizeTag(value):f.key==='attainedForms'?(readForms(value).length?JSON.stringify(readForms(value)):''):value;
     }
     return output;
   }
@@ -169,7 +183,7 @@
     assert(gain > 0n || BigInt(currency) > 0n || gear.length || awards.length, 'The award must change the sheet after whole-point rounding.');
     return { next, award: { percent, gain: String(gain), currency, gear,...(points!=='0'?{points}:{}),...(awards.length?{stats:awards}:{}) } };
   }
-  const api={normalizeTag,validImage,calculateAward,forms,allFields,normalize,catalogue,tiers,stats};
+  const api={trigger,readForms,normalizeTag,validImage,calculateAward,forms,allFields,normalize,catalogue,tiers,stats};
   if(typeof module==='object' && module.exports) module.exports=api;
   else globalThis.PhoenixForms=api;
 })();
