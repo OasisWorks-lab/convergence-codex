@@ -105,15 +105,19 @@
     return '<a class="card person" href="#player-'+h(p.id)+'">'+avatar(p.display,p.id,p.avatar)+'<span class="who"><b>'+h(p.display)+'</b><small class="muted">@'+h(p.username)+'</small><small class="subtle">'+n+' character'+(n===1?'':'s')+'</small></span><span class="arrow" aria-hidden="true">↗</span></a>';
   }
   function directory(){
+    const judge=state.actor.isJudge;
+    const search='<input id="filter" name="message" type="search" maxlength="180" aria-label="'+(judge?'Search player names or look up a character post':'Search player names')+'" placeholder="'+(judge?'Player name or Discord post…':'Search players…')+'">';
     return hero('Player directory','Find a player by their Discord name and open their approved character sheets.')+
-      '<div class="section-head"><h2>Current players</h2><div class="tools"><input id="filter" type="search" aria-label="Search player names" placeholder="Search players…">'+(state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div></div><div id="players" class="grid"></div>'+
-      (state.actor.isJudge?'<form id="attributionForm" class="panel form dossier">'+field('message','Look up writer by character post','',{max:170,required:true,hint:'Paste a Discord message link or message ID.'})+'<button class="primary">Look up writer</button><div id="attribution" role="status"></div></form>':'');
+      '<div class="section-head"><h2>Current players</h2><div class="tools">'+(judge?'<form id="attributionForm" class="actions">'+search+'<button class="primary" hidden>Look up writer</button></form>':search)+(state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div></div>'+
+      (judge?'<div id="attribution" role="status"></div>':'')+'<div id="players" class="grid"></div>';
   }
   function filterPlayers(){
     if(!$('#players'))return;
     const query=($('#filter')?.value||'').trim().toLowerCase();
-    const players=state.players.filter(p=>(p.display+' '+p.username).toLowerCase().includes(query)).sort((a,b)=>a.display.localeCompare(b.display));
-    $('#players').innerHTML=players.map(playerCard).join('')||'<p class="empty">No players match this view.</p>';
+    const lookup=$('#attributionForm button'),isPost=/^(?:\\d{17,20}|https:\\/\\/(?:(?:ptb|canary)\\.)?discord(?:app)?\\.com\\/channels\\/\\d{17,20}\\/\\d{17,20}\\/\\d{17,20}\\/?)$/.test(query);
+    if(lookup){lookup.hidden=!isPost;$('#attribution').textContent='';}
+    const players=state.players.filter(p=>(p.display+' '+p.username+' '+p.id).toLowerCase().includes(query)).sort((a,b)=>a.display.localeCompare(b.display));
+    $('#players').innerHTML=players.map(playerCard).join('')||(lookup&&isPost?'':'<p class="empty">No players match this view.</p>');
   }
   function player(id){
     const p=state.players.find(p=>p.id===id);if(!p)return missing();
@@ -527,8 +531,10 @@ function formList(raw){
         await load();tell('Bot settings saved.');return;
       }
       if(f.id==='attributionForm'){
+        if(submit.hidden)return;
         if(demo){$('#attribution').textContent='Practice mode has no Discord posts.';return;}
         const result=await call('/api/posting/lookup/'+encodeURIComponent(fields.message.trim()));
+        if($('#filter')?.value.trim()!==fields.message.trim())return;
         $('#attribution').innerHTML=h(result.characterName)+' · '+link('player-'+result.authorId,ownerName(result.authorId))+' · '+h(result.authorId);return;
       }
       if(f.id==='defaultForm'||f.classList.contains('tag-form')){

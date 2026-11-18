@@ -257,7 +257,8 @@ with sync_playwright() as p:
     guest.locator('[data-theme-id="forest"]').click()
     guest.reload()
     expect(guest.locator("html")).to_have_attribute("data-codex-theme","forest")
-    assert guest.evaluate("document.body.scrollWidth <= innerWidth")
+    overflow=guest.evaluate("""() => [...document.querySelectorAll('body *')].filter(el=>el.getBoundingClientRect().right>innerWidth+1 && el.getBoundingClientRect().width).map(el=>[el.tagName,el.className,el.getBoundingClientRect().right]).slice(0,10)""")
+    assert guest.evaluate("document.body.scrollWidth <= innerWidth"),overflow
     guest.goto("https://codex.test/worlds.html#planet-sadala/guilds")
     expect(guest.get_by_text("No guilds have been listed",exact=False)).to_be_visible()
     owner_tab.goto("https://codex.test/worlds.html")

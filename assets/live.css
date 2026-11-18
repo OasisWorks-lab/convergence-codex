@@ -7,3 +7,15 @@
 .theme-panel{max-height:min(72dvh,38rem);overflow:auto;overscroll-behavior:contain}
 @media(max-width:1100px){.site-header:has(#codexEditorTools) .header-inner{flex-wrap:wrap;height:auto;justify-content:space-between;row-gap:.35rem}.site-header:has(#codexEditorTools){height:auto}}@media(max-width:640px){.site-header:has(#codexEditorTools) .nav-brand em{display:none}#codexEditorTools button{font-size:.76rem;padding:.38rem}.atlas-links a{padding:.75rem}}
 
+
+@media(max-width:780px){
+ body[data-page] .site-header{height:auto}
+ body[data-page] .site-header .header-inner{min-height:62px;flex-wrap:wrap;gap:.4rem;padding:.4rem 4%}
+ body[data-page] .site-header .nav-brand{flex:1 1 auto;min-width:0}
+ body[data-page] .site-header nav.open{top:100%}
+ body[data-page] .site-header .theme-switcher,body[data-page] .site-header .global-search{margin-left:0}
+ body[data-page] .theme-panel{position:fixed;top:4.3rem;right:.75rem;left:auto;max-width:calc(100vw - 1.5rem)}
+ body[data-page] .codex-signin{font-size:.75rem;white-space:nowrap;padding:.4rem}
+ body[data-page] .page-hero h1{font-size:clamp(2.5rem,12vw,3.6rem);overflow-wrap:anywhere}
+ body[data-page] .world-grid{grid-template-columns:minmax(0,1fr)}
+}
