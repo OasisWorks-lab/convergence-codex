@@ -178,7 +178,7 @@ function formList(raw){
     let rows=[];try{rows=JSON.parse(value||'[]');}catch{}
     return '<div class="field wide attained-picker"><h3>Attained transformations</h3><p class="hint">Add forms this character has earned. Gabe reviews forms and their artwork with the character sheet.</p>'+
       '<input type="hidden" name="attainedForms" value="'+h(value)+'"><div data-attained-rows>'+rows.map(formRow).join('')+'</div>'+
-      '<div class="actions"><label>Available forms<select data-form-choice>'+formChoices(lineage)+'</select></label><button type="button" data-add-form>Add form</button></div></div>';
+      '<div class="actions"><label>Available forms<select data-form-choice aria-label="Available forms">'+formChoices(lineage)+'</select></label><button type="button" data-add-form>Add form</button></div></div>';
   }
   function syncForms(f){
     const hidden=f?.elements.attainedForms;if(!hidden)return;
@@ -195,7 +195,7 @@ function formList(raw){
     if(f.key==='attainedForms')return formPicker(val,values.lineage);
     if(f.key==='lineage'){
       const races=[...new Set([...window.CONVERGENCE_DATA.races.map(r=>r.name),...(state.catalogue||[]).filter(d=>d.kind==='race').map(d=>d.fields.name),...(val?[val]:[])])].sort();
-      return '<label class="field">Race / lineage<select data-lineage>'+options([['','Choose…'],...races.map(n=>[n,n]),['__custom','Other lineage…']],val)+'</select></label><label class="field" data-custom-lineage hidden>Custom lineage<input name="lineage" maxlength="80" value="'+h(val)+'"></label>';
+      return '<label class="field">Race / lineage<select data-lineage aria-label="Race / lineage">'+options([['','Choose…'],...races.map(n=>[n,n]),['__custom','Other lineage…']],val)+'</select></label><label class="field" data-custom-lineage hidden>Custom lineage<input name="lineage" maxlength="80" value="'+h(val)+'"></label>';
     }
     if(f.media) return '<div class="field wide media-picker"><label><span>'+h(f.label)+' URL</span><input data-media-url name="'+h(f.key)+'" value="'+h(val)+'" maxlength="'+f.max+'" placeholder="https://…"></label>'+
       '<label><span>Upload '+h(f.label.toLowerCase())+'</span><input type="file" data-media-file accept="image/png,image/jpeg,image/webp,image/gif"></label>'+

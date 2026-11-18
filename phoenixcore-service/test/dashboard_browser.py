@@ -225,7 +225,7 @@ with sync_playwright() as p:
         return tab
     owner_tab=site(browser.new_context(),True)
     owner_tab.goto("https://codex.test/worlds.html#planet-earth")
-    expect(owner_tab.locator("#modalTitle")).to_be_visible()
+    expect(owner_tab.locator("#modalTitle")).to_have_text("Planet Earth")
     owner_tab.get_by_role("link",name="Location Guild(s)").click()
     expect(owner_tab.get_by_text("No guilds have been listed",exact=False)).to_be_visible()
     owner_tab.get_by_role("button",name="Close details").click()

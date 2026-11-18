@@ -3,7 +3,7 @@
   const live=window.CodexLive, model=window.CodexModel, data=window.CONVERGENCE_DATA;
   const el=(tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;return n;};
   const option=(value,text)=>new Option(text,value);
-  const label=(text,input)=>{const l=el('label',text);l.append(input);return l;};
+  const label=(text,input)=>{const l=el('label',text);input.setAttribute('aria-label',text);l.append(input);return l;};
   let dialog,entries,group,entry,inputs,feedback,form,current,original,saving=false;
   const groups={...model.titles,settings:'Site settings'};
   const rootField=key=>key.split('/')[0];
