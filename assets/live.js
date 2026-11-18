@@ -7,7 +7,7 @@
   const local=location.protocol==='file:'||new URLSearchParams(location.search).get('demo')==='1';
   const model=window.CodexModel,data=window.CONVERGENCE_DATA;
   let rows=[],authorized=false,editing=false;
-  const read=k=>{try{return sessionStorage.getItem(key+k);}catch{return null;}};
+  const read=k=>{try{return (k==='session'&&localStorage.getItem(key+k))||sessionStorage.getItem(key+k);}catch{return null;}};
   const put=(k,v)=>{try{sessionStorage.setItem(key+k,v);}catch{}};
   const cache='codex.publication.1:'+root.href;
   const page=document.body?.dataset.page||'';
@@ -62,7 +62,7 @@
       sign.onclick=()=>put('codex-return',location.href);header.append(sign);return;
     }
     try{authorized=!!(await request('/api/codex/access')).canEdit;}
-    catch(error){authorized=false;if(error.status===401){try{sessionStorage.removeItem(key+'session');}catch{}return access();}}
+    catch(error){authorized=false;if(error.status===401){try{sessionStorage.removeItem(key+'session');localStorage.removeItem(key+'session');}catch{}return access();}}
     document.querySelector('.codex-signin')?.remove();
     if(!authorized){setEditing(false);document.querySelector('#codexEditorTools')?.remove();return;}
     if(header.querySelector('#codexEditorTools'))return;

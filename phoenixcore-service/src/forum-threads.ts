@@ -112,9 +112,16 @@ export function playerThread(db:Store,discord:Discord,forum:string,owner:string,
 }
 
 export async function provisionNext(db:Store,discord:Discord,forum:string,now=Date.now()){
-  const [job]=await db.query("SELECT subject FROM pc_forum_threads WHERE forum_id=$1 AND subject LIKE 'player:%' AND thread_id IS NULL AND retry_at<=$2 ORDER BY retry_at,subject LIMIT 1",[forum,now]);
+  const [job]=await db.query(`SELECT t.subject FROM pc_forum_threads t LEFT JOIN pc_forum_checks c ON c.forum_id=t.forum_id AND c.subject=t.subject
+    WHERE t.forum_id=$1 AND t.subject LIKE 'player:%' AND t.retry_at<=$2 AND ((t.thread_id IS NULL AND c.subject IS NULL) OR c.retry_at<=$2)
+    ORDER BY t.retry_at,t.subject LIMIT 1`,[forum,now]);
   if(!job)return false;
-  try{await playerThread(db,discord,forum,job.subject.slice(7),now);}
-  catch(error){console.warn('OC updates forum '+forum+' could not open a player post. '+(error instanceof DiscordFailure?error.message:'Delivery will retry.'));}
+  try{
+    await playerThread(db,discord,forum,job.subject.slice(7),now);
+    await db.query('DELETE FROM pc_forum_checks WHERE forum_id=$1 AND subject=$2',[forum,job.subject]);
+  }catch(error){
+    await db.query('UPDATE pc_forum_checks SET retry_at=$3 WHERE forum_id=$1 AND subject=$2',[forum,job.subject,now+retryDelay(1,error)]);
+    console.warn('OC updates forum '+forum+' could not open a player post. '+(error instanceof DiscordFailure?error.message:'Delivery will retry.'));
+  }
   return true;
 }

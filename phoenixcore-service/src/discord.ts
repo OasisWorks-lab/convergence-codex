@@ -1,7 +1,10 @@
 import {characterCommand} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
 import { createPublicKey, verify, createHash } from 'node:crypto';
-import { Problem, requireThat, visibleRequest, decide } from './domain.ts';
+import {captureNative} from './native.ts';
+import {assess} from './review-rules.ts';
+import {defaultSettings} from './db.ts';
+import { Problem, requireThat, visibleRequest, decide,readSettings,actorFor } from './domain.ts';
 import type { Store } from './db.ts';
 
 export type Config = { service: string; dashboard: string; clientId: string; clientSecret: string; publicKey: string; token: string; guild: string; owner: string };
@@ -78,9 +81,10 @@ export class Discord {
   }
   async registerCommands(){
     const path='/applications/'+this.settings.clientId+'/guilds/'+this.settings.guild+'/commands';
-    const specs=[{name:'Character sheet',type:3},{name:'transform',type:1,description:'Switch your approved character to an attained form or base.',options:[
+    const specs=[{name:'Catalog submission',type:3},{name:'Character sheet',type:3},{name:'transform',type:1,description:'Switch your approved character to an attained form or base.',options:[
       {name:'character',description:'Your character name, posting tag or sheet ID',type:3,required:true,autocomplete:true},
       {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
+    specs.push({name:'revert-form',type:1,description:'Return to base or an earlier attained form.',options:[{name:'character',type:3,description:'Your approved character',required:true,autocomplete:true},{name:'form',type:3,description:'Base or an earlier attained form',required:false,autocomplete:true}]});
     for(const spec of specs)await this.call(path,{method:'POST',body:JSON.stringify(spec)});
   }
   async guildChannel(id:string) {
@@ -95,8 +99,8 @@ function brief(value: any, max=140) {
   const escaped=s.replace(/[\u0000-\u001f]/g,' ').replace(/([*_~`|>\\])/g,'\\$1');
   return escaped.length>max ? escaped.slice(0,max-1)+'…' : escaped || '—';
 }
-export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config) {
-  const waiting=r.status==='awaiting_judge', open=waiting||r.status==='pending';
+export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config, settings=defaultSettings, ownerDm=false, denialNote='',decisionKey='') {
+  const waiting=r.status==='awaiting_judge', open=waiting||r.status==='pending'||r.status==='needs_details';
   const type=forms.forms[r.kind]?.title??'Staff award';
   const fieldKind=forms.catalogue.includes(r.kind)?r.kind:'create';
   const captions:Record<string,string>=Object.fromEntries(forms.allFields(fieldKind).map((f:any)=>[f.key,f.label]));
@@ -112,14 +116,22 @@ export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config) {
   if(r.award) fields.push({name:'Calculated award',value:'+'+r.award.gain+' BPL · +'+r.award.currency+' currency'+(r.award.stats?.length?' · '+r.award.stats.length+' stat gain(s)':'')});
   const buttons=[];
   if(r.details?.scene)fields.push({name:'Training scene',value:r.details.scene});
-  if(open&&!waiting) buttons.push({type:2,style:3,label:'Approve',custom_id:'pc:approve:'+r.id});
+  if(r.status==='pending') buttons.push({type:2,style:3,label:'Approve',custom_id:'pc:approve:'+r.id});
   if(open)buttons.push({type:2,style:4,label:'Decline',custom_id:'pc:decline:'+r.id});
+  if(ownerDm&&r.status==='owner_review'){
+    buttons.push({type:2,style:4,label:'Uphold denial',custom_id:'pc:uphold:'+r.id+':'+decisionKey},{type:2,style:3,label:'Veto denial',custom_id:'pc:veto:'+r.id+':'+decisionKey});
+    if(denialNote)fields.push({name:'Helper’s reason',value:brief(denialNote,600)});
+  }
+  if(open||r.status==='owner_review')buttons.push({type:2,style:2,label:'Staff checks',custom_id:'pc:checks:'+r.id});
   buttons.push({type:2,style:5,label:waiting?'Review training':open?'Full request':'View decision',url:c.dashboard+'#request-'+r.id});
-  const labels:Record<string,string>={approved:'Approved',declined:'Declined',stale:'Outdated',archived:'Archived'};
-  const content=open?'<@'+c.owner+'> '+(waiting?'A training claim is waiting for staff judgment.':'A submission is ready for your decision.'):labels[r.status]||r.status;
-  return {content,allowed_mentions:{parse:[],users:open?[c.owner]:[]},nonce:createHash('sha256').update(r.id+':'+r.status).digest('hex').slice(0,24),enforce_nonce:true,
+  const labels:Record<string,string>={approved:'Approved',declined:'Declined',stale:'Outdated',archived:'Archived',owner_review:'A Helper denied this request. Awaiting the owner’s decision.'};
+  const mention=settings.judgeRole?'<@&'+settings.judgeRole+'>':'';
+  const substitutions:Record<string,string>={helper:mention,type,character:brief(r.after.name,80),player:'<@'+r.authorId+'>'};
+  let content=open?settings.submissionMessage.replace(/\{(helper|type|character|player)\}/g,(_,k)=>substitutions[k]):labels[r.status]||r.status;
+  if(open&&mention&&!content.includes(mention))content=mention+' '+content;
+  return {content,allowed_mentions:{parse:[],roles:open&&settings.judgeRole?[settings.judgeRole]:[]}, nonce:createHash('sha256').update(r.id+':'+r.status+decisionKey).digest('hex').slice(0,24),enforce_nonce:true,
     embeds:[{title:type+' · '+brief(r.after.name,70),description:lines.join('\n').slice(0,2700)||'The full claim is available in PhoenixCore.',
-      color:0xea875b,fields,...((r.after.portrait||r.after.art)?{thumbnail:{url:new URL(r.after.portrait||r.after.art,c.dashboard).href}}:{}),footer:{text:'PhoenixCore request '+r.id}}],
+      color:0xea875b,fields,...((forms.validImage(r.after.portrait||r.after.art||''))?{image:{url:new URL(r.after.portrait||r.after.art,c.dashboard).href}}:{}),footer:{text:'PhoenixCore request '+r.id}}],
     components:[{type:1,components:buttons}]};
 }
 
@@ -130,18 +142,49 @@ export function checkSignature(raw:Buffer, signature:string, timestamp:string, k
   const publicKey=createPublicKey({key:Buffer.concat([Buffer.from('302a300506032b6570032100','hex'),Buffer.from(key,'hex')]),format:'der',type:'spki'});
   return verify(null,Buffer.concat([Buffer.from(timestamp),raw]),publicKey,Buffer.from(signature,'hex'));
 }
-export async function handleInteraction(db:Store, config:Config, body:any) {
+export async function handleInteraction(db:Store, config:Config, body:any,discord=new Discord(config),defer?:(work:()=>Promise<string>)=>void) {
   if (body.type===1) return {type:1};
   const reply=(content:string)=>({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
   if(body.application_id!==config.clientId || (body.guild_id && body.guild_id!==config.guild)) return reply('This action belongs to a different installation.');
   const actor=body.member?.user?.id ?? body.user?.id;
-  if((body.type===2||body.type===4) && ['Character sheet','transform'].includes(body.data?.name))return characterCommand(db,config.guild,config.dashboard,body);
-  if (actor !== config.owner) return reply('Only the configured PhoenixCore owner can decide this request.');
-  const match=/^pc:(approve|decline):([0-9a-f-]{36})$/i.exec(body.data?.custom_id??'');
+  if((body.type===2||body.type===4) && ['Character sheet','transform','revert-form'].includes(body.data?.name))return characterCommand(db,config.guild,config.dashboard,body);
+  if(body.data?.name==='Catalog submission'||String(body.data?.custom_id||'').startsWith('pc:catalog:')){
+    const {value}=await readSettings(db);
+    if(body.guild_id!==config.guild||!body.member?.user?.id||!actorFor(actor,body.member.roles||[],config.owner,value).isJudge)return reply('Only a Convergence Helper or the owner can catalog a message.');
+    if(body.type===2&&body.data.name==='Catalog submission'){
+      const message=body.data.resolved?.messages?.[body.data.target_id];
+      if(!message||message.author?.bot||message.webhook_id)return reply('Choose a player’s original submission.');
+      const destination=body.channel?.parent_id||([value.characterChannel,value.designChannel].includes(body.channel_id)?body.channel_id:(await discord.guildChannel(body.channel_id)).parent_id);
+      const kinds=[body.channel_id,destination].includes(value.characterChannel)?['create']:[body.channel_id,destination].includes(value.designChannel)?forms.catalogue:destination===value.updatesForum?['edit','training']:[];
+      if(!kinds.length)return reply('Choose a message in a configured submission channel or player updates thread.');
+      return {type:4,data:{flags:64,content:'Which template did the player submit?',components:[{type:1,components:kinds.map((kind:string)=>({type:2,style:2,label:forms.forms[kind].title,custom_id:['pc','catalog',kind,body.channel_id,message.id].join(':')}))}]}};
+    }
+    const ids=/^pc:catalog:(create|technique|item|race|transformation|edit|training):(\d{17,20}):(\d{17,20})$/.exec(body.data.custom_id);
+    if(body.type!==3||!ids||ids[2]!==body.channel_id)return reply('Choose the submission again from its original channel.');
+    const catalog=async()=>{
+      const channel=await discord.guildChannel(ids[2]);
+      const message=await discord.call('/channels/'+channel.id+'/messages/'+ids[3]);
+      if(message.author?.bot||message.webhook_id||!message.content)return 'Choose an original text submission from a player.';
+      const writer=await discord.member(message.author.id);
+      const id=await captureNative(db,config,{id:message.id,author:writer.user.id,roles:writer.roles,channel:channel.id,parent:channel.parent_id,guild:config.guild,content:message.content,title:channel.id===message.id?channel.name:'',attachments:message.attachments},ids[1]);
+      return id?'Open the cataloged request: '+config.dashboard+'#request-'+id:'This template or writer does not match the configured submission channel.';
+    };
+    if(defer){defer(catalog);return {type:5,data:{flags:64}};}
+    return reply(await catalog());
+  }
+  const match=/^pc:(approve|decline|uphold|veto|checks):([0-9a-f-]{36})(?::([0-9a-f-]{36}))?$/i.exec(body.data?.custom_id??'');
   if (body.type!==3 || !match) return reply('Unknown PhoenixCore action.');
   try {
-    const r=await decide(db,actor,config.owner,match[2],match[1]==='approve');
-    const {nonce,enforce_nonce,...data}=reviewMessage(r,config);
+    const roles=body.guild_id===config.guild?body.member?.roles||[]:[],{value}=await readSettings(db);
+    requireThat(actorFor(actor,roles,config.owner,value).isJudge,403,'Only the configured owner or a Convergence Helper can review this request.');
+    if(match[1]==='checks'){
+      const [row]=await db.query('SELECT * FROM pc_requests WHERE id=$1',[match[2]]);
+      requireThat(row,404,'Request unavailable.');
+      const report=assess(visibleRequest(row),value);
+      return reply(('**'+report.summary+'**\n'+report.checks.map(c=>'**'+c.label+'** · '+c.detail).join('\n')).slice(0,1980));
+    }
+    const r=await decide(db,actor,config.owner,match[2],match[1]==='approve',roles,['uphold','veto'].includes(match[1])?match[1]:'review','',match[3]||'');
+    const {nonce,enforce_nonce,...data}=reviewMessage(r,config,value,!body.guild_id);
     return {type:7,data};
   } catch(e) { if (e instanceof Problem) return reply(e.message); throw e; }
 }

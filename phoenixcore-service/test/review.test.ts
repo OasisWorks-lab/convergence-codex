@@ -78,7 +78,7 @@ test('notifications retry from disk after restart and repeated Discord clicks ke
   assert.equal(await deliverNext(db,discord,start+1000),false);
   fail=false;await deliverNext(db,discord,start+25000);
   const sends=fixture.cards.map(c=>c.body);
-  assert.equal(sends.length,1);assert.equal(sends[0].allowed_mentions.users[0],gabe);
+  assert.equal(sends.length,1);assert.equal(sends[0].allowed_mentions.roles[0],defaultSettings.judgeRole);
   assert.equal(sends[0].components[0].components[0].custom_id,'pc:approve:'+form.id);
   assert.equal(await deliverNext(db,discord,start+240000),false);
   const pressed={type:3,application_id:app,data:{custom_id:'pc:approve:'+form.id},user:{id:judge}};

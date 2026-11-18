@@ -73,14 +73,34 @@ with sync_playwright() as p:
     page.get_by_role("link",name="Directory",exact=True).first.click()
     page.get_by_role("link",name="New Submission",exact=True).click()
     page.get_by_label("Character name").fill("Akira")
+    page.get_by_label("Race / lineage",exact=True).select_option(label="Saiyan")
+    paths=page.get_by_label("Path",exact=True)
+    expect(paths).to_be_visible()
+    expect(paths.locator("option").nth(1)).to_be_attached()
+    path_name=paths.locator("option").nth(1).inner_text()
+    paths.select_option(label=path_name)
+    page.get_by_label("Race / lineage",exact=True).select_option(label="Other lineage…")
+    expect(paths).to_have_value("")
+    expect(paths.locator("option")).to_have_count(1)
+    bio="The courier crossed the mountain before nightfall. "*180
+    page.get_by_label("Lore / backstory").fill(bio)
     page.get_by_label("Personal strengths").fill("Patient\nPerceptive\nGenerous")
     page.get_by_label("Personal weaknesses").fill("Proud\nReckless\nDistrustful")
     page.get_by_label("Note for Gabe").fill("Starting sheet")
     page.get_by_role("button",name="Send for approval").click()
     page.get_by_text("Requested changes",exact=True).wait_for()
-    page.get_by_label("Practice role").select_option("owner")
+    lore=page.locator(".change-entry").filter(has=page.get_by_role("heading",name="Lore / backstory"))
+    assert lore.locator(".prewrap").bounding_box()["width"] > page.locator("main").bounding_box()["width"]*.75
+    expect(page.get_by_role("heading",name="Private staff checks")).to_have_count(0)
+    page.get_by_label("Practice role").select_option("judge")
+    expect(page.get_by_role("heading",name="Private staff checks")).to_be_visible()
+    page.once("dialog",lambda d:d.accept("Please review the backstory."))
     page.get_by_role("button",name="Practice decline").click()
+    expect(page.locator(".status")).to_have_text("Owner review")
+    page.get_by_label("Practice role").select_option("owner")
+    page.get_by_role("button",name="Uphold denial").click()
     expect(page.locator(".status")).to_have_text("Declined")
+    expect(page.get_by_role("button",name="Delete archived request")).to_be_visible()
     page.get_by_label("Practice role").select_option("player")
     page.get_by_role("link", name="Directory", exact=True).first.click()
     page.get_by_role("link", name="New Submission", exact=True).click()
@@ -123,7 +143,7 @@ with sync_playwright() as p:
     page.get_by_label("Formula & breakdown").fill("11,250 BPL plus 500 claimed.")
     page.get_by_label("Final PL / stat increase claimed").fill("+500 BPL and +2 Ki Control")
     page.get_by_role("button",name="Submit training claim").click()
-    expect(page.locator(".status")).to_have_text("Awaiting judge")
+    expect(page.locator(".status")).to_have_text("Awaiting Helper")
     page.get_by_label("Practice role").select_option("judge")
     page.get_by_label("Fixed BPL gain").fill("300")
     page.get_by_label("Other stat gains").fill("Ki Control +1")
@@ -211,6 +231,11 @@ with sync_playwright() as p:
                 patch=route.request.post_data_json
                 edits[patch["key"]]={"key":patch["key"],"revision":patch["revision"]+1,"fields":{**edits.get(patch["key"],{}).get("fields",{}),**patch["fields"]}}
                 route.fulfill(json=edits[patch["key"]])
+            elif url.path=="/api/state":
+                if route.request.headers.get("authorization")!="Bearer fixture":
+                    route.fulfill(status=401,json={"error":"Sign in again"})
+                else:
+                    route.fulfill(json={"actor":{"id":"writer","isOwner":False,"isPlayer":True,"isJudge":False},"players":[],"characters":[],"requests":[],"catalogue":[],"settings":None,"posting":{},"currency":"Credits"})
             elif url.path=="/phoenixcore/config.js":
                 route.fulfill(content_type="text/javascript",body="window.PHOENIXCORE_API='https://codex.test';")
             else:
@@ -273,6 +298,17 @@ with sync_playwright() as p:
     expect(guest.locator('[data-theme-id="forest"]')).to_have_text("Forest Green✓")
     screenshot(owner_tab,"atlas-owner.png")
     screenshot(guest,"atlas-themes-mobile.png")
+    remembered=browser.new_context()
+    first=site(remembered)
+    first.goto("https://codex.test/phoenixcore/index.html")
+    first.evaluate("sessionStorage.setItem('pc:/phoenixcore/:session','fixture')")
+    first.reload()
+    expect(first.get_by_role("button",name="Sign out")).to_be_visible()
+    first.close()
+    again=remembered.new_page()
+    again.goto("https://codex.test/phoenixcore/index.html")
+    expect(again.get_by_role("button",name="Sign out")).to_be_visible()
+    assert again.evaluate("sessionStorage.getItem('pc:/phoenixcore/:verifier')") is None
     assert not problems,problems
     browser.close()
     print("Desktop and mobile verified, including templates, judgments, attained forms, archives, forum preferences, public atlas links, role-gated editing and all 30 themes.")

@@ -5,13 +5,21 @@
   const preview=window.PhoenixPreview;
   const $=selector=>document.querySelector(selector);
   const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const label={name:'Character name',lineage:'Species or lineage',portrait:'Portrait',bio:'Background',bpl:'Base Power Level',strength:'Strength',speed:'Speed',durability:'Durability',intelligence:'Intelligence',control:'Energy control',wallet:'Wallet',gear:'Gear'};
-  const traits=['strength','speed','durability','intelligence','control'];
+  const label={name:'Character name',lineage:'Species or lineage',portrait:'Portrait',bio:'Background',bpl:'Base Power Level',speed:'Speed',durability:'Durability',intelligence:'Intelligence',control:'Energy control',wallet:'Wallet',gear:'Gear'};
+  const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
   let state=null,session='',loadGeneration=0,preferenceChannel='';
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
-  const store={get:k=>sessionStorage.getItem(pathKey+k),set:(k,v)=>sessionStorage.setItem(pathKey+k,v),remove:k=>sessionStorage.removeItem(pathKey+k)};
+  const store={
+    get(k){
+      const key=pathKey+k,tab=sessionStorage.getItem(key);
+      if(k!=='session')return tab;
+      try{const saved=localStorage.getItem(key);if(!saved&&tab)localStorage.setItem(key,tab);if(tab)sessionStorage.removeItem(key);return saved||tab;}catch{return tab;}
+    },
+    set(k,v){if(k==='session'){try{localStorage.setItem(pathKey+k,v);sessionStorage.removeItem(pathKey+k);return;}catch{}}sessionStorage.setItem(pathKey+k,v);},
+    remove(k){sessionStorage.removeItem(pathKey+k);if(k==='session')try{localStorage.removeItem(pathKey+k);}catch{}}
+  };
   const route=()=>location.hash.slice(1)||'directory';
   const go=r=>{if(route()===r)render();else location.hash=r;};
   const ownerName=id=>state.players.find(p=>p.id===id)?.display||'Discord member';
@@ -39,7 +47,7 @@
     const attrs=' name="'+h(key)+'" maxlength="'+max+'"'+(required?' required':'')+(numeric?' inputmode="numeric"':'')+(pattern?' pattern="'+h(pattern)+'"':'');
     return '<label class="field'+(wide?' wide':'')+'"><span>'+h(caption)+(required?' <i>*</i>':'')+'</span>'+(area?'<textarea'+attrs+'>'+h(value)+'</textarea>':'<input'+attrs+' value="'+h(value)+'">')+(hint?'<small>'+h(hint)+'</small>':'')+'</label>';
   }
-  function status(s){return '<span class="pill status '+h(s)+'">'+h(s==='awaiting_judge'?'Awaiting judge':s==='stale'?'Outdated':s.charAt(0).toUpperCase()+s.slice(1))+'</span>';}
+  function status(s){return '<span class="pill status '+h(s)+'">'+h(s==='needs_details'?'Needs details':s==='owner_review'?'Owner review':s==='awaiting_judge'?'Awaiting Helper':s==='stale'?'Outdated':s.charAt(0).toUpperCase()+s.slice(1))+'</span>';}
   function hero(heading,description){document.title=heading+' · PhoenixCore';return '<section class="hero"><p class="eyeline">PhoenixCore</p><h1>'+h(heading)+'</h1><p>'+h(description)+'</p></section>';}
   async function call(path,method='GET',data) {
     const headers={};
@@ -98,7 +106,7 @@
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
-    if(demo){banner.innerHTML='<span><b>Practice mode</b> · Fictional players. Refresh to reset.</span><label>View as <select id="persona" aria-label="Practice role"><option value="player">Player</option><option value="judge">Training judge</option><option value="owner">Owner</option></select></label>';$('#persona').value=preview.role();}
+    if(demo){banner.innerHTML='<span><b>Practice mode</b> · Fictional players. Refresh to reset.</span><label>View as <select id="persona" aria-label="Practice role"><option value="player">Player</option><option value="judge">Helper</option><option value="owner">Owner</option></select></label>';$('#persona').value=preview.role();}
   }
   function playerCard(p) {
     const n=state.characters.filter(c=>c.ownerId===p.id).length;
@@ -129,14 +137,14 @@
   function sheet(id){
     const c=state.characters.find(c=>c.id===id);if(!c)return missing();
     const s=c.sheet;document.title=s.name+' · PhoenixCore';
-    const own=c.ownerId===state.actor.id;
+    const own=c.ownerId===state.actor.id,active=forms.readForms(s.attainedForms).find(f=>f.id===c.activeForm),effective=forms.effectiveSheet(s,active);
     return breadcrumbs([link('directory','Directory'),link('player-'+c.ownerId,ownerName(c.ownerId)),h(s.name)])+
-      '<div class="sheet-head">'+avatar(s.name,c.id,s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'</code>':'Unassigned')+'</p></div></div>'+
-      '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+(own?link('edit-'+id,'Propose edit','button primary')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
-      '<div class="two"><div class="stack"><section class="panel"><h3>Base Power Level</h3><div class="big-number">'+h(num(s.bpl))+'</div></section><section class="panel"><h3>Attributes</h3>'+
-      traits.map(k=>'<div class="stat-row"><span>'+h(label[k])+'</span><strong>'+h(s[k]||'Unrecorded')+'</strong></div>').join('')+'</section></div>'+
-      '<div class="stack"><section class="panel"><h3>Wallet &amp; gear</h3><p><b>'+h(num(s.wallet))+'</b> '+h(state.currency)+'</p><div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section><section class="panel"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section></div></div>'+
-      (s.progress?.length?'<section class="panel dossier"><h3>Training stats</h3>'+s.progress.map(x=>'<div class="stat-row"><span>'+h(x.name)+'</span><strong>'+h(num(x.amount))+'</strong></div>').join('')+'</section>':'')+
+      '<div class="sheet-head">'+avatar(s.name,c.id,active?.portrait||s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'</code>':'Unassigned')+'</p></div></div>'+
+      '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+(own?link('edit-'+id,'Propose edit','button primary')+link('forms-'+id,'Add attained transformation','button')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
+      '<div class="two"><div class="stack"><section class="panel"><h3>Base Power Level</h3><div class="big-number">'+h(num(s.bpl))+'</div>'+(active?'<h3>Power Level · '+h(active.name)+'</h3><div class="big-number">'+h(num(effective.bpl))+'</div>':'')+'</section><section class="panel"><h3>Attributes</h3>'+
+      traits.map(k=>'<div class="stat-row"><span>'+h(label[k])+'</span><strong>'+h(effective[k]||'Unrecorded')+'</strong></div>').join('')+'</section></div>'+
+      '<div class="stack"><section class="panel"><h3>Wallet &amp; gear</h3><p><b>'+h(num(s.wallet))+'</b> '+h(state.currency)+'</p><div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section></div></div><section class="panel dossier"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section>'+
+      (s.progress?.length?'<section class="panel dossier"><h3>Training stats</h3>'+s.progress.filter(x=>x.name.toLowerCase()!=='strength').map(x=>'<div class="stat-row"><span>'+h(x.name)+'</span><strong>'+h(num(x.amount))+'</strong></div>').join('')+'</section>':'')+
       '<div class="stack sheet-dossier">'+formsPanel(c)+displayGroups('create',s,['name','lineage','portrait','tag','bio','bpl','attainedForms',...traits])+'</div>'+
       (own?posting(c):'')+(state.actor.isOwner?'<section class="panel dossier"><h3>Owner controls</h3>'+btn('remove-character','Remove character from profile','danger')+'</section>':'');
   }
@@ -148,12 +156,12 @@
   function draftKey(kind,id,version=0){return [state.actor.id,kind,id||'',version].join('/');}
 function formList(raw){
     const read=forms.readForms(raw);
-    return read.length?read.map(f=>'<div class="form-art-row">'+artwork(f.portrait,f.name)+'<strong>'+h(f.name)+'</strong></div>').join(''):'—';
+    return read.length?read.map(f=>'<div class="form-art-row">'+artwork(f.portrait,f.name)+'<strong>'+h(f.name)+'</strong>'+(f.multiplier?'<span>Power Level ×'+h(f.multiplier)+'</span>':'')+Object.entries(f.modifiers||{}).map(([k,v])=>'<span>'+h(label[k]||k)+' '+h(v)+'</span>').join('')+'</div>').join(''):'—';
   }
   function formsPanel(c){
     const active=forms.readForms(c.sheet.attainedForms).find(f=>f.id===c.activeForm);
     return '<section class="panel"><h3>Attained transformations</h3><p>Current form · <b>'+h(active?.name||'Base')+'</b></p>'+
-      (c.sheet.attainedForms?formList(c.sheet.attainedForms)+'<p class="hint">Use <code>/transform</code> in Convergence. Choose <b>Base</b> to revert.</p>':'<p class="muted">No transformations recorded.</p>')+'</section>';
+      (c.sheet.attainedForms?formList(c.sheet.attainedForms)+'<p class="hint">Use <code>/transform</code> in Convergence. Use <code>/revert-form</code> for base or an earlier attained form.</p>':'<p class="muted">No transformations recorded.</p>')+'</section>';
   }
   function availableForms(lineage){
     const data=window.CONVERGENCE_DATA, choices=[];
@@ -166,7 +174,7 @@ function formList(raw){
       if(String(f.html||'').replace(/<[^>]*>/g,' ').trim().length<60)continue;
       const name=plain(f.title);if(name)choices.push({id:'univ-'+(f.messageId||u.slug+'-'+i),name,group:u.title});
     }
-    for(const d of state.catalogue||[])if(d.kind==='transformation')choices.push({id:d.id,name:d.fields.name,group:'Approved designs'});
+    for(const d of state.catalogue||[])if(d.kind==='transformation'&&(!d.fields.lineage||/universal/i.test(d.fields.lineage)||String(d.fields.lineage).toLowerCase()===String(lineage||'').toLowerCase()))choices.push({id:d.id,name:d.fields.name,group:'Approved designs',portrait:d.fields.art||'',multiplier:/^x?\d+(\.\d{1,4})?$/i.test(d.fields.multiplier||'')?d.fields.multiplier.replace(/^x/i,''):''});
     return choices;
   }
   function formChoices(lineage){
@@ -176,20 +184,38 @@ function formList(raw){
   function formRow(f){
     return '<div class="attained-row media-picker" data-form-id="'+h(f.id)+'"><label>Form name<input data-form-name maxlength="100" value="'+h(f.name)+'" required></label>'+
       '<label>Form portrait URL<input data-media-url maxlength="2048" value="'+h(f.portrait)+'"></label><label>Upload form portrait<input type="file" data-media-file accept="image/png,image/jpeg,image/webp,image/gif"></label>'+
-      '<div data-media-preview>'+artwork(f.portrait,f.name)+'</div><small data-upload-status role="status"></small><button type="button" data-remove-form>Remove form</button></div>';
+      '<label>Power Level multiplier<input data-multiplier value="'+h(f.multiplier||'')+'" placeholder="e.g. 2.5" maxlength="13"></label><details><summary>Form stat adjustments</summary>'+traits.map(k=>'<label>'+h(label[k])+'<input data-modifier="'+k+'" maxlength="20" placeholder="+2 or x1.5" value="'+h(f.modifiers?.[k]||'')+'"></label>').join('')+'</details>'+
+      '<div data-media-preview>'+artwork(f.portrait,f.name)+'</div><small data-upload-status role="status"></small><div class="actions"><button type="button" data-move-form="up">Move earlier</button><button type="button" data-move-form="down">Move later</button><button type="button" data-remove-form>Remove form</button></div></div>';
   }
   function formPicker(value,lineage){
     let rows=[];try{rows=JSON.parse(value||'[]');}catch{}
-    return '<div class="field wide attained-picker"><h3>Attained transformations</h3><p class="hint">Add forms this character has earned. Gabe reviews forms and their artwork with the character sheet.</p>'+
+    return '<div class="field wide attained-picker"><h3>Attained transformations</h3><p class="hint">List earned forms from lowest to highest. Only enter numeric effects supported by the form’s rules. A Helper reviews additions and changes.</p>'+
       '<input type="hidden" name="attainedForms" value="'+h(value)+'"><div data-attained-rows>'+rows.map(formRow).join('')+'</div>'+
       '<div class="actions"><label>Available forms<select data-form-choice aria-label="Available forms">'+formChoices(lineage)+'</select></label><button type="button" data-add-form>Add form</button></div></div>';
   }
   function syncForms(f){
     const hidden=f?.elements.attainedForms;if(!hidden)return;
-    const rows=[...f.querySelectorAll('.attained-row')].map(row=>({id:row.dataset.formId,name:row.querySelector('[data-form-name]').value.trim(),portrait:row.querySelector('[data-media-url]').value.trim()}));
+    const rows=[...f.querySelectorAll('.attained-row')].map(row=>{
+      const value={id:row.dataset.formId,name:row.querySelector('[data-form-name]').value.trim(),portrait:row.querySelector('[data-media-url]').value.trim()};
+      const factor=row.querySelector('[data-multiplier]').value.trim();if(factor)value.multiplier=factor;
+      const modifiers=Object.fromEntries([...row.querySelectorAll('[data-modifier]')].filter(el=>el.value.trim()).map(el=>[el.dataset.modifier,el.value.trim()]));
+      if(Object.keys(modifiers).length)value.modifiers=modifiers;return value;
+    });
     hidden.value=rows.length?JSON.stringify(rows):'';
   }
+  function currentRaces(){
+    return state.races||[...window.CONVERGENCE_DATA.races.map(r=>({id:r.slug,name:r.name,paths:r.playablePaths===undefined?r.paths.filter(p=>p.classification!=='foundational').map(p=>p.name):r.playablePaths.split(/\r?\n/).filter(Boolean)})),...(state.catalogue||[]).filter(d=>d.kind==='race').map(d=>({id:d.id,name:d.fields.name,paths:(d.fields.paths||'').split(/\r?\n/).filter(Boolean)}))];
+  }
+  function pathChoices(race,selected='',legacy=''){
+    const paths=[...new Set([...(currentRaces().find(r=>r.name===race)?.paths||[]),...(legacy?[legacy]:[])])];
+    return options([['',paths.length?'Choose a path…':'No paths listed'],...paths.map(p=>[p,p])],selected);
+  }
   function refreshChoices(f){
+    const path=f?.elements.namedItem('path'),lineage=f?.elements.namedItem('lineage')?.value;
+    if(path){
+      const sheet=state.characters.find(c=>c.id===f.dataset.id)?.sheet;
+      path.innerHTML=pathChoices(lineage,path.value,sheet&&sheet.lineage===lineage?sheet.path:'');
+    }
     const picker=f?.querySelector('[data-form-choice]');if(picker)picker.innerHTML=formChoices(f.elements.lineage.value);
   }
 
@@ -197,8 +223,9 @@ function formList(raw){
     const val=values[f.key]??(editing?'':f.initial||'');
     const req=f.required && !editing;
     if(f.key==='attainedForms')return formPicker(val,values.lineage);
+    if(f.key==='path')return '<label class="field">Path<select name="path" aria-label="Path">'+pathChoices(values.lineage,val,editing?val:'')+'</select></label>';
     if(f.key==='lineage'){
-      const races=[...new Set([...window.CONVERGENCE_DATA.races.map(r=>r.name),...(state.catalogue||[]).filter(d=>d.kind==='race').map(d=>d.fields.name),...(val?[val]:[])])].sort();
+      const races=[...new Set([...currentRaces().map(r=>r.name),...(val?[val]:[])])].sort();
       return '<label class="field">Race / lineage<select data-lineage aria-label="Race / lineage">'+options([['','Choose…'],...races.map(n=>[n,n]),['__custom','Other lineage…']],val)+'</select></label><label class="field" data-custom-lineage hidden>Custom lineage<input name="lineage" maxlength="80" value="'+h(val)+'"></label>';
     }
     if(f.media) return '<div class="field wide media-picker"><label><span>'+h(f.label)+' URL</span><input data-media-url name="'+h(f.key)+'" value="'+h(val)+'" maxlength="'+f.max+'" placeholder="https://…"></label>'+
@@ -218,22 +245,22 @@ function formList(raw){
     const f=$('#submissionForm'),current=f.elements.currentInt.value,required=f.elements.requiredInt.value;
     box.textContent=current&&required&&Number(current)<Number(required)?'Your Intelligence is below the proposed requirement. Staff can consider mentorship, assistance or a split submission.':'';
   }
-  function editor(kind='create',id=''){
-    if(!state.actor.isPlayer || !Object.hasOwn(forms.forms,kind))return missing();
-    const targeted=kind==='edit'||kind==='training', mine=state.characters.filter(c=>c.ownerId===state.actor.id);
+  function editor(kind='create',id='',intake=null){
+    if(!(state.actor.isPlayer||intake&&state.actor.isJudge) || !Object.hasOwn(forms.forms,kind))return missing();
+    const targeted=kind==='edit'||kind==='training', mine=state.characters.filter(c=>c.ownerId===(intake?.authorId||state.actor.id));
     const c=targeted?mine.find(c=>c.id===id):null;
     if(targeted&&id&&!c)return missing();
-    const d=drafts.get(draftKey(kind,id,c?.version||0))||{};
-    const selector='<div class="submission-tools"><label class="field"><span>Submission type</span><select id="submissionType">'+options(Object.entries(kindNames),kind)+'</select></label>'+
+    const d={...(intake?.native.input.fields||{}),...(intake?.native.input.details||{}),...(intake?{reason:intake.reason}:{}),...(drafts.get(intake?'intake:'+intake.id+':'+id:draftKey(kind,id,c?.version||0))||{})};
+    const selector='<div class="submission-tools"><label class="field"><span>Submission type</span><select id="submissionType"'+(intake?' disabled':'')+'>'+options(Object.entries(kindNames),kind)+'</select></label>'+
       (targeted?'<label class="field"><span>Character</span><select id="submissionCharacter">'+options([['','Choose your character…'],...mine.map(c=>[c.id,c.sheet.name])],id)+'</select></label>':'')+'</div>';
-    const head=title('New Submission','You can switch templates and return to your draft in this tab. Gabe reviews submissions in Discord.')+selector;
+    const head=title(intake?'Complete Discord submission':'New Submission',intake?'Transcribe the original post from '+ownerName(intake.authorId)+'.':'Choose a template. You can switch back to your draft in this tab.')+(intake?nativeSource(intake):'')+selector;
     if(targeted&&!c)return head+'<p class="empty">'+(mine.length?'Choose the character this submission belongs to.':'You need an approved character for this request. '+link('new','Submit a new character'))+'</p>';
     const isEdit=kind==='edit';
     const anchors=[...forms.forms[kind].sections.map((s,i)=>[s.title,'section-'+kind+'-'+i]),...(isEdit?forms.forms.create.sections.map((s,i)=>[s.title,'section-create-'+i]):[])];
-    const copy=kind==='training'?'Staff assess the scene and proposed gains before Gabe confirms the award.':isEdit?'A posting tag by itself saves immediately. Changing the portrait or any other sheet field sends the whole edit to Gabe.':'Fields marked * are required.';
+    const copy=kind==='training'?'A Helper assesses the scene and proposed gains before an award can be approved.':isEdit?'A posting tag by itself saves immediately. Changing the portrait or any other sheet field sends the whole edit for review.':'Fields marked * are required.';
     const values=isEdit?{...c.sheet,tag:c.tag||'',...d}:d;
     return head+'<div class="submission-layout"><aside class="section-index"><h2>On this form</h2>'+anchors.map(([name,id])=>'<button type="button" data-section="'+id+'">'+h(name)+'</button>').join('')+'</aside>'+
-      '<form id="submissionForm" class="form stack" data-kind="'+kind+'" data-id="'+h(id)+'" data-version="'+(c?.version||0)+'"><div><h2>'+h(kindNames[kind])+'</h2><p class="hint">'+h(copy)+'</p></div>'+
+      '<form id="submissionForm" class="form stack" data-kind="'+kind+'" data-intake="'+h(intake?.id||'')+'" data-id="'+h(id)+'" data-version="'+(c?.version||0)+'"><div><h2>'+h(kindNames[kind])+'</h2><p class="hint">'+h(copy)+'</p></div>'+
       groups(kind,values)+(isEdit?groups('create',values,true):'')+
       '<div class="panel form">'+field('reason',isEdit?'Reason for update':'Note for Gabe',d.reason||'',{area:true,wide:true,max:600,required:isEdit,hint:isEdit?'Explain the RP event, lore change or correction.':'Optional context for the review.'})+
       '<div class="actions"><button class="primary" type="submit">'+(kind==='training'?'Submit training claim':'Send for approval')+'</button>'+link(c?'sheet-'+id:'directory','Cancel','button')+'</div></div></form></div>';
@@ -270,13 +297,13 @@ function formList(raw){
         practiceImages.set(result,URL.createObjectURL(file));
       }else result=(await call('/api/media','POST',file)).url;
       url.value=result;syncForms(f);picker.querySelector('[data-media-preview]').innerHTML=artwork(result,'Selected artwork');
-      drafts.set(draftKey(f.dataset.kind,f.dataset.id,f.dataset.version),Object.fromEntries(new FormData(f)));
+      drafts.set(f.dataset.intake?'intake:'+f.dataset.intake+':'+f.dataset.id:draftKey(f.dataset.kind,f.dataset.id,f.dataset.version),Object.fromEntries(new FormData(f)));
       status.textContent='Image ready to submit.';
     }catch(error){status.textContent=error.message;}
     finally{input.value='';input.disabled=false;url.readOnly=false;submit.disabled=false;delete f.dataset.uploading;syncEditMode(f);}
   }
   function recordDraft(){
-    const f=$('#submissionForm');if(f)drafts.set(draftKey(f.dataset.kind,f.dataset.id,f.dataset.version),Object.fromEntries(new FormData(f)));
+    const f=$('#submissionForm');if(f)drafts.set(f.dataset.intake?'intake:'+f.dataset.intake+':'+f.dataset.id:draftKey(f.dataset.kind,f.dataset.id,f.dataset.version),Object.fromEntries(new FormData(f)));
   }
   function displayGroups(kind,values,excluded=[]){
     return forms.forms[kind].sections.map(group=>{
@@ -288,14 +315,14 @@ function formList(raw){
     const list=state.catalogue||[];
     if(id){
       const entry=list.find(e=>e.id===id);if(!entry)return missing();
-      return requestTabs('catalogue')+breadcrumbs([link('catalogue','Approved designs'),h(kindNames[entry.kind])])+title(entry.fields.name,kindNames[entry.kind]+' · Submitted by '+ownerName(entry.authorId))+'<div class="stack">'+displayGroups(entry.kind,entry.fields,['name'])+'</div>';
+      return requestTabs('catalogue')+breadcrumbs([link('catalogue','Approved designs'),h(kindNames[entry.kind])])+title(entry.fields.name,kindNames[entry.kind]+' · Submitted by '+ownerName(entry.authorId))+'<div class="stack">'+displayGroups(entry.kind,entry.fields,['name'])+(entry.kind==='race'&&state.canEditPaths?editPaths(currentRaces().find(r=>r.id===entry.id)):'')+'</div>';
     }
     return requestTabs('catalogue')+title('Approved designs','Techniques, items, races and transformations approved for Convergence.')+
       (list.length?'<div class="grid">'+list.map(e=>'<a class="card" href="#design-'+h(e.id)+'">'+artwork(e.fields.art,e.fields.name)+'<small class="eyeline">'+h(kindNames[e.kind])+'</small><h3>'+h(e.fields.name)+'</h3><p class="muted">'+h(ownerName(e.authorId))+'</p></a>').join('')+'</div>':'<p class="empty">The first approved design will appear here.</p>');
   }
   function award(id,claim=null){
     const c=state.characters.find(c=>c.id===id);if(!c||!state.actor.isJudge)return missing();
-    return (claim?'<div class="section-head"><h2>Assess this claim</h2></div>':breadcrumbs([link('sheet-'+id,c.sheet.name),'Staff judgment'])+title('Judge a reward','Record the award earned by '+c.sheet.name+'. Gabe confirms the calculated change in Discord.'))+
+    return (claim?'<div class="section-head"><h2>Assess this claim</h2></div>':breadcrumbs([link('sheet-'+id,c.sheet.name),'Staff judgment'])+title('Judge a reward','Record the award earned by '+c.sheet.name+'. A Helper or Gabe can confirm the calculated change.'))+
       '<form class="panel form" id="awardForm" data-claim="' + h(claim?.id||'') + '" data-id="'+h(id)+'" data-version="'+c.version+'"><div class="fields">'+
       field('percent','Final BPL gain (%)','0',{max:12,required:true,hint:'Enter the judged percentage with up to two decimals, or use a fixed gain below.'})+
       field('points','Fixed BPL gain','0',{max:60,numeric:true,hint:'Use zero when awarding a percentage.'})+
@@ -305,36 +332,47 @@ function formList(raw){
       field('reason','Judgment and scene reference','',{area:true,wide:true,required:true,max:600})+'</div><p id="estimate" class="bpl" aria-live="polite"></p><button class="primary">Submit award for approval</button></form>';
   }
   function requestTabs(active){
-    return '<nav class="actions request-tabs" aria-label="Request categories">'+[['requests','Submissions'],['catalogue','Approved designs'],...(state.actor.isOwner?[['archived','Archived']]:[])].map(([id,text])=>'<a class="button" href="#'+id+'"'+(active===id?' aria-current="page"':'')+'>'+text+'</a>').join('')+'</nav>';
+    return '<nav class="actions request-tabs" aria-label="Request categories">'+[['requests','Submissions'],['catalogue','Approved designs'],['archived','Archived']].map(([id,text])=>'<a class="button" href="#'+id+'"'+(active===id?' aria-current="page"':'')+'>'+text+'</a>').join('')+'</nav>';
   }
   function requestList(archived=false){
-    if(archived&&!state.actor.isOwner)return missing();
     const list=state.requests.filter(r=>!!r.archived===archived);
-    return title('Requests',state.actor.isOwner?'Review submitted changes and their Discord delivery status.':state.actor.isJudge?'Review training claims and track the awards you submitted.':'Follow your submissions and character awards.')+
+    return title('Requests',state.actor.isOwner?'Review submitted changes and their Discord delivery status.':state.actor.isJudge?'Review submissions and judge training claims.':'Follow your submissions and character awards.')+
       requestTabs(archived?'archived':'requests')+(list.length?'<div class="stack">'+list.map(r=>'<a class="request-row" href="#request-'+h(r.id)+'"><span class="summary"><b>'+h(r.after.name)+'</b><small class="muted">'+h(kindNames[r.kind]||'Staff award')+' · '+h(ownerName(r.authorId))+'</small></span>'+status(r.status)+'<span class="arrow" aria-hidden="true">↗</span></a>').join('')+'</div>':'<p class="empty">No requests yet.</p>');
   }
   function display(v){
     if(Array.isArray(v))return v.map(x=>typeof x==='object'?x.name+' +'+x.amount:x).join(', ')||'—';
     return v===undefined||v===null||v===''?'—':String(v);
   }
+  function nativeSource(r){
+    if(!r.native)return '';
+    return '<section class="panel dossier"><h2>Original Discord submission</h2><p><a href="'+h(r.native.source)+'" target="_blank" rel="noopener">Open original post ↗</a></p><div class="prewrap">'+h(r.native.text)+'</div>'+r.native.attachments.map(a=>'<p><a href="'+h(a.url)+'" target="_blank" rel="noopener">'+h(a.name)+'</a></p>').join('')+'</section>';
+  }
   function requestView(id){
     const r=state.requests.find(r=>r.id===id);if(!r)return missing();
-    const design=forms.catalogue.includes(r.kind),waiting=r.status==='awaiting_judge',pending=r.status==='pending';
-    const captions={...label,progress:'Training stats',...Object.fromEntries(forms.allFields(design?r.kind:'create').map(f=>[f.key,f.label]))};
-    const changed=Object.keys(r.after).filter(k=>r.before?JSON.stringify(r.before[k])!==JSON.stringify(r.after[k]):r.after[k]!==''&&(!Array.isArray(r.after[k])||r.after[k].length));
-    const meanings={archived:'Review is paused while this request is archived.',pending:'Awaiting Gabe’s Discord decision.',awaiting_judge:'Staff must assess the training claim before Gabe can approve an award.',stale:'The sheet has a newer revision. Submit against the current sheet.',approved:design?'This design is in the approved collection.':'This change was applied to the character.',declined:'Gabe declined this submission.'};
-    const changes=changed.length?'<section class="panel"><h2>Requested changes</h2><div class="diff muted"><b>Field</b><b>Approved</b><b>Proposed</b></div>'+changed.map(k=>'<div class="diff"><span>'+h(captions[k]||k)+'</span><span class="prewrap">'+(k==='portrait'||k==='art'?artwork(r.before?.[k],'Approved artwork')||'—':k==='attainedForms'?formList(r.before?.[k]):h(display(r.before?.[k])))+'</span><span class="new prewrap">'+(k==='portrait'||k==='art'?artwork(r.after[k],'Proposed artwork')||'—':k==='attainedForms'?formList(r.after[k]):h(display(r.after[k])))+'</span></div>').join('')+'</section>':'';
-    const judged=r.judgment?'<section class="panel"><h3>Staff judgment</h3><p>'+h(ownerName(r.judgment.judgeId))+'</p><p class="prewrap">'+h(r.judgment.note)+'</p></section>':'';
-    const note=r.details?displayGroups(r.kind,r.details):'';
-    return breadcrumbs([link('requests','Requests'),h(r.after.name)])+title(r.after.name,(kindNames[r.kind]||'Staff award')+' · Submitted by '+ownerName(r.authorId))+
-      '<div class="two"><div class="stack">'+note+judged+changes+'</div><div class="stack"><section class="panel"><h3>Decision</h3>'+status(r.status)+'<p>'+h(meanings[r.status])+'</p>'+
-      (state.actor.isOwner&&(pending||waiting)?'<p class="muted">Discord notification · '+h(r.delivery)+'</p>':'')+
+    const design=forms.catalogue.includes(r.kind),waiting=r.status==='awaiting_judge',pending=r.status==='pending',incomplete=r.status==='needs_details',appeal=r.status==='owner_review';
+    const fields=forms.allFields(design?r.kind:'create'),captions={...label,progress:'Training stats',...Object.fromEntries(fields.map(f=>[f.key,f.label]))};
+    const changed=Object.keys(r.after).filter(k=>!['portrait','art','strength'].includes(k)&&(r.before?JSON.stringify(r.before[k])!==JSON.stringify(r.after[k]):r.after[k]!==''&&(!Array.isArray(r.after[k])||r.after[k].length)));
+    const value=(k,v)=>k==='attainedForms'?formList(v):h(display(v));
+    const edits=changed.map(k=>'<div class="change-entry"><h3>'+h(captions[k]||k)+'</h3>'+(r.before?'<small>Previously approved</small><div class="prewrap previous">'+value(k,r.before[k])+'</div><small>Proposed</small>':'')+'<div class="prewrap">'+value(k,r.after[k])+'</div></div>').join('');
+    const image=r.after.portrait||r.after.art,oldImage=r.before?.portrait||r.before?.art;
+    const images=image||oldImage?'<figure class="panel request-portrait"><figcaption>'+h(design?'Submitted artwork':'Character portrait')+'</figcaption>'+artwork(image,'Proposed artwork')+(oldImage&&oldImage!==image?'<details><summary>Previously approved artwork</summary>'+artwork(oldImage,'Approved artwork')+'</details>':'')+'</figure>':'';
+    const meanings={archived:'Review is paused.',pending:'Ready for a Helper or the owner to decide.',awaiting_judge:'A Helper needs to assess the scene and calculate the award.',owner_review:'A Helper denied this submission. Gabe has the final decision.',needs_details:'Complete the template from the original Discord post before approval.',stale:'The sheet changed. Review the current sheet before submitting again.',approved:design?'Published in approved designs.':'Applied to the character.',declined:'The submission was declined.'};
+    const checks=r.assessment&&state.actor.isJudge?'<section class="panel staff-checks"><h2>Private staff checks</h2><p>'+h(r.assessment.summary)+'</p>'+r.assessment.checks.map(c=>'<div><strong>'+h(c.label)+'</strong><small>'+h(({met:'Met',review:'Reviewer judgment',attention:'Needs attention'})[c.state])+'</small><p>'+h(c.detail)+'</p></div>').join('')+'</section>':'';
+    const review=state.actor.isJudge&&(pending||waiting||incomplete)?'<div class="actions">'+(pending?btn('review-approve',demo?'Practice approve':'Approve','primary'):'')+btn('review-decline',demo?'Practice decline':'Deny','danger')+'</div>':'';
+    const ownerReview=state.actor.isOwner&&appeal?'<div class="actions">'+btn('review-uphold','Uphold denial','danger')+btn('review-veto','Veto denial','primary')+'</div>':'';
+    const denial=appeal&&r.denial?'<p>Helper · '+h(ownerName(r.denial.helper))+(r.denial.note?' · '+h(r.denial.note):'')+'</p>'+(state.actor.isOwner?'<p>Owner DM · '+(r.denial.delivered?'Delivered':'Queued for delivery')+'</p>':''):'';
+    const archive=state.actor.isOwner&&!appeal?'<div class="actions">'+(!r.archived?btn('archive-request','Archive request','quiet'):((r.status==='archived'?btn('restore-request','Restore request','quiet'):'')+btn('delete-request','Delete archived request','danger')))+'</div>':'';
+    return breadcrumbs([link(r.archived?'archived':'requests',r.archived?'Archived':'Requests'),h(r.after.name)])+title(r.after.name,(kindNames[r.kind]||'Staff award')+' · Submitted by '+ownerName(r.authorId))+
+      '<div class="stack request-reading"><section class="panel"><h2>Decision</h2>'+status(r.status)+'<p>'+h(meanings[r.status])+'</p>'+denial+review+ownerReview+
+      (incomplete?link('intake-'+id,'Complete Discord submission','button primary'):'')+
       (r.reviewUrl?'<p><a href="'+h(r.reviewUrl)+'" target="_blank" rel="noopener">Open review in Discord ↗</a></p>':'')+
-      (demo&&state.actor.isOwner&&(pending||waiting)?'<div class="actions">'+(pending?btn('demo-approve','Practice approve','primary'):'')+btn('demo-decline','Practice decline','danger')+'</div>':'')+
-      (state.characters.some(c=>c.id===r.characterId)?link('sheet-'+r.characterId,'View approved sheet'):design&&r.status==='approved'?link('design-'+r.id,'View approved design'):'')+
-      (state.actor.isOwner?'<div class="actions">'+btn(r.archived?'restore-request':'archive-request',r.archived?'Restore request':'Archive request','quiet')+'</div>':'')+'</section><section class="panel"><h3>Submission note</h3><p class="prewrap">'+h(r.reason)+'</p>'+
-      (r.award?'<p class="bpl">+'+h(num(r.award.gain))+' BPL · +'+h(num(r.award.currency))+' '+h(state.currency)+'</p>':'')+'</section></div></div>'+
-      (waiting&&state.actor.isJudge?award(r.characterId,r):'');
+      (state.actor.isJudge&&(waiting||pending||incomplete)?'<p class="muted">Discord notification · '+h(r.delivery)+'</p>':'')+
+      (state.characters.some(c=>c.id===r.characterId)?link('sheet-'+r.characterId,'View approved sheet'):design&&r.status==='approved'?link('design-'+r.id,'View approved design'):'')+archive+'</section>'+
+      images+nativeSource(r)+(edits?'<section class="panel"><h2>Requested changes</h2>'+edits+'</section>':'')+
+      (r.details?displayGroups(r.kind,r.details):'')+'<section class="panel"><h3>Submission note</h3><p class="prewrap">'+h(r.reason)+'</p>'+
+      (r.award?'<p class="bpl">+'+h(num(r.award.gain))+' BPL · +'+h(num(r.award.currency))+' '+h(state.currency)+'</p>':'')+'</section>'+
+      (r.judgment?'<section class="panel"><h3>Staff judgment</h3><p>'+h(ownerName(r.judgment.judgeId))+'</p><p class="prewrap">'+h(r.judgment.note)+'</p></section>':'')+checks+
+      (waiting&&state.actor.isJudge?award(r.characterId,r):'')+'</div>';
   }
   function scopePanel(scope,divider){
     if(!scope)return '';
@@ -353,18 +391,43 @@ function formList(raw){
     if(id&&!values.some(([v])=>v===id))values.push([id,'Unavailable category · '+id]);
     return options([['','Use manual channel IDs'],...values],id);
   }
+  function embedForm(kind){
+    const saved=state.announcements?.find(e=>e.kind===kind),d=saved?.draft||{};
+    return '<details class="panel dossier"><summary>'+h(kind==='welcome'?'Welcome embed':'Guidelines embed')+'</summary><form class="embed-form form" data-kind="'+kind+'" data-version="'+(saved?.revision||0)+'"><div class="fields">'+
+      field('channel','Destination channel or thread ID',d.channel||'',{max:20})+field('title','Embed title',d.title||'',{max:256,required:true})+
+      field('body','Embed message',d.body||'',{area:true,wide:true,max:4096,required:true})+'<label class="field">Accent color<input type="color" name="color" value="'+h(d.color||'#ea875b')+'"></label>'+
+      field('image','Optional image URL',d.image||'',{max:2048})+'</div><div class="embed-preview" aria-label="Embed preview"></div>'+
+      (saved?.url?'<p><a href="'+h(saved.url)+'" rel="noopener" target="_blank">Open published embed ↗</a></p>':'')+
+      '<div class="actions"><button type="submit" class="primary" value="save">Save draft</button><button type="submit" value="publish">Publish to Discord</button></div></form></details>';
+  }
+  function previewEmbed(form){
+    const d=Object.fromEntries(new FormData(form)),box=form.querySelector('.embed-preview');
+    box.style.borderInlineStartColor=d.color;box.innerHTML='<strong>'+h(d.title||'Embed preview')+'</strong><p class="prewrap">'+h(d.body)+'</p>'+artwork(d.image,'Embed image');
+  }
+  function editPaths(race){
+    const key=(state.catalogue||[]).some(e=>e.id===race.id&&e.kind==='race')?'design-paths/'+race.id:'races/'+race.id;
+    return '<form class="race-path-form form" data-key="'+h(key)+'" data-version="'+(state.pathRevisions?.[key]||0)+'">'+field('playablePaths','Selectable paths for '+race.name,race.paths.join('\n'),{wide:true,area:true,max:8000,hint:'One path per line. Saving an empty list removes all selectable paths for this race.'})+'<button class="primary">Save paths</button></form>';
+  }
   function settings(){
     if(!state.actor.isOwner||!state.settings)return missing();
     const s=state.settings.value;
     return title('Bot settings','Only your configured Discord owner account can save these settings.')+'<form id="settingsForm" class="panel form"><div class="fields">'+
       field('playerRole','Player role ID',s.playerRole,{wide:true,max:20,hint:'Leave blank to list every current human member. A role filters the directory, including players with no sheets.'})+
-      field('judgeRole','Training judge role ID',s.judgeRole,{wide:true,max:20,hint:'Members with this role can submit awards for your approval.'})+
+      field('judgeRole','Helper role ID',s.judgeRole,{wide:true,max:20,hint:'Receives submission pings. Helpers can approve, assess training and send denials to your DMs.'})+
+      field('submissionMessage','Submission notification',s.submissionMessage||'{helper} A {type} submission for {character} is ready for review.',{area:true,wide:true,max:1300,required:true,hint:'Use {helper}, {type}, {character} and {player}. The Helper mention is included with every new review.'})+
+      field('commandPrefixes','Bot command prefixes',s.commandPrefixes??'pc!',{max:150,hint:'Separate up to five prefixes with spaces. For example, pc!help or pc!transform Rin | Solar.'})+
+      field('botNickname','Bot nickname in Convergence',s.botNickname||'',{max:32,hint:state.nicknameStatus||'Changes the name shown for the bot in this server.'})+
+      field('loreParagraphs','Minimum backstory paragraphs',s.loreParagraphs||'0',{max:2,numeric:true,hint:'Zero leaves this check off.'})+
+      field('loreSentences','Minimum sentences per paragraph',s.loreSentences||'0',{max:2,numeric:true})+
+      field('loreWords','Minimum words per sentence',s.loreWords||'0',{max:2,numeric:true})+
+      field('reviewGuidance','Private reviewer guidance',s.reviewGuidance||'',{area:true,wide:true,max:1500,hint:'Shown only to Helpers and the owner alongside the template checks.'})+
       field('characterChannel','Character submissions channel ID',s.characterChannel,{wide:true,max:20,required:true})+
       field('designChannel','Design submissions channel ID',s.designChannel,{wide:true,max:20,required:true,hint:'Techniques, items, races and transformations go here.'})+
       field('updatesForum','OC updates forum ID',s.updatesForum,{wide:true,max:20,required:true,hint:'Each player has one forum post for character updates and training.'})+
       '<label class="field wide"><span>Roleplay divider category</span><select name="rpDivider">'+dividerOptions(state.scope,s.rpDivider||'')+'</select><small>Includes channels in categories below this marker and their threads. Discord moves, new channels, and deletions update coverage automatically.</small></label>'+
       field('rpChannels','Roleplay channel IDs',s.rpChannels||'',{area:true,wide:true,max:2200,hint:'Used when no divider is selected. Enter one Discord channel or thread ID per line.'})+
-      field('currency','Currency display name',s.currency,{max:32,required:true})+'</div><div class="actions"><button class="primary">Save settings</button></div></form><section id="live-scope" class="panel dossier">'+scopePanel(state.scope,s.rpDivider)+'</section>';
+      field('currency','Currency display name',s.currency,{max:32,required:true})+'</div><div class="actions"><button class="primary">Save settings</button></div></form><section id="live-scope" class="panel dossier">'+scopePanel(state.scope,s.rpDivider)+'</section><section class="stack dossier"><h2>Discord embeds</h2>'+embedForm('guidelines')+embedForm('welcome')+'</section>'+
+      (state.canEditPaths?'<details class="panel dossier"><summary>Character paths by race</summary>'+currentRaces().map(r=>'<details><summary>'+h(r.name)+'</summary>'+editPaths(r)+'</details>').join('')+'</details>':'');
   }
   function render(){
     chrome();const view=$('#view');
@@ -378,12 +441,17 @@ function formList(raw){
     else if(r==='posting'){go('player-'+state.actor.id);return;}
     else if(r.startsWith('player-'))view.innerHTML=player(r.slice(7));
     else if(r.startsWith('sheet-'))view.innerHTML=sheet(r.slice(6));
+    else if(r.startsWith('intake-')){
+      const [id,selected]=r.slice(7).split('/'),req=state.requests.find(x=>x.id===id);
+      view.innerHTML=req?.status==='needs_details'&&req.native?editor(req.kind,selected||req.native.input.characterId||'',req):missing();
+    }
+    else if(r.startsWith('forms-')){view.innerHTML=editor('edit',r.slice(6));view.querySelector('[data-form-choice]')?.focus();}
     else if(r.startsWith('edit-'))view.innerHTML=editor('edit',r.slice(5));
     else if(r.startsWith('train-'))view.innerHTML=editor('training',r.slice(6));
     else if(r.startsWith('award-'))view.innerHTML=award(r.slice(6));
     else if(r.startsWith('request-'))view.innerHTML=requestView(r.slice(8));
     else view.innerHTML=missing();
-    filterPlayers();estimate();tierFeedback();syncEditMode($('#submissionForm'));
+    document.querySelectorAll('.embed-form').forEach(previewEmbed);filterPlayers();estimate();tierFeedback();syncEditMode($('#submissionForm'));
   }
   function locationName(id){
     const locs=state.scope?.locations||[],location=locs.find(c=>c.id===id);if(!location)return id;
@@ -426,6 +494,7 @@ function formList(raw){
     if(preview)preview.textContent='This link could not display an image. Paste a direct image link or upload the file.';
   },true);
   document.addEventListener('input',e=>{
+    if(e.target.form?.matches('.embed-form'))previewEmbed(e.target.form);
     if(e.target.closest('.attained-row'))syncForms(e.target.form);
     if(e.target.name==='lineage')refreshChoices(e.target.form);
     if(e.target.id==='filter')filterPlayers();
@@ -443,7 +512,7 @@ function formList(raw){
     if(e.target.id==='persona'&&demo){recordDraft();preview.switchRole(e.target.value);tell('');await load();}
     if(e.target.id==='submissionType'){recordDraft();go(e.target.value==='create'?'new':'new-'+e.target.value);}
     if(e.target.id==='submissionCharacter'){
-      recordDraft();const kind=$('#submissionType').value;
+      recordDraft();if(route().startsWith('intake-')){go(route().split('/')[0]+'/'+e.target.value);return;}const kind=$('#submissionType').value;
       go(e.target.value?(kind==='edit'?'edit-':'train-')+e.target.value:'new-'+kind);
     }
     if(e.target.form?.id==='defaultForm'&&e.target.name==='channel'){
@@ -471,6 +540,12 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const move=e.target.closest('[data-move-form]');
+    if(move){
+      const row=move.closest('.attained-row'),parent=row.parentElement,up=move.dataset.moveForm==='up',sibling=up?row.previousElementSibling:row.nextElementSibling;
+      if(sibling){if(up)parent.insertBefore(row,sibling);else parent.insertBefore(sibling,row);syncForms(move.form);recordDraft();syncEditMode(move.form);}
+      return;
+    }
     const add=e.target.closest('[data-add-form]'),remove=e.target.closest('[data-remove-form]');
     if(add||remove){
       const f=(add||remove).form;
@@ -479,7 +554,7 @@ function formList(raw){
         if(!select.value)return;
         const custom=select.value==='custom',id=custom?crypto.randomUUID():select.value;
         if([...f.querySelectorAll('.attained-row')].some(r=>r.dataset.formId===id)){tell('This form is already listed.',true);return;}
-        f.querySelector('[data-attained-rows]').insertAdjacentHTML('beforeend',formRow({id,name:custom?'':option.textContent,portrait:''}));
+        f.querySelector('[data-attained-rows]').insertAdjacentHTML('beforeend',formRow(availableForms(f.elements.lineage?.value).find(item=>item.id===id)||{id,name:custom?'':option.textContent,portrait:''}));
         f.querySelector('.attained-row:last-child [data-form-name]').focus();select.value='';
       }else remove.closest('.attained-row').remove();
       syncForms(f);recordDraft();syncEditMode(f);return;
@@ -488,6 +563,17 @@ function formList(raw){
     if(target){const el=document.getElementById(target.dataset.section);if(el){el.scrollIntoView();el.querySelector('input,textarea,select')?.focus({preventScroll:true});}return;}
     const action=e.target.closest('[data-action]')?.dataset.action;if(!action)return;
     try{
+      if(action.startsWith('review-')&&state.actor.isJudge){
+        const id=route().slice(8),choice=action.slice(7);
+        let note='';if(choice==='decline'&&!state.actor.isOwner){note=prompt('Reason for Gabe to review (optional)','');if(note===null)return;}
+        const result=demo?preview.decision(id,choice==='approve'||choice==='veto',choice,note):await call('/api/requests/'+id+'/decision','POST',{action:choice,note,decisionKey:state.requests.find(r=>r.id===id)?.denial?.key});
+        await load();tell(result?.status==='owner_review'?'Denial sent to Gabe for review.':'Decision recorded.');return;
+      }
+      if(action==='delete-request'&&state.actor.isOwner){
+        const id=route().slice(8);if(!confirm('Permanently delete this archived request? Its approved character or design will stay available.'))return;
+        if(demo)preview.purge(id);else await call('/api/requests/'+id+'/remove','POST',{});
+        await load();go('archived');tell('Archived request deleted.');return;
+      }
       if(action==='login'){await login();return;}
       if(action==='remove-character'&&state.actor.isOwner){
         const c=state.characters.find(c=>c.id===route().slice(6));
@@ -524,10 +610,20 @@ function formList(raw){
     return data;
   }
   document.addEventListener('submit',async e=>{
-    const f=e.target;if(!['submissionForm','awardForm','settingsForm','defaultForm','attributionForm'].includes(f.id)&&!f.classList.contains('tag-form'))return;
+    const f=e.target;if(!['submissionForm','awardForm','settingsForm','defaultForm','attributionForm'].includes(f.id)&&!f.matches('.tag-form,.race-path-form,.embed-form'))return;
     e.preventDefault();const submit=f.querySelector('button.primary');if(submit.disabled)return;
     const fields=Object.fromEntries(new FormData(f));submit.disabled=true;
     try{
+      if(f.matches('.embed-form')){
+        const action=e.submitter?.value||'save';
+        if(action==='publish'&&!confirm('Publish this embed to Discord channel '+fields.channel+'?'))return;
+        if(demo){preview.embed({kind:f.dataset.kind,draft:fields,revision:Number(f.dataset.version)+1});}
+        else await call('/api/announcements','POST',{...fields,kind:f.dataset.kind,action,revision:Number(f.dataset.version)});
+        await load();tell(demo?'Practice embed saved.':action==='publish'?'Embed published to Discord.':'Embed draft saved.');return;
+      }
+      if(f.matches('.race-path-form')){
+        await call('/api/codex','POST',{key:f.dataset.key,revision:Number(f.dataset.version),fields});await load();tell('Selectable paths updated.');return;
+      }
       if(f.id==='settingsForm'){
         const data={value:fields,revision:state.settings.revision};
         if(demo)preview.saveSettings(data);else await call('/api/settings','POST',data);
@@ -550,16 +646,16 @@ function formList(raw){
       if(f.dataset.claim){
         const input={award:data.award,note:data.reason};
         const result=demo?preview.judge(f.dataset.claim,input):await call('/api/requests/'+f.dataset.claim+'/judgment','POST',input);
-        await load();tell(result.status==='stale'?'The sheet changed. The player can submit the claim against its current revision.':'Staff judgment recorded for Gabe’s review.');return;
+        await load();tell(result.status==='stale'?'The sheet changed. The player can submit the claim against its current revision.':'Staff judgment recorded for review.');return;
       }
       const snapshot=JSON.stringify(data);
       if(f.dataset.payload!==snapshot){f.dataset.payload=snapshot;f.dataset.key=crypto.randomUUID();}
       data.id=f.dataset.key;
-      const result=demo?preview.propose(data):await call('/api/requests','POST',data);
+      const result=demo?preview.propose(data):await call(f.dataset.intake?'/api/requests/'+f.dataset.intake+'/complete':'/api/requests','POST',data);
       drafts.delete(draftKey(data.kind,f.dataset.id,f.dataset.version));
       if(data.kind==='edit'&&result.status==='approved'){await load();go('sheet-'+data.characterId);tell('Posting tag saved. You can use it in Discord now.');return;}
       await load();go('request-'+result.id);
-      tell(data.kind==='training'?'Training submitted for staff judgment.':demo?'Practice request submitted. Switch to Owner to review.':'Submitted. PhoenixCore will notify Gabe in Discord.');
+      tell(data.kind==='training'?'Training submitted for staff judgment.':demo?'Practice request submitted. Switch to Owner to review.':'Submitted. PhoenixCore will notify the Helpers in Discord.');
     }catch(err){tell(err.message,true);$('#notice').scrollIntoView({block:'nearest'});}
     finally{submit.disabled=false;}
   });

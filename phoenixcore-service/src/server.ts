@@ -5,15 +5,18 @@ import { resolve, extname } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openSqlite, openPostgres, initialize, type Store } from './db.ts';
-import { judgeTraining, actorFor, discordId, Problem, requireThat, readSettings, saveSettings, propose, visibleRequest } from './domain.ts';
+import { decide,judgeTraining, actorFor, discordId, Problem, requireThat, readSettings, saveSettings, propose, visibleRequest } from './domain.ts';
 import { mediaPath, maxImageBytes, saveImage } from './media.ts';
 import {provisionNext} from './forum-threads.ts';
 import { RoleplayScope } from './scope.ts';
 import { preferences, savePosting, lookupAuthor, startPosting } from './posting.ts';
-import {archiveRequest,removeCharacter} from './characters.ts';
+import {archiveRequest,deleteArchived,removeCharacter} from './characters.ts';
 import { accountAvatar, Discord, DiscordFailure, deliverNext, checkSignature, handleInteraction, type Config } from './discord.ts';
 
-import {editorRole, published, publish} from './codex.ts';
+import {nicknameJob,announcement} from './bot-tools.ts';
+import {assess} from './review-rules.ts';
+import {deliverOwnerDenial} from './review-delivery.ts';
+import {editorRole, published, publish,racePaths} from './codex.ts';
 const webDir=fileURLToPath(new URL('../../phoenixcore/',import.meta.url));
 const token=()=>randomBytes(32).toString('base64url');
 export const hash=(value:string)=>createHash('sha256').update(value).digest('base64url');
@@ -105,6 +108,9 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         res.end(method==='HEAD'?undefined:Buffer.from(image.bytes));return;
       }
       if (method==='GET' && path==='/health') {json(res,200,{ok:true});return;}
+      if(method==='GET' && uiOrigin!==config.service && ['/','/phoenixcore','/phoenixcore/','/phoenixcore/index.html'].includes(path)){
+        redirect(res,config.dashboard+(url.searchParams.get('demo')==='1'?'?demo=1':''));return;
+      }
       if (method==='GET' && (path==='/'||path==='/phoenixcore')) {redirect(res,'/phoenixcore/');return;}
       if (method==='GET' && (codexAssets.has(path) || /^\/assets\/uploads\/[a-zA-Z0-9_/-]+\.(png|jpe?g|webp|gif)$/i.test(path))) {
         let content;
@@ -152,25 +158,31 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         await db.transaction(async q=>{
           const [handoff]=await q('DELETE FROM pc_exchanges WHERE id=$1 AND challenge=$2 AND expires>$3 RETURNING user_id',[hash(data.ticket),hash(data.verifier),Date.now()]);
           requireThat(handoff,403,'Sign-in expired. Sign in again.');
-          await q('INSERT INTO pc_sessions VALUES($1,$2,$3)',[hash(session),handoff.user_id,Date.now()+8*3600000]);
+          await q('INSERT INTO pc_sessions VALUES($1,$2,$3)',[hash(session),handoff.user_id,Date.now()+30*86400000]);
         });
         json(res,200,{session});return;
       }
       if (method==='POST' && path==='/discord/interactions') {
         const raw=await rawBody(req);
         requireThat(checkSignature(raw,String(req.headers['x-signature-ed25519']??''),String(req.headers['x-signature-timestamp']??''),config.publicKey),401,'Invalid Discord signature.');
-        const action=parse(raw);json(res,200,await handleInteraction(db,config,action));if(action.type===3)wake();return;
+        const action=parse(raw);
+        const deferred=(work:()=>Promise<string>)=>setImmediate(async()=>{
+          let content;try{content=await work();wake();}catch{content='PhoenixCore could not catalog this post. Open the original message and try again.';}
+          try{await discord.call('/webhooks/'+config.clientId+'/'+encodeURIComponent(action.token)+'/messages/@original',{method:'PATCH',body:JSON.stringify({content,components:[],allowed_mentions:{parse:[]}})});}catch{console.warn('Discord could not display the catalog result.');}
+        });
+        json(res,200,await handleInteraction(db,config,action,discord,deferred));if(action.type===3)wake();return;
       }
       requireThat(path.startsWith('/api/'),404,'Unknown route.');
       const bearer=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization??'');
       requireThat(bearer,401,'Sign in to Convergence.');
       const sessionId=hash(bearer[1]);
-      const [session]=await db.query('SELECT user_id FROM pc_sessions WHERE id=$1 AND expires>$2',[sessionId,Date.now()]);
+      const [session]=await db.query('SELECT user_id,expires FROM pc_sessions WHERE id=$1 AND expires>$2',[sessionId,Date.now()]);
       requireThat(session,401,'Session ended. Sign in again.');
       if(method==='POST' && path==='/api/logout') {
         await db.query('DELETE FROM pc_sessions WHERE id=$1',[sessionId]);json(res,200,{ok:true});return;
       }
       const [member,settings]=await Promise.all([discord.member(session.user_id),readSettings(db)]);
+      if(Number(session.expires)<Date.now()+29*86400000)await db.query('UPDATE pc_sessions SET expires=$1 WHERE id=$2',[Date.now()+30*86400000,sessionId]);
       const actor=actorFor(session.user_id,member.roles,config.owner,settings.value);
       if(path==='/api/codex/access' && method==='GET'){json(res,200,{canEdit:member.roles.includes(editorRole)});return;}
       if(path==='/api/codex' && method==='POST'){json(res,200,await publish(db,member.roles,actor.id,parse(await rawBody(req)),config.service));return;}
@@ -183,13 +195,23 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         json(res,200,await scope.inventory(settings.value,actor));return;
       }
       if (method==='POST' && path==='/api/settings') {
-        await saveSettings(db,actor,parse(await rawBody(req)));json(res,200,{ok:true});return;
+        await saveSettings(db,actor,parse(await rawBody(req)));wake();json(res,200,{ok:true});return;
+      }
+      if(method==='POST'&&path==='/api/announcements'){
+        json(res,200,await announcement(db,discord,actor,parse(await rawBody(req))));return;
+      }
+      const decision=/^\/api\/requests\/([\da-f-]{36})\/decision$/.exec(path);
+      if(method==='POST'&&decision){
+        const input=parse(await rawBody(req));requireThat(['approve','decline','uphold','veto'].includes(input?.action),400,'Choose a review action.');
+        const action=input.action,result=await decide(db,actor.id,config.owner,decision[1],action==='approve',member.roles,['uphold','veto'].includes(action)?action:'review',input.note??'',input.decisionKey??'');
+        json(res,200,{id:result.id,status:result.status});wake();return;
       }
       const ownerAction=/^\/api\/(requests|characters)\/([\da-f-]{36})\/(archive|remove)$/.exec(path);
       if(method==='POST'&&ownerAction){
         requireThat(actor.isOwner,403,'Only the configured PhoenixCore owner can make this change.');
         const input=parse(await rawBody(req));
         if(ownerAction[1]==='requests'&&ownerAction[3]==='archive'&&typeof input?.archived==='boolean')await archiveRequest(db,actor,ownerAction[2],input.archived);
+        else if(ownerAction[1]==='requests'&&ownerAction[3]==='remove')await deleteArchived(db,actor,ownerAction[2]);
         else if(ownerAction[1]==='characters'&&ownerAction[3]==='remove')await removeCharacter(db,actor,ownerAction[2],input?.version);
         else throw new Problem(400,'Unknown owner action.');
         json(res,200,{ok:true});wake();return;
@@ -204,8 +226,17 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       }
       const roster=(await discord.members()).filter(m=>!settings.value.playerRole||m.roles.includes(settings.value.playerRole));
       const active=new Set(roster.map(m=>m.user.id));
+      const completion=/^\/api\/requests\/([\da-f-]{36})\/complete$/.exec(path);
+      if(method==='POST'&&completion){
+        const [native]=await db.query('SELECT n.author_id,r.status,r.kind FROM pc_native n JOIN pc_requests r ON r.id=n.id WHERE n.id=$1',[completion[1]]);
+        requireThat(native&&(actor.id===native.author_id||actor.isJudge),403,'Only the writer or a Helper can complete a Discord submission.');
+        const author=roster.find(m=>m.user.id===native.author_id),input=parse(await rawBody(req,1048576));
+        requireThat(author&&native.status==='needs_details'&&input.kind===native.kind,409,'Open the current Discord submission.');
+        const result=await propose(db,actorFor(author.user.id,author.roles,config.owner,settings.value),{...input,id:completion[1]},active,config.service,true,actor.id);
+        json(res,200,{id:result.id,status:result.status});wake();return;
+      }
       if (method==='POST' && path==='/api/requests') {
-        const r=await propose(db,actor,parse(await rawBody(req)),active,config.service);
+        const r=await propose(db,actor,parse(await rawBody(req,1048576)),active,config.service);
         json(res,200,{id:r.id,status:r.status});wake();return;
       }
       const judgment=/^\/api\/requests\/([\da-f-]{36})\/judgment$/.exec(path);
@@ -215,17 +246,18 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       }
       requireThat(method==='GET' && path==='/api/state',404,'Unknown route.');
       const inventory=await scope.inventory(settings.value,actor);
-      const [sheets,requests,designs,posting,threads]=await Promise.all([
+      const [sheets,requests,designs,posting,threads,races,embeds,nick,pathEntries]=await Promise.all([
         db.query('SELECT c.*,t.tag,a.form_key FROM pc_characters c LEFT JOIN pc_active_forms a ON a.character_id=c.id LEFT JOIN pc_post_tags t ON c.id=t.character_id AND c.owner_id=t.owner_id ORDER BY c.id'),
-        db.query('SELECT r.*,a.request_id AS archived,p.channel_id AS review_channel,p.message_id AS review_message FROM pc_requests r LEFT JOIN pc_archives a ON a.request_id=r.id LEFT JOIN pc_review_posts p ON p.request_id=r.id '+(actor.isOwner?'':"WHERE a.request_id IS NULL AND (author_id=$1 OR owner_id=$1 OR (kind='training' AND $2=1)) ")+'ORDER BY created_ms DESC,id',actor.isOwner?[]:[actor.id,actor.isJudge?1:0]),
-        db.query("SELECT id,kind,after_sheet,author_id FROM pc_requests WHERE status='approved' AND kind IN ('technique','item','race','transformation') ORDER BY created_ms DESC,id"),
+        db.query('SELECT r.*,a.request_id AS archived,p.channel_id AS review_channel,p.message_id AS review_message,n.source_id,n.channel_id AS source_channel,n.raw_text,n.input AS native_input,n.attachments,d.helper,d.decision_key,d.note AS denial_note,d.dm_message FROM pc_requests r LEFT JOIN pc_native n ON n.id=r.id LEFT JOIN pc_denials d ON d.request_id=r.id LEFT JOIN pc_archives a ON a.request_id=r.id LEFT JOIN pc_review_posts p ON p.request_id=r.id '+(actor.isJudge?'':'WHERE r.author_id=$1 OR r.owner_id=$1 ')+'ORDER BY r.created_ms DESC,r.id',actor.isJudge?[]:[actor.id]),
+        db.query("SELECT id,kind,fields AS after_sheet,author_id FROM pc_designs ORDER BY id"),
         actor.isPlayer?preferences(db,actor,settings.value,inventory.locations.map(c=>c.id)):null,
-        db.query("SELECT subject,thread_id FROM pc_forum_threads WHERE forum_id=$1 AND thread_id IS NOT NULL AND subject LIKE 'player:%'"+(actor.isJudge?'':' AND subject=$2'),actor.isJudge?[settings.value.updatesForum]:[settings.value.updatesForum,'player:'+actor.id])
+        db.query("SELECT subject,thread_id FROM pc_forum_threads WHERE forum_id=$1 AND thread_id IS NOT NULL AND subject LIKE 'player:%'"+(actor.isJudge?'':' AND subject=$2'),actor.isJudge?[settings.value.updatesForum]:[settings.value.updatesForum,'player:'+actor.id]),
+        racePaths(db.query),actor.isOwner?db.query('SELECT * FROM pc_announcements'):[],actor.isOwner?db.query('SELECT status FROM pc_bot_profile WHERE slot=1'):[],member.roles.includes(editorRole)?published(db):[]
       ]);
       const forumLinks=new Map(threads.map(t=>[t.subject,'https://discord.com/channels/'+config.guild+'/'+t.thread_id]));
-      json(res,200,{actor,players:roster.map(m=>({id:m.user.id,username:m.user.username,updatesUrl:forumLinks.get('player:'+m.user.id),avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
+      json(res,200,{actor,races,canEditPaths:member.roles.includes(editorRole),pathRevisions:Object.fromEntries(pathEntries.map(x=>[x.key,x.revision])),announcements:embeds.map(e=>({kind:e.kind,revision:Number(e.revision),draft:JSON.parse(e.draft),url:e.message_id?'https://discord.com/channels/'+config.guild+'/'+e.channel_id+'/'+e.message_id:null})),nicknameStatus:nick[0]?.status,players:roster.map(m=>({id:m.user.id,username:m.user.username,updatesUrl:forumLinks.get('player:'+m.user.id),avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
         characters:sheets.filter(s=>active.has(s.owner_id)).map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',activeForm:s.form_key||'',sheet:JSON.parse(s.sheet)})),
-        posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(r=>({...visibleRequest(r),reviewUrl:r.review_message?'https://discord.com/channels/'+config.guild+'/'+r.review_channel+'/'+r.review_message:undefined})),currency:settings.value.currency,settings:actor.isOwner?settings:null});
+        posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(r=>({...visibleRequest(r),...(r.source_id?{native:{source:'https://discord.com/channels/'+config.guild+'/'+r.source_channel+'/'+r.source_id,text:r.raw_text,input:JSON.parse(r.native_input),attachments:JSON.parse(r.attachments)}}:{}),...(actor.isJudge?{assessment:assess(visibleRequest(r),settings.value),denial:r.helper?{helper:r.helper,key:r.decision_key,note:r.denial_note,delivered:!!r.dm_message}:null}:{}),reviewUrl:r.review_message?'https://discord.com/channels/'+config.guild+'/'+r.review_channel+'/'+r.review_message:undefined})),currency:settings.value.currency,settings:actor.isOwner?settings:null});
     } catch(e) {
       if (res.headersSent) {res.end();return;}
       if (e instanceof Problem) json(res,e.status,{error:e.message});
@@ -259,6 +291,8 @@ async function start() {
     working=true;
     try {
       const {value}=await readSettings(db);
+      await deliverOwnerDenial(db,discord);
+      await nicknameJob(db,discord);
       await provisionNext(db,discord,value.updatesForum);
       for(let i=0;i<8;i++) if(!await deliverNext(db,discord)) break;
     }
@@ -276,7 +310,7 @@ async function start() {
     const address=server.address();
     console.log('PhoenixCore is listening on port',typeof address==='object' && address ? address.port : port);
     if(process.env.DISCORD_RP_ENABLED==='true'){
-      const register=async()=>{try{await discord.registerCommands();console.log('Registered Convergence character commands.');}
+      const register=async()=>{try{await discord.registerCommands();console.log('Registered /transform, /revert-form, Character sheet and Catalog submission in Convergence.');}
         catch{if(!stopping)setTimeout(register,60000).unref();console.warn('Character commands could not register. Retrying in one minute.');}};
       void register();
     }

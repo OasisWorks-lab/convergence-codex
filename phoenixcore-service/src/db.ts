@@ -72,8 +72,16 @@ export async function openPostgres(url: string): Promise<Store> {
   };
 }
 
-export const defaultSettings = { playerRole: '', judgeRole: '', reviewChannel: '', ...forms.reviewRoutes as {characterChannel:string;designChannel:string;updatesForum:string}, currency: 'Credits', rpChannels: '', rpDivider: '' };
+export const defaultSettings = { playerRole: '', judgeRole: '1100315893864603649', submissionMessage:'{helper} A {type} submission for {character} is ready for review.', commandPrefixes:'pc!', botNickname:'', loreParagraphs:'0', loreSentences:'0', loreWords:'0', reviewGuidance:'', reviewChannel: '', ...forms.reviewRoutes as {characterChannel:string;designChannel:string;updatesForum:string}, currency: 'Credits', rpChannels: '', rpDivider: '' };
 const ddl = [
+  'CREATE TABLE IF NOT EXISTS pc_migrations (name TEXT PRIMARY KEY)',
+  'CREATE TABLE IF NOT EXISTS pc_denials (request_id TEXT PRIMARY KEY, decision_key TEXT NOT NULL, stage TEXT NOT NULL, helper TEXT NOT NULL, note TEXT NOT NULL, dm_channel TEXT, dm_message TEXT, attempts INTEGER NOT NULL DEFAULT 0, retry_at BIGINT NOT NULL DEFAULT 0)',
+  'CREATE TABLE IF NOT EXISTS pc_designs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, author_id TEXT NOT NULL, fields TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_forum_checks (forum_id TEXT NOT NULL, subject TEXT NOT NULL, retry_at BIGINT NOT NULL DEFAULT 0, PRIMARY KEY(forum_id,subject))',
+  'CREATE TABLE IF NOT EXISTS pc_bot_profile (slot INTEGER PRIMARY KEY, nick TEXT NOT NULL, retry_at BIGINT NOT NULL, status TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_announcements (kind TEXT PRIMARY KEY, revision INTEGER NOT NULL, draft TEXT NOT NULL, channel_id TEXT, message_id TEXT)',
+  'CREATE TABLE IF NOT EXISTS pc_native (id TEXT PRIMARY KEY, source_id TEXT NOT NULL UNIQUE, channel_id TEXT NOT NULL, author_id TEXT NOT NULL, raw_text TEXT NOT NULL, input TEXT NOT NULL, attachments TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_deleted_requests (id TEXT PRIMARY KEY)',
   `CREATE TABLE IF NOT EXISTS pc_forum_threads (forum_id TEXT NOT NULL, subject TEXT NOT NULL, thread_id TEXT,
     attempted_name TEXT, attempted_ms BIGINT, attempts INTEGER NOT NULL DEFAULT 0, retry_at BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY(forum_id,subject))`,
@@ -118,5 +126,12 @@ export async function initialize(db: Store, guildId: string) {
     await q('INSERT INTO pc_config(slot,guild_id,revision,value) VALUES(1,$1,1,$2) ON CONFLICT(slot) DO NOTHING', [guildId, JSON.stringify(defaultSettings)]);
     const [config] = await q('SELECT guild_id FROM pc_config WHERE slot=1');
     if (config.guild_id !== guildId) throw new Error('This database belongs to a different Convergence server. Check DISCORD_GUILD_ID or use a new database.');
+    const changed=await q("INSERT INTO pc_migrations(name) VALUES('helper-review-v1') ON CONFLICT DO NOTHING RETURNING name");
+    if(changed.length){
+      const [row]=await q('SELECT value FROM pc_config WHERE slot=1');
+      await q('UPDATE pc_config SET value=$1 WHERE slot=1',[JSON.stringify({...JSON.parse(row.value),judgeRole:defaultSettings.judgeRole})]);
+      await q("INSERT INTO pc_archives SELECT id,status FROM pc_requests WHERE status IN ('approved','declined','stale') ON CONFLICT DO NOTHING");
+      await q("INSERT INTO pc_designs SELECT id,kind,author_id,after_sheet FROM pc_requests WHERE status='approved' AND kind IN ('technique','item','race','transformation') ON CONFLICT DO NOTHING");
+    }
   });
 }

@@ -1,8 +1,9 @@
 import forms from '../../phoenixcore/templates.js';
 import { assignTag, currentTag } from './tags.ts';
+import {racePaths} from './codex.ts';
 import { attachImage } from './media.ts';
-import { createHash } from 'node:crypto';
-import { defaultSettings, type Store, type Row } from './db.ts';
+import { createHash,randomUUID } from 'node:crypto';
+import { defaultSettings, type Store, type Row, type Query } from './db.ts';
 
 export class Problem extends Error {
   status: number;
@@ -84,6 +85,16 @@ export async function saveSettings(db: Store, actor: Actor, input: any) {
       requireThat(typeof id==='string' && discordId.test(id),400,'Enter valid Discord IDs for the two submission channels and the OC updates forum.');
       value[key]=id;
     }
+    value.submissionMessage=textValue(input.value.submissionMessage??saved.submissionMessage,1300,'Submission message',true);
+    value.reviewGuidance=textValue(input.value.reviewGuidance??saved.reviewGuidance,1500,'Review guidance');
+    value.botNickname=textValue(input.value.botNickname??saved.botNickname,32,'Server nickname');
+    const prefixes=textValue(input.value.commandPrefixes??saved.commandPrefixes,150,'Command prefixes').split(/[\s,]+/).filter(Boolean);
+    requireThat(prefixes.length<=5&&prefixes.every((p:string)=>p.length<=12),400,'Choose up to five prefixes of 1–12 characters.');
+    value.commandPrefixes=[...new Set(prefixes)].join(' ');
+    for(const k of ['loreParagraphs','loreSentences','loreWords'] as const){
+      const n=String(input.value[k]??saved[k]);requireThat(/^(0|[1-9]\d?)$/.test(n),400,'Lore minimums must be whole numbers from 0 to 99.');value[k]=n;
+    }
+    if(value.botNickname!==saved.botNickname)await q("INSERT INTO pc_bot_profile VALUES(1,$1,0,'Queued') ON CONFLICT(slot) DO UPDATE SET nick=excluded.nick,retry_at=0,status='Queued'",[value.botNickname]);
     value.reviewChannel=saved.reviewChannel;
     if(!Object.hasOwn(input.value,'rpDivider')) value.rpDivider=JSON.parse(old.value).rpDivider??'';
     if(!Object.hasOwn(input.value,'rpChannels')) value.rpChannels=JSON.parse(old.value).rpChannels??'';
@@ -106,7 +117,7 @@ function canonical(value: any): any {
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])]));
   return value;
 }
-export async function propose(db: Store, who: Actor, input: any, active: Set<string>, service='') {
+export async function propose(db: Store, who: Actor, input: any, active: Set<string>, service='',completeIntake=false,mediaOwner=who.id) {
   object(input); keys(input, ['id','kind','characterId','version','fields','award','reason','details']);
   requireThat(typeof input.id === 'string' && requestId.test(input.id), 400, 'Invalid request identifier.');
   const { kind, id } = input;
@@ -116,7 +127,11 @@ export async function propose(db: Store, who: Actor, input: any, active: Set<str
   const reason = textValue(input.reason, 600, 'Reason', true);
   const fingerprint = createHash('sha256').update(JSON.stringify(canonical([who.id,input]))).digest('hex');
   return db.transaction(async q => {
-    const [retry] = await q('SELECT * FROM pc_requests WHERE id=$1', [id]);
+    requireThat(!(await q('SELECT id FROM pc_deleted_requests WHERE id=$1',[id])).length,409,'This archived request was deleted.');
+    let [retry] = await q('SELECT * FROM pc_requests WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''), [id]);
+    if(completeIntake && retry?.status==='needs_details' && retry.author_id===who.id){
+      await q('DELETE FROM pc_requests WHERE id=$1',[id]);retry=undefined;
+    }
     if (retry) {
       requireThat(retry.fingerprint === fingerprint, 409, 'That submission identifier was already used.');
       return visibleRequest(retry);
@@ -157,16 +172,20 @@ export async function propose(db: Store, who: Actor, input: any, active: Set<str
           if (beforeTag===next.tag) delete next.tag;
           else {
             previous.tag=beforeTag;
-            immediate=Object.keys(next).every(k=>k==='tag'||JSON.stringify(next[k]??'')===JSON.stringify(previous[k]??''));
+            immediate=who.id===mediaOwner&&Object.keys(next).every(k=>k==='tag'||JSON.stringify(next[k]??'')===JSON.stringify(previous[k]??''));
           }
         }
         if(!immediate && input.details!==undefined) award={format:2,details:validateForm('edit',input.details)};
       }
       requireThat(kind==='training' || JSON.stringify(previous) !== JSON.stringify(next), 400, 'The proposed sheet is already current.');
     }
-    if(kind==='create' || kind==='edit' || isDesign(kind)) await attachImage(q,input.fields?.portrait||input.fields?.art,service,who.id);
+    if((kind==='create'||kind==='edit') && next.path && (next.lineage!==previous?.lineage||next.path!==previous?.path)){
+      const race=(await racePaths(q)).find((r:any)=>r.name===next.lineage);
+      requireThat(race?.paths.includes(next.path),400,'Choose a current path for the selected race.');
+    }
+    if(kind==='create' || kind==='edit' || isDesign(kind)) await attachImage(q,input.fields?.portrait||input.fields?.art,service,mediaOwner);
     if(input.fields?.attainedForms && ['create','edit'].includes(kind)){
-      for(const form of forms.readForms(next.attainedForms))await attachImage(q,form.portrait,service,who.id);
+      for(const form of forms.readForms(next.attainedForms))await attachImage(q,form.portrait,service,mediaOwner);
     }
     const rows = await q(`INSERT INTO pc_requests
       (id,fingerprint,kind,character_id,owner_id,author_id,base_revision,before_sheet,after_sheet,reason,award,status,created_ms)
@@ -174,12 +193,13 @@ export async function propose(db: Store, who: Actor, input: any, active: Set<str
       [id,fingerprint,kind,characterId,ownerId,who.id,version,previous && JSON.stringify(previous),JSON.stringify(next),reason,award && JSON.stringify(award),kind==='training'?'awaiting_judge':'pending',Date.now()]);
     if (rows.length) {
       if (!immediate) {
-        await q('INSERT INTO pc_review_posts(request_id) VALUES($1)',[id]);
+        if(kind==='create' && (await q('SELECT id FROM pc_characters WHERE owner_id=$1 LIMIT 1',[ownerId])).length)await queueForumCheck(q,ownerId);
+        await q('INSERT INTO pc_review_posts(request_id) VALUES($1) ON CONFLICT DO NOTHING',[id]);
         return visibleRequest(rows[0]);
       }
       requireThat(await assignTag(q,ownerId,characterId,next.tag),409,'You already use that tag on another character.');
       const [saved]=await q("UPDATE pc_requests SET status='approved',decided_by=$1,decided_ms=$2,notified=1 WHERE id=$3 RETURNING *",[who.id,Date.now(),id]);
-      return visibleRequest(saved);
+      await archiveFinal(q,saved);return visibleRequest(saved);
     }
     const [concurrent] = await q('SELECT * FROM pc_requests WHERE id=$1', [id]);
     requireThat(concurrent?.fingerprint === fingerprint, 409, 'That submission identifier was already used.');
@@ -207,23 +227,56 @@ export async function judgeTraining(db:Store, who:Actor, id:string, input:any, a
     const [changed]=await q(`UPDATE pc_requests SET status=$1,award=$2,after_sheet=$3,notified=0,notify_after=0,attempts=0,last_notify_error=NULL
       WHERE id=$4 AND status='awaiting_judge' RETURNING *`,[stale?'stale':'pending',JSON.stringify(extra),JSON.stringify(result.next),id]);
     requireThat(changed,409,'Another reviewer handled this claim. Reload the request.');
-    return visibleRequest(changed);
+    if(changed.status==='stale')await archiveFinal(q,changed);return visibleRequest(changed);
   });
 }
 
-export async function decide(db: Store, reviewer: string, ownerId: string, id: string, approve: boolean) {
-  requireThat(reviewer === ownerId, 403, 'Only the configured owner can review this request.');
-  return db.transaction(async q => {
-    const rows = await q("UPDATE pc_requests SET status=$1,decided_by=$2,decided_ms=$3,notified=0,notify_after=0,attempts=0,last_notify_error=NULL WHERE id=$4 AND (status='pending' OR (status='awaiting_judge' AND $5=1)) RETURNING *", [approve?'approved':'declined',reviewer,Date.now(),id,approve?0:1]);
-    if (!rows.length) {
-      const [existing] = await q('SELECT * FROM pc_requests WHERE id=$1', [id]);
-      requireThat(existing, 404, 'Unknown request.');
-      requireThat(existing.status!=='archived',409,'This request is archived. Restore it in PhoenixCore to resume review.');
-      requireThat(existing.status!=='awaiting_judge' || !approve,409,'A staff judgment is required before approval.');
-      return visibleRequest(existing);
+export async function archiveFinal(q:Query,row:Row){
+  await q('INSERT INTO pc_archives(request_id,previous_status) VALUES($1,$2) ON CONFLICT(request_id) DO UPDATE SET previous_status=excluded.previous_status',[row.id,row.status]);row.archived=true;
+}
+async function queueForumCheck(q:Query,owner:string){
+  const [config]=await q('SELECT value FROM pc_config WHERE slot=1');
+  const forum=JSON.parse(config.value).updatesForum||defaultSettings.updatesForum,subject='player:'+owner;
+  await q('INSERT INTO pc_forum_threads(forum_id,subject) VALUES($1,$2) ON CONFLICT DO NOTHING',[forum,subject]);
+  await q('INSERT INTO pc_forum_checks VALUES($1,$2,0) ON CONFLICT(forum_id,subject) DO UPDATE SET retry_at=0',[forum,subject]);
+}
+export async function decide(db:Store,reviewer:string,ownerId:string,id:string,approve:boolean,roles:string[]=[],action='review',note='',decisionKey=''){
+  return db.transaction(async q=>{
+    const [cfg]=await q('SELECT value FROM pc_config WHERE slot=1');
+    const helperRole=JSON.parse(cfg.value).judgeRole??defaultSettings.judgeRole,owner=reviewer===ownerId;
+    requireThat(owner||(helperRole&&roles.includes(helperRole)),403,'Only the configured owner or a Convergence Helper can review this request.');
+    const [existing]=await q('SELECT * FROM pc_requests WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
+    requireThat(existing,404,'Unknown request.');
+    requireThat(existing.status!=='archived',409,'This request is archived. Restore it in PhoenixCore to resume review.');
+    if(!['pending','awaiting_judge','needs_details','owner_review'].includes(existing.status))return visibleRequest(existing);
+    let target=approve?'approved':'declined';
+    if(existing.status==='owner_review'){
+      requireThat(owner&&['uphold','veto'].includes(action),403,'The owner must uphold or veto the Helper denial.');
+      const [denial]=await q('SELECT stage,decision_key FROM pc_denials WHERE request_id=$1',[id]);
+      requireThat(denial,409,'Denial record unavailable.');
+      requireThat(!decisionKey||decisionKey===denial.decision_key,409,'This denial has been replaced. Open the current request.');
+      target=action==='uphold'?'declined':denial.stage==='pending'?'approved':denial.stage;
+    }else{
+      requireThat(action==='review',409,'There is no pending Helper denial.');
+      requireThat(!approve||existing.status==='pending',409,existing.status==='needs_details'?'Complete the Discord submission before approval.':'A staff judgment is required before approval.');
+      if(!approve&&!owner){
+        target='owner_review';
+        await q(`INSERT INTO pc_denials(request_id,stage,helper,note,decision_key) VALUES($1,$2,$3,$4,$5) ON CONFLICT(request_id) DO UPDATE SET decision_key=excluded.decision_key,stage=excluded.stage,helper=excluded.helper,note=excluded.note,dm_channel=NULL,dm_message=NULL,attempts=0,retry_at=0`,[id,existing.status,reviewer,textValue(note,600,'Denial note'),randomUUID()]);
+      }
     }
+    const final=['approved','declined'].includes(target);
+    const rows=await q('UPDATE pc_requests SET status=$1,decided_by=$2,decided_ms=$3,notified=0,notify_after=0,attempts=0,last_notify_error=NULL WHERE id=$4 RETURNING *',[target,final?reviewer:null,final?Date.now():null,id]);
     const r=rows[0];
-    if (approve && !isDesign(r.kind)) {
+    if(target==='approved'&&['create','edit'].includes(r.kind)){
+      const next=JSON.parse(r.after_sheet),before=r.before_sheet?JSON.parse(r.before_sheet):{};
+      if(next.path&&(next.path!==before.path||next.lineage!==before.lineage)){
+        const race=(await racePaths(q)).find((race:any)=>race.name===next.lineage);
+        if(!race?.paths.includes(next.path)){
+          await q("UPDATE pc_requests SET status='stale' WHERE id=$1",[id]);r.status='stale';
+        }
+      }
+    }
+    if (r.status==='approved' && !isDesign(r.kind)) {
       const after=JSON.parse(r.after_sheet), before=r.before_sheet?JSON.parse(r.before_sheet):null;
       const writesTag=Object.hasOwn(after,'tag');
       const tag=after.tag;
@@ -239,16 +292,14 @@ export async function decide(db: Store, reviewer: string, ownerId: string, id: s
       }
       if (!applied) await q('ROLLBACK TO SAVEPOINT character_review');
       await q('RELEASE SAVEPOINT character_review');
-      if(applied && r.kind==='create'){
-        const [config]=await q('SELECT value FROM pc_config WHERE slot=1');
-        const forum=JSON.parse(config.value).updatesForum || defaultSettings.updatesForum;
-        await q('INSERT INTO pc_forum_threads(forum_id,subject) VALUES($1,$2) ON CONFLICT DO NOTHING',[forum,'player:'+r.owner_id]);
-      }
+      if(applied && r.kind==='create')await queueForumCheck(q,r.owner_id);
       if (!applied) {
         await q("UPDATE pc_requests SET status='stale' WHERE id=$1", [id]);
         r.status='stale';
       }
     }
+    if(r.status==='approved'&&isDesign(r.kind))await q('INSERT INTO pc_designs VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[r.id,r.kind,r.author_id,r.after_sheet]);
+    if(['approved','declined','stale'].includes(r.status))await archiveFinal(q,r);
     return visibleRequest(r);
   });
 }

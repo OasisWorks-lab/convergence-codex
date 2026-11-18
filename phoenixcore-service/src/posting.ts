@@ -1,5 +1,6 @@
 import {forumType,writableType} from './forum-threads.ts';
-import {activeForm} from './characters.ts';
+import {captureNative} from './native.ts';
+import {activeForm,characterCommand} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
 import type { RoleplayScope } from './scope.ts';
 import { assignTag } from './tags.ts';
@@ -67,9 +68,9 @@ function matchPrefix(text:string,tags:{tag_key:string;character_id:string}[]) {
   }
   return match;
 }
-export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean){
+export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean,settings?:Settings){
   if(source.guild!==config.guild || !source.content.trim() || source.content.length>2000)return;
-  const {value}=await readSettings(db);
+  const value=settings||(await readSettings(db)).value;
   if(!(value.rpDivider?inScope?.(value):[source.channel,source.parent||''].some(id=>channelIds(value).includes(id))) || (value.playerRole&&!source.roles.includes(value.playerRole)))return;
   const tags=await db.query('SELECT tag_key,character_id FROM pc_post_tags WHERE owner_id=$1',[source.author]);
   const tagged=matchPrefix(source.content,tags as {tag_key:string;character_id:string}[]);
@@ -84,7 +85,7 @@ export async function relay(db:Store,config:Config,source:IncomingPost,send:(pos
   const reserved=await db.query('INSERT INTO pc_posts(source_id,channel_id,author_id,character_id,character_name,created_ms) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(source_id) DO NOTHING RETURNING source_id',
     [source.id,source.channel,source.author,sheet.id,character.name,Date.now()]);
   if(!reserved.length)return;
-  const posted=await send({name:character.name,portrait:form?.portrait||character.portrait||'',content});
+  const posted=await send({name:form?(character.name+' ('+form.name+')').slice(0,80):character.name,portrait:form?.portrait||character.portrait||'',content});
   requireThat(discordId.test(posted),502,'Discord did not confirm a character post.');
   await db.query('UPDATE pc_posts SET posted_id=$1 WHERE source_id=$2',[posted,source.id]);
   await remove();
@@ -100,6 +101,7 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
     if(!guild)return;
     try{
       const {value}=await readSettings(db);
+      const helper=value.judgeRole?await guild.roles.fetch(value.judgeRole).catch(()=>null):null;
       const checks=[['Character submissions',value.characterChannel],['Design submissions',value.designChannel],['OC updates',value.updatesForum]];
       for(const [label,id] of checks){
         try{
@@ -110,6 +112,7 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
           if(!target.isThread())needed.push(flags.SendMessages);
           if(forumType(target.type)||target.isThread())needed.push(flags.SendMessagesInThreads);
           const missing=target.permissionsFor(ready.user)?.missing(needed)??['ViewChannel'];
+          if(value.judgeRole && (!helper||!helper.mentionable&&!target.permissionsFor(ready.user)?.has(flags.MentionEveryone)))console.warn(label+' '+id+' needs a mentionable Helper role or permission for PhoenixCore to mention roles.');
           if(missing.length)console.warn(label+' '+id+' missing bot permissions: '+missing.join(', '));
           else console.log(label+' '+id+' ready ('+(forumType(target.type)?'forum':target.isThread()?'thread':'text channel')+').');
         }catch{console.warn(label+' '+id+' is unavailable or has an unsupported channel type.');}
@@ -127,9 +130,23 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
       || parent.createWebhook({name:'PhoenixCore RP',reason:'Convergence approved character posting'});
   }
   client.on('messageCreate',async message=>{
-    if(!message.inGuild() || message.guildId!==config.guild || !message.member || message.author.bot || message.webhookId ||
-      message.type!==MessageType.Default || message.attachments.size || message.stickers.size || message.poll || message.reference ||
-      !message.deletable || !message.content || !message.guild.members.me)return;
+    if(!message.inGuild()||message.guildId!==config.guild||!message.member||message.author.bot||message.webhookId||!message.content||!message.guild.members.me)return;
+    const roles=[...message.member.roles.cache.keys()],thread=message.channel.isThread()?message.channel:null;
+    let settings:Settings;
+    try{
+      settings=(await readSettings(db)).value;
+      if(await captureNative(db,config,{id:message.id,channel:message.channelId,parent:thread?.parentId||undefined,title:thread?.id===message.id?thread.name:'',guild:message.guildId,author:message.author.id,roles,content:message.content,attachments:[...message.attachments.values()],reply:!!message.reference},'',settings))return;
+      const prefix=settings.commandPrefixes.split(/\s+/).filter(Boolean).sort((a,b)=>b.length-a.length).find(p=>message.content.startsWith(p));
+      if(prefix){
+        const command=/^(help|transform|revert-form)(?:\s+([\s\S]*))?$/i.exec(message.content.slice(prefix.length).trim());
+        if(command){
+          const [name,form]=(command[2]||'').split('|').map(x=>x.trim()),action=command[1].toLowerCase();
+          const response=action==='help'?'Use /transform or /revert-form, or type '+prefix+'transform Character | Form. To submit a template in its review channel, start with '+prefix+'submit and the submission type.':(await characterCommand(db,config.guild,config.dashboard,{guild_id:message.guildId,member:{user:{id:message.author.id},roles},data:{name:action,options:[{name:'character',value:name},...(form?[{name:'form',value:form}]:[])]}})).data.content;
+          await message.reply({content:response,allowedMentions:{parse:[],repliedUser:false}});return;
+        }
+      }
+    }catch{console.warn('Discord submission or character command could not be processed.');return;}
+    if(message.type!==MessageType.Default||message.attachments.size||message.stickers.size||message.poll||message.reference||!message.deletable)return;
     const channel=message.channel;
     const parent=channel.isThread()?channel.parent:channel;
     if(!parent||!('fetchWebhooks' in parent)||!('createWebhook' in parent))return;
@@ -151,7 +168,7 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
       },async()=>{
         const current=await message.fetch(true);
         if(current.content===original && !current.editedTimestamp && !current.attachments.size)await current.delete();
-      },settings=>scope.eligible(settings,channel));
+      },current=>scope.eligible(current,channel),settings);
     }catch{console.warn('Character post could not be completed. Original Discord posts are retained on delivery failure.');}
   });
   client.on('error',()=>console.warn('Discord roleplay connection reported an error.'));

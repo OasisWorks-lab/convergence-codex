@@ -25,14 +25,14 @@
     data.pages??={};
   }
   const groupFields={
-    world:['title','type','excerpt','art','source'], race:['name','description','descriptionHtml','accent','shade','art','source'],
+    designPaths:['playablePaths'], world:['title','type','excerpt','art','source'], race:['name','playablePaths','description','descriptionHtml','accent','shade','art','source'],
     path:['name','source'], form:['title','html','excerpt','art','url'], message:['title','html','art','url'],
     document:['title','excerpt','art','source'], chronicle:['title','excerpt','art','source','group'],
     guild:['name','summary','headquarters','leadership','membership','lore','art','source','listed'],
     item:['name','summary','appearance','abilities','limitations','lore','art','source','listed'],
     theme:['name',...colors,'available'], default:['theme'], copy:['text'], note:['text']
   };
-  const friendly={listed:'Listed at this location',html:'Formatted text',descriptionHtml:'Additional race information',art:'Artwork URL or Codex image path',source:'Source link',url:'Original entry link',type:'Location type',group:'Chronicle category',available:'Available in theme picker',theme:'Default theme',text:'Text'};
+  const friendly={playablePaths:'Selectable character paths (one per line)',listed:'Listed at this location',html:'Formatted text',descriptionHtml:'Additional race information',art:'Artwork URL or Codex image path',source:'Source link',url:'Original entry link',type:'Location type',group:'Chronicle category',available:'Available in theme picker',theme:'Default theme',text:'Text'};
   const titles={worlds:'Worlds',races:'Races & Forms',universal:'Universal paths',systems:'Systems',chronicles:'Chronicles',themes:'Themes',pages:'Page text'};
   function records(d){
     const all=new Map();

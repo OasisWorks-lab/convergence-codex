@@ -27,8 +27,37 @@
       if(!f||typeof f.id!=='string'||!/^[a-z0-9_-]{1,90}$/.test(f.id)||typeof f.name!=='string'||!f.name.trim()||f.name.length>100||f.name.trim().toLowerCase()==='base'||typeof f.portrait!=='string'||f.portrait.length>2048||(f.portrait&&!validImage(f.portrait)))throw Error('Check each form name and portrait.');
       const name=f.name.trim(),key=name.toLowerCase();
       if(ids.has(f.id)||names.has(key))throw Error('Each attained form needs a unique name.');
-      ids.add(f.id);names.add(key);return {id:f.id,name,portrait:f.portrait};
+      ids.add(f.id);names.add(key);
+      const form={id:f.id,name,portrait:f.portrait};
+      if(f.multiplier){
+        if(typeof f.multiplier!=='string'||!validFactor(f.multiplier))throw Error('Enter a positive Power Level multiplier with up to four decimal places.');
+        form.multiplier=f.multiplier;
+      }
+      if(f.modifiers){
+        if(typeof f.modifiers!=='object'||Array.isArray(f.modifiers))throw Error('Check the form stat adjustments.');
+        const modifiers={};
+        for(const [stat,value] of Object.entries(f.modifiers)){
+          if(!stats.includes(stat)||typeof value!=='string'||!(/^[+-]\d{1,18}$/.test(value)||(/^x/.test(value)&&validFactor(value.slice(1)))))throw Error('Use a flat stat adjustment such as +2 or a multiplier such as x1.5.');
+          modifiers[stat]=value;
+        }
+        if(Object.keys(modifiers).length)form.modifiers=modifiers;
+      }
+      return form;
     });
+  }
+  const validFactor=s=>/^(0|[1-9]\d{0,7})(\.\d{1,4})?$/.test(s)&&/[1-9]/.test(s);
+  function effectiveSheet(sheet,form){
+    const value={...sheet};
+    if(!form)return value;
+    function adjusted(base,modifier){
+      if(!modifier||!/^\d+$/.test(String(base)))return base;
+      if(!modifier.startsWith('x')){const result=BigInt(base)+BigInt(modifier);return String(result<0n?0n:result);}
+      const [whole,part='']=modifier.slice(1).split('.');
+      return String(BigInt(base)*BigInt(whole+part)/10n**BigInt(part.length));
+    }
+    if(form.multiplier)value.bpl=adjusted(sheet.bpl,'x'+form.multiplier);
+    for(const key of stats)if(form.modifiers?.[key])value[key]=adjusted(sheet[key],form.modifiers[key]);
+    return value;
   }
   function validImage(value) {
     if (/^\.\.\/assets\/uploads\/[a-zA-Z0-9_./-]+\.(png|jpe?g|webp|gif)$/i.test(value) && !value.slice(3).includes('..')) return true;
@@ -38,13 +67,13 @@
       return !url.username && !url.password && (url.protocol==='https:' || localUpload);
     } catch { return false; }
   }
-  const stats = ['strength', 'speed', 'durability', 'intelligence', 'control'];
+  const stats = ['speed', 'durability', 'intelligence', 'control'];
   const character = [
     section('History',
       line('name','Character name',{max:64,required:true}), line('alias','Alias'),
       line('tag','RP posting tag',{max:tagLimit,hint:tagHint}),
       pick('characterType','Character type',[['OC','Player character (OC)'],['NPC','Non-player character (NPC)']],{initial:'OC'}),
-      prose('bio','Lore / backstory',{max:18000,hint:'Long backstories are welcome. Paragraph breaks are preserved.'}),
+      prose('bio','Lore / backstory',{max:60000,hint:'Up to 60,000 characters. Leave a blank line between paragraphs.'}),
       prose('family','Family in RP',{hint:'Known relatives, living or deceased.'}), prose('enemies','Enemies in RP',{hint:'Rivals, grudges or vendettas.'}),
       line('occupation','Occupation / role')),
     section('Characteristics',
@@ -58,7 +87,7 @@
       prose('techniquesItems','Non-racial techniques / items',{hint:'List custom techniques, weapons, relics or gear in the character concept.'})),
     section('Character sheet',
       line('bpl','Base Power Level',{max:60,whole:true,initial:'0',required:true}),
-      ...stats.map((key,index)=>line(key,['Strength','Speed','Durability','Intelligence','Energy control'][index],{max:180})))
+      ...stats.map((key,index)=>line(key,['Speed','Durability','Intelligence','Energy control'][index],{max:180})))
   ];
   const technique = [
     section('Basic information',line('name','Technique name',{max:100,...required}),
@@ -83,6 +112,7 @@
     section('Internal information',line('name','Race name',{max:100,...required}),line('bplRolls','BPL rolls',{...required,hint:'Describe the dice and range for starting Base Power Level.'}),
       line('homeworld','Homeworld / primary location'),line('lifespan','Lifespan'),line('alignment','Usual alignment'),
       prose('coreTraits','Core abilities / traits',{...required,maxLines:4,hint:'Enter up to four distinct racial mechanics, one per line.'}),
+      prose('paths','Available character paths',{hint:'One selectable path per line.'}),
       prose('transformations','Race transformations',{hint:'List their names here and submit each form separately as a Transformation.'}),
       prose('factions','Faction affiliations'),prose('hybrid','Hybrid potential'),prose('perks','Roleplay perks'),
       prose('history','Race history',{max:12000})),
@@ -174,6 +204,7 @@
       for(const entry of stats) {
         checkKeys(entry,['name','amount']);
         const name=trimmed(entry.name,80,'Stat name'),key=name.toLowerCase(),amount=integer(entry.amount,'Stat gain');
+        assert(key!=='strength','Use Power Level for Strength awards.');
         assert(amount!=='0' && !seen.has(key),'Each stat gain needs a distinct name and a positive amount.');
         seen.add(key);
         const existing=next.progress.find((v)=>v.name.toLowerCase()===key);
@@ -185,7 +216,7 @@
     assert(gain > 0n || BigInt(currency) > 0n || gear.length || awards.length, 'The award must change the sheet after whole-point rounding.');
     return { next, award: { percent, gain: String(gain), currency, gear,...(points!=='0'?{points}:{}),...(awards.length?{stats:awards}:{}) } };
   }
-  const api={reviewRoutes,tagLimit,tagHint,tagKey,readForms,normalizeTag,validImage,calculateAward,forms,allFields,normalize,catalogue,tiers,stats};
+  const api={effectiveSheet,reviewRoutes,tagLimit,tagHint,tagKey,readForms,normalizeTag,validImage,calculateAward,forms,allFields,normalize,catalogue,tiers,stats};
   if(typeof module==='object' && module.exports) module.exports=api;
   else globalThis.PhoenixForms=api;
 })();
