@@ -1,6 +1,7 @@
 import {readFileSync} from 'node:fs';
 import model from '../../assets/content-model.js';
 import type {Store} from './db.ts';
+import {attachImage} from './media.ts';
 import {requireThat} from './domain.ts';
 
 export const editorRole='1100315883773112432';
@@ -12,24 +13,31 @@ const tags=new Set('p br hr h1 h2 h3 h4 h5 h6 ul ol li blockquote strong b em i 
 function formatted(value:string){
   if(!value.includes('<'))return value.split(/\n\s*\n/).map(p=>'<p>'+p.replaceAll('&','&amp;').replaceAll('>','&gt;').replaceAll('\n','<br>')+'</p>').join('');
   return value.replace(/<[^>]*>|</g,token=>{
-    const tag=/^<(\/?)([a-z0-9]+)\s*\/?>$/i.exec(token);
+    const tag=/^<(\/?)([a-z0-9]+)(?:\s+[^>]*)?\s*\/?>$/i.exec(token);
+    if(tag?.[2].toLowerCase()==='a'){
+      if(tag[1])return '</a>';
+      const link=/\shref\s*=\s*(?:"([^"]+)"|'([^']+)')/i.exec(token);
+      try{const url=new URL(link?.[1]||link?.[2]||'');
+        if(url.protocol==='https:'&&!url.username&&!url.password)return '<a href="'+url.href.replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','%3C').replaceAll('>','%3E')+'" rel="noopener noreferrer">';}catch{}
+      return '<a>';
+    }
     if(tag && tags.has(tag[2].toLowerCase()))return '<'+tag[1]+tag[2].toLowerCase()+'>';
     return token.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
   });
 }
-function checkField(field:string,value:unknown,kind:string) {
+function checkField(field:string,value:unknown,kind:string,service:string) {
   requireThat(typeof value==='string' && value.length<=(['html','descriptionHtml','text','lore'].includes(field)?95000:8000),400,'Check the length of '+field+'.');
   const v=value.trim();
   if(field==='title'||field==='name')requireThat(v && v.length<=260,400,'Enter a title of up to 260 characters.');
   if(field==='art'||field==='source'||field==='url'){
     let valid=!v || (field==='art' && /^assets\/(?:art|uploads)\/[a-zA-Z0-9_/-]+\.(?:png|jpg|jpeg|svg|gif|webp)$/i.test(v));
-    if(!valid){try{const u=new URL(v);valid=u.protocol==='https:'&&!u.username&&!u.password;}catch{}}
+    if(!valid){try{const u=new URL(v);valid=(u.protocol==='https:'||(field==='art' && u.origin===service && /^\/media\/[a-f0-9-]{36}\.(png|gif|jpg|webp)$/.test(u.pathname)))&&!u.username&&!u.password;}catch{}}
     requireThat(valid&&v.length<=2048,400,'Use an HTTPS address or a Codex artwork path.');
   }
   if(model.colors.includes(field)||field==='shade')requireThat(/^#[0-9a-f]{6}$/i.test(v),400,'Choose a six-digit hex color.');
   if(field==='type'&&kind==='world')requireThat(['Planet','Realm','Landmark','Origin'].includes(v),400,'Choose a listed location type.');
   if(field==='group')requireThat(['In development','Events','Completed'].includes(v),400,'Choose a listed chronicle category.');
-  if(field==='available')requireThat(['yes','no'].includes(v),400,'Choose whether the theme is available.');
+  if(field==='available'||field==='listed')requireThat(['yes','no'].includes(v),400,'Choose whether the theme is available.');
   if(field==='theme')requireThat(/^[a-z0-9-]{1,40}$/.test(v),400,'Select an available theme.');
   return ['html','descriptionHtml'].includes(field)&&v?formatted(v):v;
 }
@@ -37,7 +45,7 @@ export async function published(db:Store){
   const rows=await db.query('SELECT entry_key,revision,fields FROM pc_codex ORDER BY entry_key');
   return rows.map(r=>({key:r.entry_key,revision:Number(r.revision),fields:JSON.parse(r.fields)}));
 }
-export async function publish(db:Store, roles:string[], actor:string, input:any){
+export async function publish(db:Store, roles:string[], actor:string, input:any, service=''){
   requireThat(roles.includes(editorRole),403,'Your Discord Owner role is required to publish Codex edits.');
   requireThat(input && typeof input.key==='string' && input.key.length<190 && Number.isSafeInteger(input.revision) && input.revision>=0,400,'Invalid Codex entry or revision.');
   const {key,revision}=input,kind=records.get(key)?.kind||model.extraKind(baseline,key);
@@ -46,14 +54,16 @@ export async function publish(db:Store, roles:string[], actor:string, input:any)
   const fields:Record<string,string>={};
   for(const [name,value] of Object.entries(input.fields)){
     requireThat(model.groupFields[kind].includes(name),400,'Unknown entry field.');
-    fields[name]=checkField(name,value,kind);
+    fields[name]=checkField(name,value,kind,service);
   }
   return db.transaction(async q=>{
     if(db.dialect==='postgres')await q('SELECT pg_advisory_xact_lock(739124862)');
     const [old]=await q('SELECT fields,revision FROM pc_codex WHERE entry_key=$1',[key]);
     requireThat((Number(old?.revision)||0)===revision,409,'Someone saved this entry while you were editing. Reopen it to review the published version.');
+    await attachImage(q,fields.art,service,actor);
     const next={...(old?JSON.parse(old.fields):{}),...fields};
     if(!records.has(key)&&['item','guild','theme'].includes(kind))requireThat(next.name,400,'Give this entry a name.');
+    if(!records.has(key)&&kind==='message')requireThat(next.title&&next.html,400,'Give this lore section a title and some text.');
     if(kind==='theme'||kind==='default'){
       if(kind==='theme'&&!records.has(key))requireThat(model.colors.every((c:string)=>next[c]),400,'Complete all theme colors.');
       const all=await q("SELECT entry_key,fields FROM pc_codex WHERE entry_key LIKE 'themes/%' OR entry_key='settings/default'");

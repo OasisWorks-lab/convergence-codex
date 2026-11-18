@@ -12,11 +12,11 @@ A mobile-friendly Convergence: Phoenix Rising encyclopedia using the pre-existin
 
 Visitor theme choices are saved on the visitor's device using browser localStorage when available.
 
-## Future edits
+## Editing the live Codex
 
-Edit entries offline in the separate V4 Owner Studio, export the update ZIP, and upload the updated `assets/data.js` and any added files in `assets/uploads/` to matching repository paths. Owner administration files must never be uploaded to the public site.
+Sign in with Discord and use **Edit Mode** in the top bar. The Convergence Owner role (ID `1100315883773112432`) grants publishing access. Select **Edit content** to edit entries, page text and themes. In **Worlds**, open a location and choose **Lore**, **Location Guild(s)** or **Mystical Items** to edit those records in place. Readers can open shared links directly to any listed guild or item.
 
-Animated GIF, PNG, JPEG, and WebP card art is supported via local uploads in the Owner Studio. Original V3 placeholders are retained until replaced.
+Published edits live in PhoenixCore’s persistent database. GitHub Pages supplies the site and the original Codex archive. Routine editing and new location entries take effect when readers reload the page. The theme picker includes 30 presets and remembers each reader’s choice.
 
 ## PhoenixCore character sheets
 

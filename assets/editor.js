@@ -14,11 +14,26 @@
   }
   function field(name,value){
     let node;
-    const choices=name==='available'?['yes','no']:name==='type'?['Planet','Realm','Landmark','Origin']:name==='group'?['In development','Completed','Events']:name==='theme'?data.themes.filter(t=>t.available!=='no').map(t=>t.id):null;
+    const choices=['available','listed'].includes(name)?['yes','no']:name==='type'?['Planet','Realm','Landmark','Origin']:name==='group'?['In development','Completed','Events']:name==='theme'?data.themes.filter(t=>t.available!=='no').map(t=>t.id):null;
     if(choices){node=el('select');for(const v of choices)node.add(option(v,name==='theme'?data.themes.find(t=>t.id===v).name:v));}
     else if(['html','descriptionHtml','description','summary','excerpt','text','lore','abilities','limitations','membership','appearance'].includes(name)){node=el('textarea');node.rows=['html','descriptionHtml','lore','text'].includes(name)?8:3;}
     else {node=el('input');if(model.colors.includes(name)||name==='shade')node.type='color';}
-    node.name=name;node.value=value??(name==='available'?'yes':'');
+    node.name=name;node.value=value??(['available','listed'].includes(name)?'yes':'');
+    if(name==='art'){
+      const wrap=el('div');wrap.append(label(model.friendly.art,node));
+      const file=el('input');file.type='file';file.accept='image/png,image/jpeg,image/gif,image/webp';
+      file.onchange=async()=>{
+        const picked=file.files[0];if(!picked)return;
+        if(picked.size>5*1024*1024||!picked.size){feedback.textContent='Choose an image of up to 5 MiB.';return;}
+        const selected=current;
+        file.disabled=true;form.querySelector('[type="submit"]').disabled=true;feedback.textContent='Uploading artwork…';
+        try{const result=await live.request('/api/media','POST',picked);if(current===selected){node.value=result.url;feedback.textContent='Artwork ready to publish.';}}
+        catch(error){feedback.textContent=error.message;}
+        finally{file.disabled=false;file.value='';form.querySelector('[type="submit"]').disabled=false;}
+      };
+      wrap.append(label('Upload artwork or GIF',file));return wrap;
+    }
+    if(name==='html'||name==='descriptionHtml'){const wrap=label(model.friendly[name],node);wrap.append(el('small','Enter paragraphs or use basic HTML for headings, lists and emphasis.'));return wrap;}
     return label(model.friendly[name]||name.charAt(0).toUpperCase()+name.slice(1),node);
   }
   function show(record){

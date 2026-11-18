@@ -108,7 +108,8 @@ export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config) {
   const captions:Record<string,string>=Object.fromEntries(forms.allFields(fieldKind).map((f:any)=>[f.key,f.label]));
   Object.assign(captions,{gear:'Gear',wallet:'Wallet',progress:'Training stats'});
   const notes=Object.entries(r.after).filter(([k,v])=>v!=='' && JSON.stringify(r.before?.[k])!==JSON.stringify(v) && (r.before || !Array.isArray(v) || v.length));
-  const lines=notes.map(([k,v])=>'**'+(captions[k]??k)+'** '+(r.before?brief(r.before[k],70)+' → ':'')+brief(v,100));
+  const reviewValue=(key:string,value:any,limit:number)=>key==='attainedForms'?brief(forms.readForms(value).map((f:any)=>f.name+(f.portrait?' (artwork)':'')).join(', '),limit):brief(value,limit);
+  const lines=notes.map(([k,v])=>'**'+(captions[k]??k)+'** '+(r.before?reviewValue(k,r.before[k],70)+' → ':'')+reviewValue(k,v,100));
   const fields=[{name:'Submitted by',value:'<@'+r.authorId+'>'},{name:'Reason',value:brief(r.reason,550)}];
   if(r.details?.claimed) fields.push({name:'Player claim',value:brief(r.details.claimed,400)});
   if(r.details?.approval) fields.push({name:'Approval requested',value:brief(r.details.approval,400)});

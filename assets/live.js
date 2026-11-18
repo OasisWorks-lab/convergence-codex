@@ -21,14 +21,15 @@
       const id=(node.id||node.dataset.link||node.tagName.toLowerCase()+'-'+index).toLowerCase();
       const key='pages/'+pageId+'/'+id;
       copy.set(key,{node,original:node.textContent.trim()});
-      node.addEventListener('click',event=>{if(editing){event.preventDefault();event.stopImmediatePropagation();window.CodexEditor.open(key);}},true);
+      node.addEventListener('click',event=>{if(editing&&!node.closest('a,button')){event.preventDefault();event.stopImmediatePropagation();window.CodexEditor.open(key);}},true);
     });
   }
   async function request(path,method='GET',body,session=read('session')){
     const headers={};
     if(session)headers.authorization='Bearer '+session;
-    if(body)headers['content-type']='application/json';
-    const response=await fetch(api+path,{method,headers,body:body?JSON.stringify(body):undefined,credentials:'omit',referrerPolicy:'no-referrer',cache:'no-store',signal:AbortSignal.timeout(9000)});
+    const binary=body instanceof Blob;
+    if(body)headers['content-type']=binary?body.type:'application/json';
+    const response=await fetch(api+path,{method,headers,body:body?(binary?body:JSON.stringify(body)):undefined,credentials:'omit',referrerPolicy:'no-referrer',cache:'no-store',signal:AbortSignal.timeout(9000)});
     const result=await response.json();
     if(!response.ok)throw Object.assign(Error(result.error||'PhoenixCore could not complete the request.'),{status:response.status});
     return result;

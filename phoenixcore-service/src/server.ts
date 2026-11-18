@@ -172,9 +172,9 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       const [member,settings]=await Promise.all([discord.member(session.user_id),readSettings(db)]);
       const actor=actorFor(session.user_id,member.roles,config.owner,settings.value);
       if(path==='/api/codex/access' && method==='GET'){json(res,200,{canEdit:member.roles.includes(editorRole)});return;}
-      if(path==='/api/codex' && method==='POST'){json(res,200,await publish(db,member.roles,actor.id,parse(await rawBody(req))));return;}
+      if(path==='/api/codex' && method==='POST'){json(res,200,await publish(db,member.roles,actor.id,parse(await rawBody(req)),config.service));return;}
       if(method==='POST' && path==='/api/media'){
-        requireThat(actor.isPlayer,403,'Only Convergence players can upload submission artwork.');
+        requireThat(actor.isPlayer||member.roles.includes(editorRole),403,'A current player or Codex editor can upload artwork.');
         const image=await saveImage(db,actor.id,await rawBody(req,maxImageBytes),config.service);
         json(res,201,{url:image});return;
       }

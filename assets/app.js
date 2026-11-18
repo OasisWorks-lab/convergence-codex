@@ -80,20 +80,20 @@ function openWorld(route){
  const top=section?'<div class="atlas-toolbar"><a class="atlas-back" href="'+E(atlasHref(id?[slug,section]:[slug]))+'">← '+E(id?heading[section]:w.title)+'</a></div>':'';
  let title=w.title,body='',source='';
  if(!section){
-  body=editButton(base,'Edit location')+'<div class="atlas-links">'+Object.entries(heading).map(([k,n])=>atlasRow(atlasHref([slug,k]),n,k==='lore'?'':String(w[k].length))).join('')+'</div>';
+  body=editButton(base,'Edit location')+'<div class="atlas-links">'+Object.entries(heading).map(([k,n])=>atlasRow(atlasHref([slug,k]),n,k==='lore'?'':String(w[k].filter(e=>e.listed!=='no').length))).join('')+'</div>';
  }else if(section==='lore'){
   title=w.title+' · Lore';source=w.source;
-  body=entryArt(w.art,w.title)+'<div class="atlas-lore">'+w.messages.map((m,i)=>editButton(base+'/messages/'+i,'Edit '+(w.messages.length===1?'lore':'lore section '+(i+1)))+(w.messages.length>1?'<h3>'+E(m.title)+'</h3>':'')+rich([m])).join('')+'</div>';
+  body=entryArt(w.art,w.title)+'<div class="atlas-lore">'+w.messages.map((m,i)=>editButton(base+'/messages/'+(m.codexId||i),'Edit '+(w.messages.length===1?'lore':'lore section '+(i+1)))+(w.messages.length>1?'<h3>'+E(m.title)+'</h3>':'')+rich([m])).join('')+editButton(base+'/messages/'+crypto.randomUUID(),'Add lore section','message')+'</div>';
  }else if(section==='guilds'||section==='items'){
   title=heading[section]+' · '+w.title;
-  const kind=section==='guilds'?'guild':'item',entries=w[section],key=base+'/'+section;
+  const kind=section==='guilds'?'guild':'item',entries=w[section].filter(e=>e.listed!=='no'),key=base+'/'+section;
   if(id){
    const entry=entries.find(x=>x.id===id);
    if(!entry){body='<p>This entry is unavailable.</p>';}
    else {
     title=entry.name;source=entry.source;
     body=editButton(key+'/'+id,'Edit '+kind)+'<article class="atlas-entry">'+(entry.art?'<img alt="" src="'+E(art(entry.art))+'">':'')+
-     window.CodexModel.groupFields[kind].filter(k=>!['name','art','source'].includes(k)&&entry[k]).map(k=>'<h3>'+E(k[0].toUpperCase()+k.slice(1))+'</h3><p>'+E(entry[k])+'</p>').join('')+'</article>';
+     window.CodexModel.groupFields[kind].filter(k=>!['name','art','source','listed'].includes(k)&&entry[k]).map(k=>'<h3>'+E(k[0].toUpperCase()+k.slice(1))+'</h3><p>'+E(entry[k])+'</p>').join('')+'</article>';
    }
   }else{
    body=editButton(key+'/'+crypto.randomUUID(),'Add '+(kind==='item'?'mystical item':'guild'),kind)+
@@ -210,7 +210,7 @@ if(page==='chronicles'){
 // Lightweight client-side search over the bundled archive, including transformation names.
 let searchIndex=[];
 D.worlds.forEach(w=>searchIndex.push({type:'World',title:w.title,desc:w.excerpt,href:'worlds.html#'+w.slug}));
-D.worlds.forEach(w=>['guilds','items'].forEach(k=>w[k].forEach(e=>searchIndex.push({type:k==='guilds'?'Guild':'Mystical Item',title:e.name,desc:w.title+' '+(e.summary||''),href:atlasHref([w.slug,k,e.id]).replace(/^.*#/,'worlds.html#')}))));
+D.worlds.forEach(w=>['guilds','items'].forEach(k=>w[k].filter(e=>e.listed!=='no').forEach(e=>searchIndex.push({type:k==='guilds'?'Guild':'Mystical Item',title:e.name,desc:w.title+' '+(e.summary||''),href:atlasHref([w.slug,k,e.id]).replace(/^.*#/,'worlds.html#')}))));
 D.races.forEach(r=>{searchIndex.push({type:'Race',title:r.name,desc:r.description,href:`races/${r.slug}.html`});r.paths.forEach((p,pi)=>p.forms.forEach((f,fi)=>searchIndex.push({type:r.name+' / '+p.name,title:f.title,desc:textOnly(f.html).slice(0,280),href:`races/${r.slug}.html#form-${pi}-${fi}`})));});
 D.systems.forEach(s=>searchIndex.push({type:'System',title:s.title,desc:s.excerpt,href:'systems.html#'+s.slug}));
 D.universal.forEach(s=>{searchIndex.push({type:'Universal Path',title:s.title,desc:s.messages.map(m=>textOnly(m.html)).join(' ').slice(0,170),href:'universal/'+s.slug+'.html'});s.messages.filter(m=>textOnly(m.html).length>60).forEach((m,i)=>searchIndex.push({type:s.title,title:m.title,desc:textOnly(m.html).slice(0,230),href:'universal/'+s.slug+'.html#form-'+i}));});

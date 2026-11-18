@@ -9,7 +9,7 @@
   const traits=['strength','speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0;
+  let state=null,session='',loadGeneration=0,preferenceChannel='';
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={get:k=>sessionStorage.getItem(pathKey+k),set:(k,v)=>sessionStorage.setItem(pathKey+k,v),remove:k=>sessionStorage.removeItem(pathKey+k)};
   const route=()=>location.hash.slice(1)||'directory';
@@ -391,9 +391,10 @@ function formList(raw){
   function posting(c){
     const prefs=state.posting;if(!prefs)return '';
     const own=state.characters.filter(c=>c.ownerId===state.actor.id);
+    const selected=prefs.channels.includes(preferenceChannel)?preferenceChannel:prefs.channels[0];
     return '<section class="panel dossier"><h2>Posting preferences</h2><form class="tag-form actions" data-id="'+h(c.id)+'">'+field('tag',c.sheet.name+'’s tag',c.tag,{max:24,hint:'Use test- directly, or rin> for a word tag.'})+'<button class="primary">Save tag</button></form>'+
       '<h3>Channel defaults</h3><p>Forum defaults apply to its posts. Choose a thread to set an exception. Start a post with <code>//</code> to speak as yourself.</p>'+
-      (prefs.channels.length?'<form id="defaultForm" class="fields"><label class="field">Roleplay channel or thread<select name="channel">'+options(prefs.channels.map(id=>[id,locationName(id)]),prefs.channels[0])+'</select></label><label class="field">Post as<select name="characterId">'+options([['','Inherit parent default'],['account','My Discord account'],...own.map(c=>[c.id,c.sheet.name])],savedDefault(prefs,prefs.channels[0]))+'</select></label><button class="primary">Save default</button></form>':'<p>No enabled roleplay channels.</p>')+
+      (prefs.channels.length?'<form id="defaultForm" class="fields"><label class="field">Roleplay channel or thread<select name="channel">'+options(prefs.channels.map(id=>[id,locationName(id)]),selected)+'</select></label><label class="field">Post as<select name="characterId">'+options([['','Inherit parent default'],['account','My Discord account'],...own.map(c=>[c.id,c.sheet.name])],savedDefault(prefs,selected))+'</select></label><button class="primary">Save default</button></form>':'<p>No enabled roleplay channels.</p>')+
       (prefs.defaults.length?'<details><summary>Saved defaults ('+prefs.defaults.length+')</summary><ul>'+prefs.defaults.map(d=>'<li>'+h(locationName(d.channel))+' · '+h(own.find(c=>c.id===d.characterId)?.sheet.name||'My Discord account')+'</li>').join('')+'</ul></details>':'')+'</section>';
   }
   function parseAward(fields){
@@ -439,6 +440,7 @@ function formList(raw){
       go(e.target.value?(kind==='edit'?'edit-':'train-')+e.target.value:'new-'+kind);
     }
     if(e.target.form?.id==='defaultForm'&&e.target.name==='channel'){
+      preferenceChannel=e.target.value;
       e.target.form.elements.characterId.value=savedDefault(state.posting,e.target.value);
     }
   });

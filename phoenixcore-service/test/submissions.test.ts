@@ -5,6 +5,8 @@ import {openSqlite,openPostgres,initialize,defaultSettings,type Store} from '../
 import {propose,decide,judgeTraining,actorFor,saveSettings,applyAward} from '../src/domain.ts';
 import {Discord,deliverNext,type Config} from '../src/discord.ts';
 import {savePosting,relay,lookupAuthor,preferences} from '../src/posting.ts';
+import {editorRole,publish,published} from '../src/codex.ts';
+import {characterCommand,archiveRequest,removeCharacter} from '../src/characters.ts';
 import {currentTag} from '../src/tags.ts';
 import {RoleplayScope} from '../src/scope.ts';
 import forms from '../../phoenixcore/templates.js';
@@ -160,4 +162,13 @@ test('category and thread coverage follows live ordering, parent changes and a d
 });
 test('PostgreSQL training and notification transitions', {skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
   const db=await openPostgres(process.env.PHOENIX_TEST_DATABASE_URL!);t.after(()=>db.close());await initialize(db,config.guild);await adjudicate(db);await checkTagEdits(db);
+  const key='worlds/planet-earth/guilds/'+randomUUID();
+  await publish(db,[editorRole],owner.id,{key,revision:0,fields:{name:'Watch'}});
+  assert.ok((await published(db)).find(r=>r.key===key));
+  const c=await character(db,'Glint'),request=await propose(db,writer,{...submit('edit',{attainedForms:JSON.stringify([{id:'zen',name:'Zen',portrait:''}])}),characterId:c,version:1},active);
+  await archiveRequest(db,owner,request.id,true);await archiveRequest(db,owner,request.id,false);
+  await decide(db,owner.id,owner.id,request.id,true);
+  const effect=await characterCommand(db,config.guild,config.dashboard,{type:2,guild_id:config.guild,member:{user:{id:writer.id},roles:[]},data:{name:'transform',options:[{name:'character',value:c},{name:'form',value:'zen'}]}});
+  assert.match(effect.data.content,/transformed/);
+  await removeCharacter(db,owner,c,2);assert.equal((await db.query('SELECT * FROM pc_active_forms WHERE character_id=$1',[c])).length,0);
 });

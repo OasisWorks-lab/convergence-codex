@@ -28,16 +28,16 @@
     world:['title','type','excerpt','art','source'], race:['name','description','descriptionHtml','accent','shade','art','source'],
     path:['name','source'], form:['title','html','excerpt','art','url'], message:['title','html','art','url'],
     document:['title','excerpt','art','source'], chronicle:['title','excerpt','art','source','group'],
-    guild:['name','summary','headquarters','leadership','membership','lore','art','source'],
-    item:['name','summary','appearance','abilities','limitations','lore','art','source'],
+    guild:['name','summary','headquarters','leadership','membership','lore','art','source','listed'],
+    item:['name','summary','appearance','abilities','limitations','lore','art','source','listed'],
     theme:['name',...colors,'available'], default:['theme'], copy:['text'], note:['text']
   };
-  const friendly={html:'Formatted text',descriptionHtml:'Additional race information',art:'Artwork URL or Codex image path',source:'Source link',url:'Original entry link',type:'Location type',group:'Chronicle category',available:'Available in theme picker',theme:'Default theme',text:'Text'};
+  const friendly={listed:'Listed at this location',html:'Formatted text',descriptionHtml:'Additional race information',art:'Artwork URL or Codex image path',source:'Source link',url:'Original entry link',type:'Location type',group:'Chronicle category',available:'Available in theme picker',theme:'Default theme',text:'Text'};
   const titles={worlds:'Worlds',races:'Races & Forms',universal:'Universal paths',systems:'Systems',chronicles:'Chronicles',themes:'Themes',pages:'Page text'};
   function records(d){
     const all=new Map();
     const add=(key,kind,obj,caption)=>all.set(key,{key,kind,obj,caption});
-    const messages=(key,list,caption)=>list?.forEach((m,i)=>add(key+'/'+i,'message',m,caption+' / '+(m.title||'Section '+(i+1))));
+    const messages=(key,list,caption)=>list?.forEach((m,i)=>add(key+'/'+(m.codexId||i),'message',m,caption+' / '+(m.title||'Section '+(i+1))));
     for(const w of d.worlds){
       const k='worlds/'+w.slug;add(k,'world',w,w.title);messages(k+'/messages',w.messages,w.title+' / Lore');
       for(const [collection,kind] of [['guilds','guild'],['items','item']])for(const entry of w[collection]||[])add(k+'/'+collection+'/'+entry.id,kind,entry,w.title+' / '+entry.name);
@@ -59,7 +59,7 @@
   }
   function extraKind(d,key){
     const parts=key.split('/');
-    if(parts.length===4 && parts[0]==='worlds' && d.worlds.some(w=>w.slug===parts[1]) && /^[0-9a-f-]{36}$/.test(parts[3]))return {guilds:'guild',items:'item'}[parts[2]];
+    if(parts.length===4 && parts[0]==='worlds' && d.worlds.some(w=>w.slug===parts[1]) && /^[0-9a-f-]{36}$/.test(parts[3]))return {guilds:'guild',items:'item',messages:'message'}[parts[2]];
     if(/^themes\/[a-z0-9-]{1,40}$/.test(key))return 'theme';
     if(/^pages\/(?:home|worlds|races|systems|chronicles|race-[a-z0-9-]+|universal-[a-z0-9-]+)\/[a-z0-9-]{1,70}$/.test(key))return 'copy';
   }
@@ -75,6 +75,7 @@
       if(existing){Object.assign(existing.obj,fields);continue;}
       const kind=extraKind(d,key);
       if(kind==='guild'||kind==='item')d.worlds.find(w=>w.slug===parts[1])[parts[2]].push({id:parts[3],...fields});
+      if(kind==='message')d.worlds.find(w=>w.slug===parts[1]).messages.push({codexId:parts[3],...fields});
       if(kind==='theme')d.themes.push({id:parts[1],...fields});
     }
   }
