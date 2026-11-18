@@ -264,7 +264,7 @@ with sync_playwright() as p:
     owner_tab.goto("https://codex.test/worlds.html")
     owner_tab.get_by_role("button",name="Edit content").click()
     owner_tab.get_by_label("Section",exact=True).select_option("themes")
-    owner_tab.get_by_label("Entry",exact=True).select_option("themes/forest")
+    owner_tab.get_by_role("dialog",name="Edit Codex content").get_by_role("combobox",name="Entry",exact=True).select_option("themes/forest")
     owner_tab.get_by_label("Name",exact=True).fill("Forest Green")
     owner_tab.get_by_role("button",name="Publish changes").click()
     expect(owner_tab.get_by_role("button",name="Exit Edit Mode",exact=True)).to_be_visible()
@@ -275,4 +275,4 @@ with sync_playwright() as p:
     screenshot(guest,"atlas-themes-mobile.png")
     assert not problems,problems
     browser.close()
-    print("Desktop and mobile dashboard verified, including seven templates, draft switching, approvals, staff judgment and RP preferences.")
+    print("Desktop and mobile verified, including templates, judgments, attained forms, archives, forum preferences, public atlas links, role-gated editing and all 30 themes.")
