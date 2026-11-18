@@ -218,11 +218,18 @@ async function start() {
     try {for(const table of ['pc_sessions','pc_auth_state','pc_exchanges']) await db.query('DELETE FROM '+table+' WHERE expires<=$1',[Date.now()]);}
     catch {console.error('Expired login cleanup will retry.');}
   },3600000);
-  const port=Number(process.env.PORT||4100);
-  server.listen(port,()=>{console.log('PhoenixCore is listening on port',port);void tick();});
+  const port=Number(process.env.PORT || process.env.SERVER_PORT || 4100);
+  server.listen(port,()=>{
+    const address=server.address();
+    console.log('PhoenixCore is listening on port',typeof address==='object' && address ? address.port : port);
+    void tick();
+  });
   const stop=()=>{if(stopPosting)void stopPosting();clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
   process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
-if (process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) {
+export function main() {
   start().catch(e=>{console.error(e.message);process.exitCode=1;});
+}
+if (process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) {
+  main();
 }
