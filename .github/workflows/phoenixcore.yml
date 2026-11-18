@@ -1,10 +1,10 @@
 name: PhoenixCore checks
 on:
   pull_request:
-    paths: ['index.js', 'package.json', 'phoenixcore/**', 'phoenixcore-service/**', 'assets/app.js', '.github/workflows/phoenixcore.yml']
+    paths: ['index.js', 'package.json', 'phoenixcore/**', 'phoenixcore-service/**', 'assets/**', '*.html', 'races/**', 'universal/**', '.github/workflows/phoenixcore.yml']
   push:
     branches: [main]
-    paths: ['index.js', 'package.json', 'phoenixcore/**', 'phoenixcore-service/**', 'assets/app.js', '.github/workflows/phoenixcore.yml']
+    paths: ['index.js', 'package.json', 'phoenixcore/**', 'phoenixcore-service/**', 'assets/**', '*.html', 'races/**', 'universal/**', '.github/workflows/phoenixcore.yml']
 permissions:
   contents: read
 jobs:

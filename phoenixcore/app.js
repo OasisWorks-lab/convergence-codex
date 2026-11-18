@@ -9,7 +9,7 @@
   const traits=['strength','speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0;
+  let state=null,session='',loadGeneration=0,preferenceChannel='';
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={get:k=>sessionStorage.getItem(pathKey+k),set:(k,v)=>sessionStorage.setItem(pathKey+k,v),remove:k=>sessionStorage.removeItem(pathKey+k)};
   const route=()=>location.hash.slice(1)||'directory';
@@ -65,6 +65,7 @@
     location.assign(api+'/auth/start?challenge='+encodeURIComponent(challenge));
   }
   async function init(){
+    await window.CodexLive?.ready;
     if(api && location.origin===api && location.pathname.startsWith('/phoenixcore/'))$('#codex').hidden=true;
     if(!demo){
       session=store.get('session')||'';
@@ -82,34 +83,46 @@
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
       }
     }
+    if(!demo&&session){
+      const back=store.get('codex-return');store.remove('codex-return');
+      if(back){try{const u=new URL(back),root=new URL('../',location.href);
+        if(u.origin===root.origin&&u.pathname.startsWith(root.pathname)&&u.pathname!==location.pathname){location.replace(u.href);return;}}catch{}}
+      void window.CodexLive?.access();
+    }else if(!demo&&hashIsSignIn()){await login();return;}
     await load();
   }
+  function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['catalogue','Approved designs'],...((state.actor.isPlayer||state.actor.isJudge)?[['posting','RP posting']]:[])]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
-    nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&active.startsWith('request-'))||(key==='catalogue'&&active.startsWith('design-')))?' aria-current="page"':'')+'>'+n+'</a>').join('');
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
     if(demo){banner.innerHTML='<span><b>Practice mode</b> · Fictional players. Refresh to reset.</span><label>View as <select id="persona" aria-label="Practice role"><option value="player">Player</option><option value="judge">Training judge</option><option value="owner">Owner</option></select></label>';$('#persona').value=preview.role();}
   }
   function playerCard(p) {
     const n=state.characters.filter(c=>c.ownerId===p.id).length;
-    return '<a class="card person" href="#player-'+h(p.id)+'">'+avatar(p.display,p.id)+'<span class="who"><b>'+h(p.display)+'</b><small class="muted">@'+h(p.username)+'</small><small class="subtle">'+n+' character'+(n===1?'':'s')+'</small></span><span class="arrow" aria-hidden="true">↗</span></a>';
+    return '<a class="card person" href="#player-'+h(p.id)+'">'+avatar(p.display,p.id,p.avatar)+'<span class="who"><b>'+h(p.display)+'</b><small class="muted">@'+h(p.username)+'</small><small class="subtle">'+n+' character'+(n===1?'':'s')+'</small></span><span class="arrow" aria-hidden="true">↗</span></a>';
   }
   function directory(){
+    const judge=state.actor.isJudge;
+    const search='<input id="filter" name="message" type="search" maxlength="180" aria-label="'+(judge?'Search player names or look up a character post':'Search player names')+'" placeholder="'+(judge?'Player name or Discord post…':'Search players…')+'">';
     return hero('Player directory','Find a player by their Discord name and open their approved character sheets.')+
-      '<div class="section-head"><h2>Current players</h2><div class="tools"><input id="filter" type="search" aria-label="Search player names" placeholder="Search players…">'+(state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div></div><div id="players" class="grid"></div>';
+      '<div class="section-head"><h2>Current players</h2><div class="tools">'+(judge?'<form id="attributionForm" class="actions">'+search+'<button class="primary" hidden>Look up writer</button></form>':search)+(state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div></div>'+
+      (judge?'<div id="attribution" role="status"></div>':'')+'<div id="players" class="grid"></div>';
   }
   function filterPlayers(){
     if(!$('#players'))return;
     const query=($('#filter')?.value||'').trim().toLowerCase();
-    const players=state.players.filter(p=>(p.display+' '+p.username).toLowerCase().includes(query)).sort((a,b)=>a.display.localeCompare(b.display));
-    $('#players').innerHTML=players.map(playerCard).join('')||'<p class="empty">No players match this view.</p>';
+    const lookup=$('#attributionForm button'),isPost=/^(?:\d{17,20}|https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\/?)$/.test(query);
+    if(lookup){lookup.hidden=!isPost;$('#attribution').textContent='';}
+    const players=state.players.filter(p=>(p.display+' '+p.username+' '+p.id).toLowerCase().includes(query)).sort((a,b)=>a.display.localeCompare(b.display));
+    $('#players').innerHTML=players.map(playerCard).join('')||(lookup&&isPost?'':'<p class="empty">No players match this view.</p>');
   }
   function player(id){
     const p=state.players.find(p=>p.id===id);if(!p)return missing();
     const chars=state.characters.filter(c=>c.ownerId===id).sort((a,b)=>a.sheet.name.localeCompare(b.sheet.name));
-    return breadcrumbs([link('directory','Directory'),h(p.display)])+title(p.display,'@'+p.username)+
+    return breadcrumbs([link('directory','Directory'),h(p.display)])+'<div class="sheet-head">'+avatar(p.display,p.id,p.avatar)+title(p.display,'@'+p.username)+'</div>'+
       '<div class="section-head"><h2>Characters</h2>'+(id===state.actor.id&&state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div>'+
       (chars.length?'<div class="grid">'+chars.map(c=>'<a class="card char-card" href="#sheet-'+h(c.id)+'"><div class="char-art">'+avatar(c.sheet.name,c.id,c.sheet.portrait)+'</div><div class="card-copy"><h3>'+h(c.sheet.name)+'</h3><p class="muted">'+h(c.sheet.lineage||'Lineage unlisted')+'</p><span class="bpl">'+h(num(c.sheet.bpl))+' BPL</span></div></a>').join('')+'</div>':'<p class="empty">This player has no approved characters yet.</p>');
   }
@@ -118,13 +131,14 @@
     const s=c.sheet;document.title=s.name+' · PhoenixCore';
     const own=c.ownerId===state.actor.id;
     return breadcrumbs([link('directory','Directory'),link('player-'+c.ownerId,ownerName(c.ownerId)),h(s.name)])+
-      '<div class="sheet-head">'+avatar(s.name,c.id,s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'&gt;</code>':'Unassigned')+'</p></div></div>'+
+      '<div class="sheet-head">'+avatar(s.name,c.id,s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(forms.trigger(c.tag))+'</code>':'Unassigned')+'</p></div></div>'+
       '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+(own?link('edit-'+id,'Propose edit','button primary')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
       '<div class="two"><div class="stack"><section class="panel"><h3>Base Power Level</h3><div class="big-number">'+h(num(s.bpl))+'</div></section><section class="panel"><h3>Attributes</h3>'+
       traits.map(k=>'<div class="stat-row"><span>'+h(label[k])+'</span><strong>'+h(s[k]||'Unrecorded')+'</strong></div>').join('')+'</section></div>'+
       '<div class="stack"><section class="panel"><h3>Wallet &amp; gear</h3><p><b>'+h(num(s.wallet))+'</b> '+h(state.currency)+'</p><div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section><section class="panel"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section></div></div>'+
       (s.progress?.length?'<section class="panel dossier"><h3>Training stats</h3>'+s.progress.map(x=>'<div class="stat-row"><span>'+h(x.name)+'</span><strong>'+h(num(x.amount))+'</strong></div>').join('')+'</section>':'')+
-      '<div class="stack sheet-dossier">'+displayGroups('create',s,['name','lineage','portrait','tag','bio','bpl',...traits])+'</div>';
+      '<div class="stack sheet-dossier">'+formsPanel(c)+displayGroups('create',s,['name','lineage','portrait','tag','bio','bpl','attainedForms',...traits])+'</div>'+
+      (own?posting(c):'')+(state.actor.isOwner?'<section class="panel dossier"><h3>Owner controls</h3>'+btn('remove-character','Remove character from profile','danger')+'</section>':'');
   }
   const missing=()=>title('Unavailable','This entry is unavailable for your Discord account.')+link('directory','Back to directory','button');
   const forms=window.PhoenixForms;
@@ -132,9 +146,61 @@
   const kindNames=Object.fromEntries(Object.entries(forms.forms).map(([key,v])=>[key,v.title]));
   const options=(items,value)=>items.map(([key,text])=>'<option value="'+h(key)+'"'+(key===value?' selected':'')+'>'+h(text)+'</option>').join('');
   function draftKey(kind,id,version=0){return [state.actor.id,kind,id||'',version].join('/');}
+function formList(raw){
+    const read=forms.readForms(raw);
+    return read.length?read.map(f=>'<div class="form-art-row">'+artwork(f.portrait,f.name)+'<strong>'+h(f.name)+'</strong></div>').join(''):'—';
+  }
+  function formsPanel(c){
+    const active=forms.readForms(c.sheet.attainedForms).find(f=>f.id===c.activeForm);
+    return '<section class="panel"><h3>Attained transformations</h3><p>Current form · <b>'+h(active?.name||'Base')+'</b></p>'+
+      (c.sheet.attainedForms?formList(c.sheet.attainedForms)+'<p class="hint">Use <code>/transform</code> in Convergence. Choose <b>Base</b> to revert.</p>':'<p class="muted">No transformations recorded.</p>')+'</section>';
+  }
+  function availableForms(lineage){
+    const data=window.CONVERGENCE_DATA, choices=[];
+    const race=data.races.find(r=>r.name.toLowerCase()===String(lineage||'').toLowerCase());
+    const plain=s=>String(s).normalize('NFKC').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N})]+$/gu,'').trim().slice(0,100);
+    for(const [pi,p] of (race?.paths||[]).entries())for(const [fi,f] of p.forms.entries()){
+      const name=plain(f.title);if(name)choices.push({id:'race-'+(f.messageId||race.slug+'-'+pi+'-'+fi),name,group:p.name});
+    }
+    for(const u of data.universal)for(const [i,f] of u.messages.entries()){
+      if(String(f.html||'').replace(/<[^>]*>/g,' ').trim().length<60)continue;
+      const name=plain(f.title);if(name)choices.push({id:'univ-'+(f.messageId||u.slug+'-'+i),name,group:u.title});
+    }
+    for(const d of state.catalogue||[])if(d.kind==='transformation')choices.push({id:d.id,name:d.fields.name,group:'Approved designs'});
+    return choices;
+  }
+  function formChoices(lineage){
+    const list=availableForms(lineage),groups=[...new Set(list.map(f=>f.group))];
+    return '<option value="">Choose a form…</option>'+groups.map(g=>'<optgroup label="'+h(g)+'">'+list.filter(f=>f.group===g).map(f=>'<option value="'+h(f.id)+'">'+h(f.name)+'</option>').join('')+'</optgroup>').join('')+'<option value="custom">Custom attained form…</option>';
+  }
+  function formRow(f){
+    return '<div class="attained-row media-picker" data-form-id="'+h(f.id)+'"><label>Form name<input data-form-name maxlength="100" value="'+h(f.name)+'" required></label>'+
+      '<label>Form portrait URL<input data-media-url maxlength="2048" value="'+h(f.portrait)+'"></label><label>Upload form portrait<input type="file" data-media-file accept="image/png,image/jpeg,image/webp,image/gif"></label>'+
+      '<div data-media-preview>'+artwork(f.portrait,f.name)+'</div><small data-upload-status role="status"></small><button type="button" data-remove-form>Remove form</button></div>';
+  }
+  function formPicker(value,lineage){
+    let rows=[];try{rows=JSON.parse(value||'[]');}catch{}
+    return '<div class="field wide attained-picker"><h3>Attained transformations</h3><p class="hint">Add forms this character has earned. Gabe reviews forms and their artwork with the character sheet.</p>'+
+      '<input type="hidden" name="attainedForms" value="'+h(value)+'"><div data-attained-rows>'+rows.map(formRow).join('')+'</div>'+
+      '<div class="actions"><label>Available forms<select data-form-choice aria-label="Available forms">'+formChoices(lineage)+'</select></label><button type="button" data-add-form>Add form</button></div></div>';
+  }
+  function syncForms(f){
+    const hidden=f?.elements.attainedForms;if(!hidden)return;
+    const rows=[...f.querySelectorAll('.attained-row')].map(row=>({id:row.dataset.formId,name:row.querySelector('[data-form-name]').value.trim(),portrait:row.querySelector('[data-media-url]').value.trim()}));
+    hidden.value=rows.length?JSON.stringify(rows):'';
+  }
+  function refreshChoices(f){
+    const picker=f?.querySelector('[data-form-choice]');if(picker)picker.innerHTML=formChoices(f.elements.lineage.value);
+  }
+
   function submissionField(f,values,editing=false){
     const val=values[f.key]??(editing?'':f.initial||'');
     const req=f.required && !editing;
+    if(f.key==='attainedForms')return formPicker(val,values.lineage);
+    if(f.key==='lineage'){
+      const races=[...new Set([...window.CONVERGENCE_DATA.races.map(r=>r.name),...(state.catalogue||[]).filter(d=>d.kind==='race').map(d=>d.fields.name),...(val?[val]:[])])].sort();
+      return '<label class="field">Race / lineage<select data-lineage aria-label="Race / lineage">'+options([['','Choose…'],...races.map(n=>[n,n]),['__custom','Other lineage…']],val)+'</select></label><label class="field" data-custom-lineage hidden>Custom lineage<input name="lineage" maxlength="80" value="'+h(val)+'"></label>';
+    }
     if(f.media) return '<div class="field wide media-picker"><label><span>'+h(f.label)+' URL</span><input data-media-url name="'+h(f.key)+'" value="'+h(val)+'" maxlength="'+f.max+'" placeholder="https://…"></label>'+
       '<label><span>Upload '+h(f.label.toLowerCase())+'</span><input type="file" data-media-file accept="image/png,image/jpeg,image/webp,image/gif"></label>'+
       '<small>Choose a PNG, JPG, WebP or GIF up to 5 MiB, or paste a direct HTTPS image link.</small><div data-media-preview>'+artwork(val,f.label+' preview')+'</div><small data-upload-status aria-live="polite"></small></div>';
@@ -203,7 +269,7 @@
         result='../assets/uploads/practice-'+crypto.randomUUID()+'.'+(file.type==='image/jpeg'?'jpg':file.type.slice(6));
         practiceImages.set(result,URL.createObjectURL(file));
       }else result=(await call('/api/media','POST',file)).url;
-      url.value=result;picker.querySelector('[data-media-preview]').innerHTML=artwork(result,'Selected artwork');
+      url.value=result;syncForms(f);picker.querySelector('[data-media-preview]').innerHTML=artwork(result,'Selected artwork');
       drafts.set(draftKey(f.dataset.kind,f.dataset.id,f.dataset.version),Object.fromEntries(new FormData(f)));
       status.textContent='Image ready to submit.';
     }catch(error){status.textContent=error.message;}
@@ -215,16 +281,16 @@
   function displayGroups(kind,values,excluded=[]){
     return forms.forms[kind].sections.map(group=>{
       const visible=group.fields.filter(f=>!excluded.includes(f.key)&&values[f.key]);
-      return visible.length?'<section class="panel dossier"><h3>'+h(group.title)+'</h3><dl>'+visible.map(f=>'<div><dt>'+h(f.label)+'</dt><dd class="prewrap">'+(f.media?artwork(values[f.key],f.label):h(values[f.key]))+'</dd></div>').join('')+'</dl></section>':'';
+      return visible.length?'<section class="panel dossier"><h3>'+h(group.title)+'</h3><dl>'+visible.map(f=>'<div><dt>'+h(f.label)+'</dt><dd class="prewrap">'+(f.media?artwork(values[f.key],f.label):f.key==='attainedForms'?formList(values[f.key]):h(values[f.key]))+'</dd></div>').join('')+'</dl></section>':'';
     }).join('');
   }
   function catalogue(id){
     const list=state.catalogue||[];
     if(id){
       const entry=list.find(e=>e.id===id);if(!entry)return missing();
-      return breadcrumbs([link('catalogue','Approved designs'),h(kindNames[entry.kind])])+title(entry.fields.name,kindNames[entry.kind]+' · Submitted by '+ownerName(entry.authorId))+'<div class="stack">'+displayGroups(entry.kind,entry.fields,['name'])+'</div>';
+      return requestTabs('catalogue')+breadcrumbs([link('catalogue','Approved designs'),h(kindNames[entry.kind])])+title(entry.fields.name,kindNames[entry.kind]+' · Submitted by '+ownerName(entry.authorId))+'<div class="stack">'+displayGroups(entry.kind,entry.fields,['name'])+'</div>';
     }
-    return title('Approved designs','Techniques, items, races and transformations approved for Convergence.')+
+    return requestTabs('catalogue')+title('Approved designs','Techniques, items, races and transformations approved for Convergence.')+
       (list.length?'<div class="grid">'+list.map(e=>'<a class="card" href="#design-'+h(e.id)+'">'+artwork(e.fields.art,e.fields.name)+'<small class="eyeline">'+h(kindNames[e.kind])+'</small><h3>'+h(e.fields.name)+'</h3><p class="muted">'+h(ownerName(e.authorId))+'</p></a>').join('')+'</div>':'<p class="empty">The first approved design will appear here.</p>');
   }
   function award(id,claim=null){
@@ -238,9 +304,14 @@
       field('statGains','Other stat gains','',{area:true,wide:true,max:1700,hint:'One per line, e.g. Ki Control +2 or Ability Slots +1.'})+
       field('reason','Judgment and scene reference','',{area:true,wide:true,required:true,max:600})+'</div><p id="estimate" class="bpl" aria-live="polite"></p><button class="primary">Submit award for approval</button></form>';
   }
-  function requestList(){
+  function requestTabs(active){
+    return '<nav class="actions request-tabs" aria-label="Request categories">'+[['requests','Submissions'],['catalogue','Approved designs'],...(state.actor.isOwner?[['archived','Archived']]:[])].map(([id,text])=>'<a class="button" href="#'+id+'"'+(active===id?' aria-current="page"':'')+'>'+text+'</a>').join('')+'</nav>';
+  }
+  function requestList(archived=false){
+    if(archived&&!state.actor.isOwner)return missing();
+    const list=state.requests.filter(r=>!!r.archived===archived);
     return title('Requests',state.actor.isOwner?'Review submitted changes and their Discord delivery status.':state.actor.isJudge?'Review training claims and track the awards you submitted.':'Follow your submissions and character awards.')+
-      (state.requests.length?'<div class="stack">'+state.requests.map(r=>'<a class="request-row" href="#request-'+h(r.id)+'"><span class="summary"><b>'+h(r.after.name)+'</b><small class="muted">'+h(kindNames[r.kind]||'Staff award')+' · '+h(ownerName(r.authorId))+'</small></span>'+status(r.status)+'<span class="arrow" aria-hidden="true">↗</span></a>').join('')+'</div>':'<p class="empty">No requests yet.</p>');
+      requestTabs(archived?'archived':'requests')+(list.length?'<div class="stack">'+list.map(r=>'<a class="request-row" href="#request-'+h(r.id)+'"><span class="summary"><b>'+h(r.after.name)+'</b><small class="muted">'+h(kindNames[r.kind]||'Staff award')+' · '+h(ownerName(r.authorId))+'</small></span>'+status(r.status)+'<span class="arrow" aria-hidden="true">↗</span></a>').join('')+'</div>':'<p class="empty">No requests yet.</p>');
   }
   function display(v){
     if(Array.isArray(v))return v.map(x=>typeof x==='object'?x.name+' +'+x.amount:x).join(', ')||'—';
@@ -251,8 +322,8 @@
     const design=forms.catalogue.includes(r.kind),waiting=r.status==='awaiting_judge',pending=r.status==='pending';
     const captions={...label,progress:'Training stats',...Object.fromEntries(forms.allFields(design?r.kind:'create').map(f=>[f.key,f.label]))};
     const changed=Object.keys(r.after).filter(k=>r.before?JSON.stringify(r.before[k])!==JSON.stringify(r.after[k]):r.after[k]!==''&&(!Array.isArray(r.after[k])||r.after[k].length));
-    const meanings={pending:'Awaiting Gabe’s Discord decision.',awaiting_judge:'Staff must assess the training claim before Gabe can approve an award.',stale:'The sheet has a newer revision. Submit against the current sheet.',approved:design?'This design is in the approved collection.':'This change was applied to the character.',declined:'Gabe declined this submission.'};
-    const changes=changed.length?'<section class="panel"><h2>Requested changes</h2><div class="diff muted"><b>Field</b><b>Approved</b><b>Proposed</b></div>'+changed.map(k=>'<div class="diff"><span>'+h(captions[k]||k)+'</span><span class="prewrap">'+(k==='portrait'||k==='art'?artwork(r.before?.[k],'Approved artwork')||'—':h(display(r.before?.[k])))+'</span><span class="new prewrap">'+(k==='portrait'||k==='art'?artwork(r.after[k],'Proposed artwork')||'—':h(display(r.after[k])))+'</span></div>').join('')+'</section>':'';
+    const meanings={archived:'Review is paused while this request is archived.',pending:'Awaiting Gabe’s Discord decision.',awaiting_judge:'Staff must assess the training claim before Gabe can approve an award.',stale:'The sheet has a newer revision. Submit against the current sheet.',approved:design?'This design is in the approved collection.':'This change was applied to the character.',declined:'Gabe declined this submission.'};
+    const changes=changed.length?'<section class="panel"><h2>Requested changes</h2><div class="diff muted"><b>Field</b><b>Approved</b><b>Proposed</b></div>'+changed.map(k=>'<div class="diff"><span>'+h(captions[k]||k)+'</span><span class="prewrap">'+(k==='portrait'||k==='art'?artwork(r.before?.[k],'Approved artwork')||'—':k==='attainedForms'?formList(r.before?.[k]):h(display(r.before?.[k])))+'</span><span class="new prewrap">'+(k==='portrait'||k==='art'?artwork(r.after[k],'Proposed artwork')||'—':k==='attainedForms'?formList(r.after[k]):h(display(r.after[k])))+'</span></div>').join('')+'</section>':'';
     const judged=r.judgment?'<section class="panel"><h3>Staff judgment</h3><p>'+h(ownerName(r.judgment.judgeId))+'</p><p class="prewrap">'+h(r.judgment.note)+'</p></section>':'';
     const note=r.details?displayGroups(r.kind,r.details):'';
     return breadcrumbs([link('requests','Requests'),h(r.after.name)])+title(r.after.name,(kindNames[r.kind]||'Staff award')+' · Submitted by '+ownerName(r.authorId))+
@@ -260,7 +331,7 @@
       (state.actor.isOwner&&(pending||waiting)?'<p class="muted">Discord notification · '+h(r.delivery)+'</p>':'')+
       (demo&&state.actor.isOwner&&(pending||waiting)?'<div class="actions">'+(pending?btn('demo-approve','Practice approve','primary'):'')+btn('demo-decline','Practice decline','danger')+'</div>':'')+
       (state.characters.some(c=>c.id===r.characterId)?link('sheet-'+r.characterId,'View approved sheet'):design&&r.status==='approved'?link('design-'+r.id,'View approved design'):'')+
-      '</section><section class="panel"><h3>Submission note</h3><p class="prewrap">'+h(r.reason)+'</p>'+
+      (state.actor.isOwner?'<div class="actions">'+btn(r.archived?'restore-request':'archive-request',r.archived?'Restore request':'Archive request','quiet')+'</div>':'')+'</section><section class="panel"><h3>Submission note</h3><p class="prewrap">'+h(r.reason)+'</p>'+
       (r.award?'<p class="bpl">+'+h(num(r.award.gain))+' BPL · +'+h(num(r.award.currency))+' '+h(state.currency)+'</p>':'')+'</section></div></div>'+
       (waiting&&state.actor.isJudge?award(r.characterId,r):'');
   }
@@ -297,11 +368,11 @@
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
     const r=route();
     if(r==='directory')view.innerHTML=directory();
-    else if(r==='requests')view.innerHTML=requestList();
+    else if(r==='requests'||r==='archived')view.innerHTML=requestList(r==='archived');
     else if(r==='settings')view.innerHTML=settings();
     else if(r==='new'||r.startsWith('new-'))view.innerHTML=editor(r==='new'?'create':r.slice(4));
     else if(r==='catalogue'||r.startsWith('design-'))view.innerHTML=catalogue(r==='catalogue'?'':r.slice(7));
-    else if(r==='posting')view.innerHTML=posting();
+    else if(r==='posting'){go('player-'+state.actor.id);return;}
     else if(r.startsWith('player-'))view.innerHTML=player(r.slice(7));
     else if(r.startsWith('sheet-'))view.innerHTML=sheet(r.slice(6));
     else if(r.startsWith('edit-'))view.innerHTML=editor('edit',r.slice(5));
@@ -311,18 +382,24 @@
     else view.innerHTML=missing();
     filterPlayers();estimate();tierFeedback();syncEditMode($('#submissionForm'));
   }
-  function posting(){
-    if(!state.actor.isPlayer&&!state.actor.isJudge)return missing();
-    const own=state.characters.filter(c=>c.ownerId===state.actor.id), prefs=state.posting||{tags:[],defaults:[],channels:[]};
-    const choices=own.map(c=>[c.id,c.sheet.name]);
-    return title('RP posting','Choose how to speak as your approved characters in Convergence.')+
-      '<div class="two"><div class="stack"><section class="panel"><h2>Character tags</h2><p>With the tag <code>rin</code>, type <code>rin&gt; Your move.</code> to speak as Rin.</p>'+
-      (own.length?own.map(c=>'<form class="tag-form actions" data-id="'+h(c.id)+'">'+field('tag',c.sheet.name+'’s tag',prefs.tags.find(t=>t.characterId===c.id)?.tag||'',{max:24,hint:'Letters, numbers, hyphens or underscores. Clear to remove.'})+'<button class="primary">Save tag</button></form>').join(''):'<p>'+link('new','Submit your first character')+'</p>')+
-      '</section><section class="panel"><h2>Channel defaults</h2><p>A default lets you type <code>Your move.</code> directly. A different character’s tag overrides it for one post. Start a message with <code>//</code> to speak as yourself.</p>'+
-      (prefs.channels.length&&own.length?'<form id="defaultForm" class="fields"><label class="field">Roleplay channel<select name="channel">'+options(prefs.channels.map(id=>[id,state.scope?.locations.find(c=>c.id===id)?.name||id]),prefs.channels[0])+'</select></label><label class="field">Post as<select name="characterId">'+options([['','My Discord account'],...choices],prefs.defaults.find(d=>d.channel===prefs.channels[0])?.characterId||'')+'</select></label><button class="primary">Save default</button></form>':'<p class="muted">An approved character and an enabled roleplay channel are needed to set a default.</p>')+
-      (prefs.defaults.length?'<ul>'+prefs.defaults.map(d=>'<li>'+h(d.channel)+' · '+h(own.find(c=>c.id===d.characterId)?.sheet.name||'Unavailable character')+'</li>').join('')+'</ul>':'')+
-      '</section></div><aside class="panel"><h3>Posting in Discord</h3><p>Character posts use the approved name and portrait. Replies, attachments and out-of-character messages stay in their original Discord format.</p>'+
-      (state.actor.isJudge?'<form id="attributionForm" class="form">'+field('message','Look up a character post','',{max:20,required:true,hint:'Copy the Discord message ID to see the credited writer.'})+'<button class="primary">Look up writer</button><p id="attribution" role="status"></p></form>':'')+'</aside></div>';
+  function locationName(id){
+    const locs=state.scope?.locations||[],location=locs.find(c=>c.id===id);if(!location)return id;
+    const parent=locs.find(c=>c.id===location.parentId);
+    const kind=[10,11,12].includes(location.type)?'Thread':location.type===15||location.type===16?'Forum':'Channel';
+    return kind+' · '+(parent?parent.name+' › ':'')+location.name+' · '+id;
+  }
+  function savedDefault(prefs,id){
+    const current=prefs.defaults.find(d=>d.channel===id);
+    return current?(current.characterId||'account'):'';
+  }
+  function posting(c){
+    const prefs=state.posting;if(!prefs)return '';
+    const own=state.characters.filter(c=>c.ownerId===state.actor.id);
+    const selected=prefs.channels.includes(preferenceChannel)?preferenceChannel:prefs.channels[0];
+    return '<section class="panel dossier"><h2>Posting preferences</h2><form class="tag-form actions" data-id="'+h(c.id)+'">'+field('tag',c.sheet.name+'’s tag',c.tag,{max:24,hint:'Use test- directly, or rin> for a word tag.'})+'<button class="primary">Save tag</button></form>'+
+      '<h3>Channel defaults</h3><p>Forum defaults apply to its posts. Choose a thread to set an exception. Start a post with <code>//</code> to speak as yourself.</p>'+
+      (prefs.channels.length?'<form id="defaultForm" class="fields"><label class="field">Roleplay channel or thread<select name="channel">'+options(prefs.channels.map(id=>[id,locationName(id)]),selected)+'</select></label><label class="field">Post as<select name="characterId">'+options([['','Inherit parent default'],['account','My Discord account'],...own.map(c=>[c.id,c.sheet.name])],savedDefault(prefs,selected))+'</select></label><button class="primary">Save default</button></form>':'<p>No enabled roleplay channels.</p>')+
+      (prefs.defaults.length?'<details><summary>Saved defaults ('+prefs.defaults.length+')</summary><ul>'+prefs.defaults.map(d=>'<li>'+h(locationName(d.channel))+' · '+h(own.find(c=>c.id===d.characterId)?.sheet.name||'My Discord account')+'</li>').join('')+'</ul></details>':'')+'</section>';
   }
   function parseAward(fields){
     const stats=fields.statGains.split(/\r?\n/).filter(v=>v.trim()).map(line=>{
@@ -346,11 +423,18 @@
     if(preview)preview.textContent='This link could not display an image. Paste a direct image link or upload the file.';
   },true);
   document.addEventListener('input',e=>{
+    if(e.target.closest('.attained-row'))syncForms(e.target.form);
+    if(e.target.name==='lineage')refreshChoices(e.target.form);
     if(e.target.id==='filter')filterPlayers();
     if(e.target.form?.id==='submissionForm' && !e.target.matches('[data-media-file]')){recordDraft();tierFeedback();syncEditMode(e.target.form);}
     if(e.target.form?.id==='awardForm')estimate();
   });
   document.addEventListener('change',async e=>{
+    if(e.target.matches('[data-lineage]')){
+      const f=e.target.form,custom=e.target.value==='__custom',input=f.elements.lineage;
+      input.closest('label').hidden=!custom;input.value=custom?'':e.target.value;if(custom)input.focus();
+      refreshChoices(f);recordDraft();syncEditMode(f);
+    }
     if(e.target.matches('[data-media-file]')){await uploadArt(e.target);return;}
     if(e.target.matches('[data-media-url]'))e.target.closest('.media-picker').querySelector('[data-media-preview]').innerHTML=artwork(e.target.value.trim(),'Selected artwork');
     if(e.target.id==='persona'&&demo){recordDraft();preview.switchRole(e.target.value);tell('');await load();}
@@ -360,12 +444,13 @@
       go(e.target.value?(kind==='edit'?'edit-':'train-')+e.target.value:'new-'+kind);
     }
     if(e.target.form?.id==='defaultForm'&&e.target.name==='channel'){
-      e.target.form.elements.characterId.value=state.posting.defaults.find(d=>d.channel===e.target.value)?.characterId||'';
+      preferenceChannel=e.target.value;
+      e.target.form.elements.characterId.value=savedDefault(state.posting,e.target.value);
     }
   });
   window.addEventListener('hashchange',()=>{render();$('#view').focus({preventScroll:true});window.scrollTo(0,0);});
   function refreshReview(){
-    if(!demo&&session&&!document.hidden&&/^(request|sheet-)/.test(route())&&!$('#awardForm'))void load().catch(e=>tell(e.message,true));
+    if(!demo&&session&&!document.hidden&&/^(request|sheet-)/.test(route())&&!$('#awardForm')&&!document.activeElement?.closest('form'))void load().catch(e=>tell(e.message,true));
   }
   async function refreshScope(){
     if(demo||document.hidden||!session||!$('#live-scope'))return;
@@ -383,12 +468,36 @@
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const add=e.target.closest('[data-add-form]'),remove=e.target.closest('[data-remove-form]');
+    if(add||remove){
+      const f=(add||remove).form;
+      if(add){
+        const select=f.querySelector('[data-form-choice]'),option=select.selectedOptions[0];
+        if(!select.value)return;
+        const custom=select.value==='custom',id=custom?crypto.randomUUID():select.value;
+        if([...f.querySelectorAll('.attained-row')].some(r=>r.dataset.formId===id)){tell('This form is already listed.',true);return;}
+        f.querySelector('[data-attained-rows]').insertAdjacentHTML('beforeend',formRow({id,name:custom?'':option.textContent,portrait:''}));
+        f.querySelector('.attained-row:last-child [data-form-name]').focus();select.value='';
+      }else remove.closest('.attained-row').remove();
+      syncForms(f);recordDraft();syncEditMode(f);return;
+    }
     const target=e.target.closest('[data-section]');
     if(target){const el=document.getElementById(target.dataset.section);if(el){el.scrollIntoView();el.querySelector('input,textarea,select')?.focus({preventScroll:true});}return;}
     const action=e.target.closest('[data-action]')?.dataset.action;if(!action)return;
     try{
       if(action==='login'){await login();return;}
-      if(action==='logout'){await call('/api/logout','POST',{});store.remove('session');drafts.clear();session='';state=null;go('directory');render();return;}
+      if(action==='remove-character'&&state.actor.isOwner){
+        const c=state.characters.find(c=>c.id===route().slice(6));
+        if(!c||!confirm('Remove '+c.sheet.name+' from '+ownerName(c.ownerId)+'’s profile? This closes open requests and clears posting defaults for this character.'))return;
+        if(demo)preview.remove(c.id);else await call('/api/characters/'+c.id+'/remove','POST',{version:c.version});
+        await load();go('player-'+c.ownerId);tell('Character removed from the profile.');return;
+      }
+      if(['archive-request','restore-request'].includes(action)&&state.actor.isOwner){
+        const id=route().slice(8),archived=action==='archive-request';
+        if(demo)preview.archive(id,archived);else await call('/api/requests/'+id+'/archive','POST',{archived});
+        await load();go(archived?'archived':'requests');tell(archived?'Request archived.':'Request restored.');return;
+      }
+      if(action==='logout'){await call('/api/logout','POST',{});store.remove('session');drafts.clear();session='';state=null;location.replace(location.pathname+'#directory');location.reload();return;}
       if(demo&&(action==='demo-approve'||action==='demo-decline')){preview.decision(route().slice(8),action==='demo-approve');await load();tell('Practice decision recorded.');}
     }catch(err){tell(err.message,true);}
   });
@@ -422,12 +531,15 @@
         await load();tell('Bot settings saved.');return;
       }
       if(f.id==='attributionForm'){
+        if(submit.hidden)return;
         if(demo){$('#attribution').textContent='Practice mode has no Discord posts.';return;}
-        const result=await call('/api/posting/lookup/'+encodeURIComponent(fields.message));
-        $('#attribution').textContent=result.characterName+' · '+ownerName(result.authorId)+' · Discord ID '+result.authorId;return;
+        const result=await call('/api/posting/lookup/'+encodeURIComponent(fields.message.trim()));
+        if($('#filter')?.value.trim()!==fields.message.trim())return;
+        $('#attribution').innerHTML=h(result.characterName)+' · '+link('player-'+result.authorId,ownerName(result.authorId))+' · '+h(result.authorId);return;
       }
       if(f.id==='defaultForm'||f.classList.contains('tag-form')){
         const data=f.id==='defaultForm'?{kind:'default',...fields}:{kind:'tag',characterId:f.dataset.id,tag:fields.tag};
+        if(data.kind==='default'&&data.characterId==='account'){data.characterId='';data.account=true;}
         if(demo)preview.savePosting(data);else await call('/api/posting','POST',data);
         await load();tell('Posting preference saved.');return;
       }

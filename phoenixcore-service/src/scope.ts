@@ -27,7 +27,7 @@ export class RoleplayScope {
   online() { return !!this.guild?.available && this.guild.client.isReady(); }
   clear() { this.guild=null; this.archives.clear(); }
   eligible(settings:Settings, channel:GuildBasedChannel) {
-    if(!settings.rpDivider) return settings.rpChannels.split(/\s+/).includes(channel.id);
+    if(!settings.rpDivider) return [channel.id,channel.isThread()?channel.parentId:''].some(id=>!!id&&settings.rpChannels.split(/\s+/).includes(id));
     if(!this.online() || channel.guildId!==this.guildId) return false;
     const parent=channel.isThread()?channel.parent:channel;
     const divider=this.guild!.channels.cache.get(settings.rpDivider);

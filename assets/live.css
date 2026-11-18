@@ -1,0 +1,21 @@
+.codex-edit-only{display:none!important}.codex-editing .codex-edit-only{display:inline-flex!important}
+#codexEditorTools{display:flex;align-items:center;gap:.35rem}#codexEditorTools button,.codex-signin,.atlas-action,.codex-editor button,.atlas-back{font:inherit;font-size:.85rem;line-height:1.3;color:var(--ct-text);background:var(--ct-panel);border:1px solid var(--ct-border);border-radius:.5rem;padding:.48rem .72rem;cursor:pointer;text-decoration:none}
+#codexEditToggle[aria-pressed=true],.codex-editor .editor-publish{background:var(--ct-accent);color:var(--ct-background)}.codex-signin{white-space:nowrap}
+.codex-editor{box-sizing:border-box;width:min(46rem,95vw);max-height:88dvh;overflow:auto;padding:1.3rem;background:var(--ct-panel);color:var(--ct-text);border:1px solid var(--ct-border);border-radius:.85rem}.codex-editor::backdrop{background:#09080dba}
+.codex-editor header,.atlas-toolbar{display:flex;align-items:center;justify-content:space-between;gap:.7rem;margin-bottom:1rem}.codex-editor h2{margin:0;font-size:1.45rem}.editor-selectors,.editor-fields{display:grid;gap:.75rem;margin:1rem 0}.codex-editor label{display:grid;gap:.3rem;font-weight:600}.codex-editor :is(select,input,textarea){width:100%;min-width:0;box-sizing:border-box;padding:.55rem;border-radius:.4rem;border:1px solid var(--ct-border);background:var(--ct-background);color:var(--ct-text);font:inherit}.codex-editor input[type=color]{height:2.6rem}.codex-editor textarea{resize:vertical}
+.atlas-links{display:grid;gap:.65rem}.atlas-links a{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:1rem;background:var(--ct-card);color:var(--ct-text);border:1px solid var(--ct-border);border-radius:.65rem;text-decoration:none}.atlas-links a:hover{border-color:var(--ct-accent)}.atlas-links small{color:var(--ct-muted)}.atlas-entry p{white-space:pre-wrap}.atlas-entry img{max-width:100%;max-height:22rem;object-fit:contain}.atlas-action{margin:.5rem 0}.atlas-lore .section-piece{margin-top:.75rem}
+.theme-panel{max-height:min(72dvh,38rem);overflow:auto;overscroll-behavior:contain}
+@media(max-width:1100px){.site-header:has(#codexEditorTools) .header-inner{flex-wrap:wrap;height:auto;justify-content:space-between;row-gap:.35rem}.site-header:has(#codexEditorTools){height:auto}}@media(max-width:640px){.site-header:has(#codexEditorTools) .nav-brand em{display:none}#codexEditorTools button{font-size:.76rem;padding:.38rem}.atlas-links a{padding:.75rem}}
+
+
+@media(max-width:780px){
+ body[data-page] .site-header{height:auto}
+ body[data-page] .site-header .header-inner{min-height:62px;flex-wrap:wrap;gap:.4rem;padding:.4rem 4%}
+ body[data-page] .site-header .nav-brand{flex:1 1 auto;min-width:0}
+ body[data-page] .site-header nav.open{top:100%}
+ body[data-page] .site-header .theme-switcher,body[data-page] .site-header .global-search{margin-left:0}
+ body[data-page] .theme-panel{position:fixed;top:4.3rem;right:.75rem;left:auto;max-width:calc(100vw - 1.5rem)}
+ body[data-page] .codex-signin{font-size:.75rem;white-space:nowrap;padding:.4rem}
+ body[data-page] .page-hero h1{font-size:clamp(2.5rem,12vw,3.6rem);overflow-wrap:anywhere}
+ body[data-page] .world-grid{grid-template-columns:minmax(0,1fr)}
+}

@@ -810,3 +810,7 @@ footer span {
 .scope-list { max-height: 25rem; overflow: auto; padding-left: 1.3rem; }
 .scope-list li { padding: .35rem 0; }
 .scope-list small { display: block; }
+
+.field[hidden]{display:none}.attained-picker h3{margin:0}.attained-row{display:grid;gap:.55rem;border:1px solid var(--line);border-radius:8px;padding:.8rem;margin:.5rem 0}.attained-row label{display:grid;gap:.25rem}.attained-picker select,.attained-row input,#defaultForm select{max-width:100%;min-width:0}.form-art-row{display:flex;align-items:center;gap:.75rem;margin:.5rem 0}.form-art-row img{width:3rem;height:3rem;object-fit:cover}.request-tabs{margin:1rem 0}.request-tabs [aria-current=page]{border-color:var(--ct-accent);color:var(--ct-accent)}#defaultForm,.attained-picker{min-width:0}.sheet-head .intro{margin:0}
+
+#attributionForm button[hidden]{display:none}#attribution:not(:empty){margin-bottom:1rem}#attributionForm input{min-width:0}

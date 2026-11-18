@@ -92,7 +92,7 @@ export function visibleRequest(r: Row) {
     version:Number(r.base_revision), before:r.before_sheet ? JSON.parse(r.before_sheet) : null, after:JSON.parse(r.after_sheet),
     award:current ? metadata.award??null : metadata, details:current ? metadata.details??null : null, judgment:current ? metadata.judgment??null : null, reason:r.reason, status:r.status, created:Number(r.created_ms),
     decidedBy:r.decided_by, decided:r.decided_ms ? Number(r.decided_ms) : null,
-    delivery:r.notified ? 'Delivered' : r.last_notify_error ? 'Retry scheduled' : 'Queued' };
+    archived:!!r.archived,delivery:r.notified ? 'Delivered' : r.last_notify_error ? 'Retry scheduled' : 'Queued' };
 }
 function canonical(value: any): any {
   if (Array.isArray(value)) return value.map(canonical);
@@ -158,6 +158,9 @@ export async function propose(db: Store, who: Actor, input: any, active: Set<str
       requireThat(kind==='training' || JSON.stringify(previous) !== JSON.stringify(next), 400, 'The proposed sheet is already current.');
     }
     if(kind==='create' || kind==='edit' || isDesign(kind)) await attachImage(q,input.fields?.portrait||input.fields?.art,service,who.id);
+    if(input.fields?.attainedForms && ['create','edit'].includes(kind)){
+      for(const form of forms.readForms(next.attainedForms))await attachImage(q,form.portrait,service,who.id);
+    }
     const rows = await q(`INSERT INTO pc_requests
       (id,fingerprint,kind,character_id,owner_id,author_id,base_revision,before_sheet,after_sheet,reason,award,status,created_ms)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO NOTHING RETURNING *`,
@@ -205,6 +208,7 @@ export async function decide(db: Store, reviewer: string, ownerId: string, id: s
     if (!rows.length) {
       const [existing] = await q('SELECT * FROM pc_requests WHERE id=$1', [id]);
       requireThat(existing, 404, 'Unknown request.');
+      requireThat(existing.status!=='archived',409,'This request is archived. Restore it in PhoenixCore to resume review.');
       requireThat(existing.status!=='awaiting_judge' || !approve,409,'A staff judgment is required before approval.');
       return visibleRequest(existing);
     }
@@ -219,6 +223,10 @@ export async function decide(db: Store, reviewer: string, ownerId: string, id: s
         ?await q('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3) ON CONFLICT(id) DO NOTHING RETURNING id',[r.character_id,r.owner_id,JSON.stringify(after)])
         :await q('UPDATE pc_characters SET sheet=$1,revision=revision+1 WHERE id=$2 AND owner_id=$3 AND revision=$4 RETURNING id',[JSON.stringify(after),r.character_id,r.owner_id,r.base_revision]);
       const applied=touched.length>0 && (!writesTag || ((await currentTag(q,r.character_id))===(before?.tag||'') && await assignTag(q,r.owner_id,r.character_id,tag)));
+      if(applied && Object.hasOwn(after,'attainedForms')){
+        const [current]=await q('SELECT form_key FROM pc_active_forms WHERE character_id=$1',[r.character_id]);
+        if(current&&!forms.readForms(after.attainedForms).some((f:any)=>f.id===current.form_key))await q('DELETE FROM pc_active_forms WHERE character_id=$1',[r.character_id]);
+      }
       if (!applied) await q('ROLLBACK TO SAVEPOINT character_review');
       await q('RELEASE SAVEPOINT character_review');
       if (!applied) {
