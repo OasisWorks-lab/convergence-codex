@@ -14,7 +14,7 @@
     {id:'a4a12b86-6d0c-4aa9-80f1-c219352fb93f',ownerId:ids.judge,version:1,sheet:{...base,name:'Vey',lineage:'Cerealian',bio:'A scout learning to trust a partner.',bpl:'8600',wallet:'70'}}
   ];
   const forms=window.PhoenixForms, sampleChannel='555555555555555555';
-  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'',reviewChannel:'',currency:'Credits',rpChannels:sampleChannel,rpDivider:''}};
+  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'',reviewChannel:'',...forms.reviewRoutes,currency:'Credits',rpChannels:sampleChannel,rpDivider:''}};
   const tags=[],defaults=[],clone=x=>JSON.parse(JSON.stringify(x));
   function state() {
     const id=ids[role],owner=role==='owner',judge=owner||role==='judge',channels=settings.value.rpChannels.split(/\s+/).filter(Boolean);
@@ -80,7 +80,7 @@
     const next=clone(r.after);
     if(Object.hasOwn(next,'tag')){
       const previous=tags.find(t=>t.characterId===r.characterId)?.tag||'';
-      if(previous!==(r.before?.tag||'') || tags.some(t=>t.owner===r.ownerId&&t.tag===next.tag&&t.characterId!==r.characterId)){r.status='stale';return;}
+      if(previous!==(r.before?.tag||'') || tags.some(t=>t.owner===r.ownerId&&forms.tagKey(t.tag)===forms.tagKey(next.tag)&&t.characterId!==r.characterId)){r.status='stale';return;}
       const index=tags.findIndex(t=>t.characterId===r.characterId);
       if(index>=0)tags.splice(index,1);
       if(next.tag)tags.push({owner:r.ownerId,characterId:r.characterId,tag:next.tag});
@@ -93,8 +93,8 @@
     const owner=ids[role];
     if(input.characterId&&!characters.some(c=>c.id===input.characterId&&c.ownerId===owner))throw Error('Choose your approved character.');
     const isTag=input.kind==='tag',list=isTag?tags:defaults;
-    const tag=(input.tag||'').trim().toLowerCase();
-    if(isTag&&tag&&(!/^[a-z0-9][a-z0-9_-]{0,23}$/.test(tag)||tags.some(t=>t.owner===owner&&t.tag===tag&&t.characterId!==input.characterId)))throw Error('Choose a valid, unused character tag.');
+    const tag=isTag?forms.normalizeTag(input.tag):'';
+    if(isTag&&tag&&tags.some(t=>t.owner===owner&&forms.tagKey(t.tag)===forms.tagKey(tag)&&t.characterId!==input.characterId))throw Error('Choose a valid, unused character tag.');
     if(!isTag&&!state().posting.channels.includes(input.channel))throw Error('Choose an enabled channel.');
     const index=list.findIndex(t=>t.owner===owner&&(isTag?t.characterId===input.characterId:t.channel===input.channel));
     if(index>=0)list.splice(index,1);
@@ -116,6 +116,7 @@
     saveSettings:input=>{
       if(role!=='owner')throw Error('Only the owner can change settings.');
       if(input.revision!==settings.revision)throw Error('Reload current settings.');
+      if(Object.keys(forms.reviewRoutes).some(key=>!/^\d{17,20}$/.test(input.value[key])))throw Error('Enter valid Discord IDs for your review destinations.');
       if(input.value.rpChannels.trim().split(/[\s,]+/).filter(Boolean).some(id=>!/^\d{17,20}$/.test(id)))throw Error('Enter valid roleplay channel IDs.');
       settings={revision:settings.revision+1,value:{...input.value,rpChannels:input.value.rpChannels.trim().split(/[\s,]+/).join('\n')}};
     }};

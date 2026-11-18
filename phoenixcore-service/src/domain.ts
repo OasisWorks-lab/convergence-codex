@@ -62,7 +62,7 @@ export async function saveSettings(db: Store, actor: Actor, input: any) {
   requireThat(actor.isOwner, 403, 'Only the configured owner can change bot settings.');
   object(input); object(input.value); keys(input.value, Object.keys(defaultSettings));
   const value = { ...defaultSettings };
-  for (const key of ['playerRole', 'judgeRole', 'reviewChannel'] as const) {
+  for (const key of ['playerRole', 'judgeRole'] as const) {
     const id = input.value[key];
     requireThat(typeof id === 'string' && (!id || discordId.test(id)), 400, 'Enter a Discord ID or leave the field empty.');
     value[key] = id;
@@ -78,6 +78,13 @@ export async function saveSettings(db: Store, actor: Actor, input: any) {
   value.currency = textValue(input.value.currency, 32, 'Currency name', true);
   await db.transaction(async q => {
     const [old] = await q('SELECT revision,value FROM pc_config WHERE slot=1');
+    const saved={...defaultSettings,...JSON.parse(old.value)};
+    for(const key of ['characterChannel','designChannel','updatesForum'] as const){
+      const id=input.value[key]??saved[key];
+      requireThat(typeof id==='string' && discordId.test(id),400,'Enter valid Discord IDs for the two submission channels and the OC updates forum.');
+      value[key]=id;
+    }
+    value.reviewChannel=saved.reviewChannel;
     if(!Object.hasOwn(input.value,'rpDivider')) value.rpDivider=JSON.parse(old.value).rpDivider??'';
     if(!Object.hasOwn(input.value,'rpChannels')) value.rpChannels=JSON.parse(old.value).rpChannels??'';
     const rows = await q('UPDATE pc_config SET value=$1,revision=revision+1 WHERE slot=1 AND revision=$2 RETURNING revision', [JSON.stringify(value), input.revision]);
@@ -92,7 +99,7 @@ export function visibleRequest(r: Row) {
     version:Number(r.base_revision), before:r.before_sheet ? JSON.parse(r.before_sheet) : null, after:JSON.parse(r.after_sheet),
     award:current ? metadata.award??null : metadata, details:current ? metadata.details??null : null, judgment:current ? metadata.judgment??null : null, reason:r.reason, status:r.status, created:Number(r.created_ms),
     decidedBy:r.decided_by, decided:r.decided_ms ? Number(r.decided_ms) : null,
-    archived:!!r.archived,delivery:r.notified ? 'Delivered' : r.last_notify_error ? 'Retry scheduled' : 'Queued' };
+    archived:!!r.archived,delivery:r.notified ? 'Delivered' : r.last_notify_error ? 'Retry scheduled · '+r.last_notify_error : 'Queued' };
 }
 function canonical(value: any): any {
   if (Array.isArray(value)) return value.map(canonical);
@@ -166,7 +173,10 @@ export async function propose(db: Store, who: Actor, input: any, active: Set<str
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO NOTHING RETURNING *`,
       [id,fingerprint,kind,characterId,ownerId,who.id,version,previous && JSON.stringify(previous),JSON.stringify(next),reason,award && JSON.stringify(award),kind==='training'?'awaiting_judge':'pending',Date.now()]);
     if (rows.length) {
-      if (!immediate) return visibleRequest(rows[0]);
+      if (!immediate) {
+        await q('INSERT INTO pc_review_posts(request_id) VALUES($1)',[id]);
+        return visibleRequest(rows[0]);
+      }
       requireThat(await assignTag(q,ownerId,characterId,next.tag),409,'You already use that tag on another character.');
       const [saved]=await q("UPDATE pc_requests SET status='approved',decided_by=$1,decided_ms=$2,notified=1 WHERE id=$3 RETURNING *",[who.id,Date.now(),id]);
       return visibleRequest(saved);
@@ -204,7 +214,7 @@ export async function judgeTraining(db:Store, who:Actor, id:string, input:any, a
 export async function decide(db: Store, reviewer: string, ownerId: string, id: string, approve: boolean) {
   requireThat(reviewer === ownerId, 403, 'Only the configured owner can review this request.');
   return db.transaction(async q => {
-    const rows = await q("UPDATE pc_requests SET status=$1,decided_by=$2,decided_ms=$3 WHERE id=$4 AND (status='pending' OR (status='awaiting_judge' AND $5=1)) RETURNING *", [approve?'approved':'declined',reviewer,Date.now(),id,approve?0:1]);
+    const rows = await q("UPDATE pc_requests SET status=$1,decided_by=$2,decided_ms=$3,notified=0,notify_after=0,attempts=0,last_notify_error=NULL WHERE id=$4 AND (status='pending' OR (status='awaiting_judge' AND $5=1)) RETURNING *", [approve?'approved':'declined',reviewer,Date.now(),id,approve?0:1]);
     if (!rows.length) {
       const [existing] = await q('SELECT * FROM pc_requests WHERE id=$1', [id]);
       requireThat(existing, 404, 'Unknown request.');
@@ -229,6 +239,11 @@ export async function decide(db: Store, reviewer: string, ownerId: string, id: s
       }
       if (!applied) await q('ROLLBACK TO SAVEPOINT character_review');
       await q('RELEASE SAVEPOINT character_review');
+      if(applied && r.kind==='create'){
+        const [config]=await q('SELECT value FROM pc_config WHERE slot=1');
+        const forum=JSON.parse(config.value).updatesForum || defaultSettings.updatesForum;
+        await q('INSERT INTO pc_forum_threads(forum_id,subject) VALUES($1,$2) ON CONFLICT DO NOTHING',[forum,'player:'+r.owner_id]);
+      }
       if (!applied) {
         await q("UPDATE pc_requests SET status='stale' WHERE id=$1", [id]);
         r.status='stale';

@@ -1,3 +1,4 @@
+import {forumType,writableType} from './forum-threads.ts';
 import {activeForm} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
 import type { RoleplayScope } from './scope.ts';
@@ -27,7 +28,7 @@ export async function savePosting(db:Store, actor:Actor, input:any, coverage?:{d
     if(input.kind==='tag'){
       requireThat(Object.keys(input).every(k=>['kind','characterId','tag'].includes(k)),400,'Only a posting tag can be changed here.');
       let tag;
-      try {tag=forms.normalizeTag(input.tag);} catch {requireThat(false,400,'Use a valid posting tag of 1–24 characters.');}
+      try {tag=forms.normalizeTag(input.tag);} catch(error) {requireThat(false,400,error instanceof Error?error.message:'Choose a valid posting tag.');}
       requireThat(await assignTag(q,actor.id,input.characterId,tag),409,'That tag is already assigned. Refresh your preferences.');
     } else {
       const [row]=await q('SELECT value FROM pc_config WHERE slot=1');
@@ -51,17 +52,29 @@ export async function lookupAuthor(db:Store,actor:Actor,message:string,guild='')
 
 type IncomingPost={id:string;channel:string;parent?:string;guild:string;author:string;roles:string[];content:string};
 type CharacterPost={content:string;name:string;portrait:string};
+function matchPrefix(text:string,tags:{tag_key:string;character_id:string}[]) {
+  if(!tags.length)return;
+  const byKey=new Map(tags.map(t=>[t.tag_key,t.character_id]));
+  let match, end=0;
+  for(const symbol of text){
+    end+=symbol.length;
+    if(end>forms.tagLimit*4)break;
+    const prefix=text.slice(0,end), id=byKey.get(forms.tagKey(prefix));
+    if(!id)continue;
+    const rest=text.slice(end);
+    if(/[\p{L}\p{M}\p{N}]$/u.test(prefix) && /^[\p{L}\p{M}\p{N}]/u.test(rest))continue;
+    match={character_id:id,content:rest.trimStart()};
+  }
+  return match;
+}
 export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean){
-  if(source.guild!==config.guild || !source.content.trim() || source.content.length>2000 || /^\s*(?:\/\/|\(\()/.test(source.content))return;
+  if(source.guild!==config.guild || !source.content.trim() || source.content.length>2000)return;
   const {value}=await readSettings(db);
   if(!(value.rpDivider?inScope?.(value):[source.channel,source.parent||''].some(id=>channelIds(value).includes(id))) || (value.playerRole&&!source.roles.includes(value.playerRole)))return;
-  const tags=await db.query('SELECT tag,character_id FROM pc_post_tags WHERE owner_id=$1 ORDER BY LENGTH(tag) DESC,tag',[source.author]);
-  const lower=source.content.toLowerCase();
-  const tagged=tags.find(t=>lower.startsWith(forms.trigger(t.tag)));
-  const trigger=tagged?forms.trigger(tagged.tag):'';
-  if(!tagged && /^[^\\s>]+>/.test(source.content))return;
-  let content=source.content;
-  if(tagged){content=content.slice(trigger.length);if(!trigger.endsWith('>')&&content.startsWith('>'))content=content.slice(1);content=content.trimStart();}
+  const tags=await db.query('SELECT tag_key,character_id FROM pc_post_tags WHERE owner_id=$1',[source.author]);
+  const tagged=matchPrefix(source.content,tags as {tag_key:string;character_id:string}[]);
+  if(!tagged && /^\s*(?:\/\/|\(\()/.test(source.content))return;
+  const content=tagged?tagged.content:source.content;
   if(!content.trim())return;
   const [choice]=tagged?[tagged]:await db.query('SELECT character_id FROM pc_post_defaults WHERE owner_id=$1 AND channel_id IN ($2,$3) ORDER BY CASE WHEN channel_id=$2 THEN 0 ELSE 1 END LIMIT 1',[source.author,source.channel,source.parent||source.channel]);
   if(!choice?.character_id)return;
@@ -80,9 +93,28 @@ export async function relay(db:Store,config:Config,source:IncomingPost,send:(pos
 export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
   const {Client,GatewayIntentBits,PermissionFlagsBits,MessageType}=await import('discord.js');
   const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],rest:{retries:0}});
-  client.once('clientReady',ready=>{
+  client.once('clientReady',async ready=>{
     scope.guild=ready.guilds.cache.get(config.guild)??null;
     console.log(scope.guild?'PhoenixCore is online in the Convergence Discord server.':'PhoenixCore connected but could not find its configured Discord server.');
+    const guild=ready.guilds.cache.get(config.guild);
+    if(!guild)return;
+    try{
+      const {value}=await readSettings(db);
+      const checks=[['Character submissions',value.characterChannel],['Design submissions',value.designChannel],['OC updates',value.updatesForum]];
+      for(const [label,id] of checks){
+        try{
+          const target=await guild.channels.fetch(id);
+          if(!target || (label==='OC updates'?!forumType(target.type):!forumType(target.type)&&!writableType(target.type)))throw Error('Unexpected channel type');
+          const flags=PermissionFlagsBits;
+          const needed=[flags.ViewChannel,flags.EmbedLinks,flags.ReadMessageHistory];
+          if(!target.isThread())needed.push(flags.SendMessages);
+          if(forumType(target.type)||target.isThread())needed.push(flags.SendMessagesInThreads);
+          const missing=target.permissionsFor(ready.user)?.missing(needed)??['ViewChannel'];
+          if(missing.length)console.warn(label+' '+id+' missing bot permissions: '+missing.join(', '));
+          else console.log(label+' '+id+' ready ('+(forumType(target.type)?'forum':target.isThread()?'thread':'text channel')+').');
+        }catch{console.warn(label+' '+id+' is unavailable or has an unsupported channel type.');}
+      }
+    }catch{console.warn('Could not verify the Discord review destinations.');}
   });
   client.on('threadCreate',t=>scope.archiveEvent(t));
   client.on('threadUpdate',(_,t)=>scope.archiveEvent(t));

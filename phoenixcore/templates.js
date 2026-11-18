@@ -7,14 +7,16 @@
   const section = (title, ...fields) => ({title, fields});
   const required = {required: true};
   const image = (key, label) => line(key, label, {media:true, max:2048});
-  const tagPattern = /^[a-z0-9][a-z0-9_-]{0,23}$/;
+  const reviewRoutes={characterChannel:'1572638034359226558',designChannel:'1572638183991283904',updatesForum:'1572638583930626250'};
+  const tagLimit=64;
+  const tagHint='Use your own prefix, such as Rin, [Ash], test- or 🔥. Type the tag before your post. Follow a word with a space or punctuation.';
+  const tagKey=value=>value.normalize('NFC').toLowerCase();
   function normalizeTag(raw) {
-    if (typeof raw !== 'string') throw Error('Enter a posting tag.');
-    const tag=raw.trim().toLowerCase();
-    if (tag && !tagPattern.test(tag)) throw Error('Use 1–24 letters, numbers, underscores or hyphens for the posting tag. Start with a letter or number.');
+    if (typeof raw!=='string' || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(raw)) throw Error('Enter a single-line posting tag.');
+    const tag=raw.trim();
+    if (tag.length>tagLimit || (tag && !/[\p{L}\p{N}\p{P}\p{S}]/u.test(tag))) throw Error('Use a visible posting tag of up to 64 characters.');
     return tag;
   }
-  const trigger=tag=>tag?tag+(/[-_]$/.test(tag)?'':'>'):'';
   function readForms(value){
     if(!value)return [];
     let list;
@@ -40,7 +42,7 @@
   const character = [
     section('History',
       line('name','Character name',{max:64,required:true}), line('alias','Alias'),
-      line('tag','RP posting tag',{max:24,hint:'Use test- exactly as typed. For a word tag like rin, type rin> before your message.'}),
+      line('tag','RP posting tag',{max:tagLimit,hint:tagHint}),
       pick('characterType','Character type',[['OC','Player character (OC)'],['NPC','Non-player character (NPC)']],{initial:'OC'}),
       prose('bio','Lore / backstory',{max:18000,hint:'Long backstories are welcome. Paragraph breaks are preserved.'}),
       prose('family','Family in RP',{hint:'Known relatives, living or deceased.'}), prose('enemies','Enemies in RP',{hint:'Rivals, grudges or vendettas.'}),
@@ -133,7 +135,7 @@
       }
       if (f.key==='scene' && value && !/^https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\/?$/.test(value)) throw Error('Use a Discord message link for the training scene.');
       if (f.media && value && !validImage(value)) throw Error('Use an HTTPS image or GIF link, or upload an image.');
-      output[f.key]=f.key==='tag'?normalizeTag(value):f.key==='attainedForms'?(readForms(value).length?JSON.stringify(readForms(value)):''):value;
+      output[f.key]=f.key==='tag'?normalizeTag(raw):f.key==='attainedForms'?(readForms(value).length?JSON.stringify(readForms(value)):''):value;
     }
     return output;
   }
@@ -183,7 +185,7 @@
     assert(gain > 0n || BigInt(currency) > 0n || gear.length || awards.length, 'The award must change the sheet after whole-point rounding.');
     return { next, award: { percent, gain: String(gain), currency, gear,...(points!=='0'?{points}:{}),...(awards.length?{stats:awards}:{}) } };
   }
-  const api={trigger,readForms,normalizeTag,validImage,calculateAward,forms,allFields,normalize,catalogue,tiers,stats};
+  const api={reviewRoutes,tagLimit,tagHint,tagKey,readForms,normalizeTag,validImage,calculateAward,forms,allFields,normalize,catalogue,tiers,stats};
   if(typeof module==='object' && module.exports) module.exports=api;
   else globalThis.PhoenixForms=api;
 })();

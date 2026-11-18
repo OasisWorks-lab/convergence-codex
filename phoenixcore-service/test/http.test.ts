@@ -1,3 +1,4 @@
+import {ReviewFixture} from './review-fixture.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,randomBytes,randomUUID,sign} from 'node:crypto';
@@ -16,16 +17,14 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   const origin=new URL(config.dashboard).origin;
   await initialize(db,ids.guild);
   const members=Object.entries(ids).filter(([k])=>['writer','owner','judge','extra'].includes(k)).map(([k,id])=>({user:{id,username:k,global_name:k.toUpperCase()},roles:k==='judge'?[ids.role]:[]}));
-  const delivered:any[]=[];
+  const fixture=new ReviewFixture(config);
   const discord=new Discord(config,async(u,init)=>{
     const path=new URL(String(u)).pathname;
     if(path.endsWith('/oauth2/token')) return Response.json({access_token:new URLSearchParams(String(init?.body)).get('code')});
     if(path.endsWith('/users/@me')) return Response.json({id:new Headers(init?.headers).get('Authorization')!.slice(7)});
     if(path.endsWith('/members'))return Response.json(members);
     if(path.includes('/members/')){const m=members.find(x=>x.user.id===path.split('/').pop());return Response.json(m||{}, {status:m?200:404});}
-    if(path.endsWith('/users/@me/channels'))return Response.json({id:'testdm'});
-    if(path.endsWith('/testdm/messages')){delivered.push(JSON.parse(String(init?.body)));return Response.json({id:'testmessage'});}
-    throw Error('Unexpected fixture route '+path);
+    return fixture.respond(path,init);
   });
   const server=application(db,config,discord);server.listen(0,'127.0.0.1');await once(server,'listening');
   t.after(async()=>{await new Promise<void>(res=>server.close(()=>res()));await db.close();});
@@ -91,8 +90,8 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await state(extra)).requests.length,0);
   assert.equal((await state(owner)).requests.length,1);assert.equal((await state(owner)).characters.length,0);
   await deliverNext(db,discord);
-  assert.equal(delivered[0].embeds[0].thumbnail.url,image);
-  const control=delivered[0].components[0].components[0].custom_id;
+  assert.equal(fixture.cards[0].body.embeds[0].thumbnail.url,image);
+  const control=fixture.cards[0].body.components[0].components[0].custom_id;
   assert.equal((await click(ids.judge,control)).type,4);
   assert.equal((await click(ids.owner,control)).type,7);
   assert.equal((await state(writer)).characters[0].sheet.name,'Rin');
@@ -100,12 +99,12 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await post('/api/requests',edit,extra)).status,403);
   assert.equal((await post('/api/requests',edit,writer)).status,200);
   assert.equal((await state(writer)).characters[0].sheet.strength,'');await deliverNext(db,discord);
-  await click(ids.owner,delivered[1].components[0].components[0].custom_id);
+  await click(ids.owner,fixture.cards[1].body.components[0].components[0].custom_id);
   assert.equal((await state(writer)).characters[0].sheet.strength,'Patient and precise');
   const award={id:randomUUID(),kind:'award',characterId:form.id,version:2,award:{percent:'12.5',currency:'20',gear:['Journal']},reason:'Judged session'};
   assert.equal((await post('/api/requests',award,judge)).status,200);
   assert.equal((await state(writer)).characters[0].sheet.bpl,'10000');
-  await deliverNext(db,discord);await click(ids.owner,delivered[2].components[0].components[0].custom_id);
+  await deliverNext(db,discord);await click(ids.owner,fixture.cards[2].body.components[0].components[0].custom_id);
   assert.equal((await state(writer)).characters[0].sheet.bpl,'11250');
   const training={id:randomUUID(),kind:'training',characterId:form.id,version:3,reason:'A new scene',details:{location:'Dojo',trainingType:'Solo',goals:'Ki control',formula:'One scene at the dojo',claimed:'+100 BPL'}};
   assert.equal((await post('/api/requests',training,writer)).status,200);

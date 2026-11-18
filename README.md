@@ -20,4 +20,4 @@ Published edits live in PhoenixCore’s persistent database. GitHub Pages suppli
 
 ## PhoenixCore character sheets
 
-Open **PhoenixCore** in the main navigation to browse Discord players and their character cards. Choose **New Submission** for characters, techniques, items, races, transformations, OC updates or training. The practice dashboard lets you try player submission, staff judgment and owner review. The live service sends approvals to the owner in Discord. [Dashboard](phoenixcore/index.html) · [Bot and dashboard setup](phoenixcore-service/README.md)
+Open **PhoenixCore** in the main navigation to browse Discord players and their character cards. Choose **New Submission** for characters, techniques, items, races, transformations, OC updates or training. The practice dashboard lets you try player submission, staff judgment and owner review. PhoenixCore posts review cards in the server. Each player has one OC Updates forum post for their characters’ updates and training. [Dashboard](phoenixcore/index.html) · [Bot and dashboard setup](phoenixcore-service/README.md)

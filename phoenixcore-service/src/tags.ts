@@ -1,3 +1,4 @@
+import forms from '../../phoenixcore/templates.js';
 import type { Query } from './db.ts';
 
 export async function currentTag(q: Query, characterId: string): Promise<string> {
@@ -9,6 +10,6 @@ export async function currentTag(q: Query, characterId: string): Promise<string>
 export async function assignTag(q: Query, owner: string, characterId: string, tag: string): Promise<boolean> {
   await q('DELETE FROM pc_post_tags WHERE owner_id=$1 AND character_id=$2', [owner, characterId]);
   if (!tag) return true;
-  const rows = await q('INSERT INTO pc_post_tags(owner_id,tag,character_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING tag', [owner, tag, characterId]);
+  const rows = await q('INSERT INTO pc_post_tags(owner_id,tag,character_id,tag_key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING tag', [owner, tag, characterId, forms.tagKey(tag)]);
   return rows.length > 0;
 }

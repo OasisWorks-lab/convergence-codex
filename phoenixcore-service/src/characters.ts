@@ -9,7 +9,7 @@ export async function archiveRequest(db:Store,actor:Actor,id:string,archive:bool
     requireThat(row,404,'Request unavailable.');
     if(archive){
       await q('INSERT INTO pc_archives(request_id,previous_status) VALUES($1,$2) ON CONFLICT(request_id) DO NOTHING',[id,row.status]);
-      if(['pending','awaiting_judge'].includes(row.status))await q("UPDATE pc_requests SET status='archived' WHERE id=$1",[id]);
+      if(['pending','awaiting_judge'].includes(row.status))await q("UPDATE pc_requests SET status='archived',notified=0,notify_after=0 WHERE id=$1",[id]);
     }else{
       const [previous]=await q('DELETE FROM pc_archives WHERE request_id=$1 RETURNING previous_status',[id]);
       if(previous && row.status==='archived')await q('UPDATE pc_requests SET status=$1,notified=0,notify_after=0 WHERE id=$2',[previous.previous_status,id]);
@@ -25,7 +25,7 @@ export async function removeCharacter(db:Store,actor:Actor,id:string,version:num
     await q('DELETE FROM pc_post_defaults WHERE character_id=$1',[id]);
     await q('DELETE FROM pc_post_tags WHERE character_id=$1',[id]);
     await q('DELETE FROM pc_active_forms WHERE character_id=$1',[id]);
-    await q("UPDATE pc_requests SET status='stale' WHERE character_id=$1 AND status IN ('pending','awaiting_judge','archived')",[id]);
+    await q("UPDATE pc_requests SET status='stale',notified=0,notify_after=0 WHERE character_id=$1 AND status IN ('pending','awaiting_judge','archived')",[id]);
   });
 }
 export function activeForm(sheet:any,key:string){
@@ -41,7 +41,7 @@ export async function characterCommand(db:Store,guild:string,dashboard:string,bo
       if(focus?.name==='character')choices.push(...own.map(c=>({name:JSON.parse(c.sheet).name,value:c.id})));
       if(focus?.name==='form'){
         const selected=String(body.data.options.find((o:any)=>o.name==='character')?.value||'').toLowerCase();
-        const character=own.find(c=>c.id===selected||c.tag===selected||JSON.parse(c.sheet).name.toLowerCase()===selected);
+        const character=own.find(c=>c.id===selected||(c.tag && forms.tagKey(c.tag)===forms.tagKey(selected))||JSON.parse(c.sheet).name.toLowerCase()===selected);
         if(character)choices.push({name:'Base',value:'base'},...forms.readForms(JSON.parse(character.sheet).attainedForms).map((f:any)=>({name:f.name,value:f.id})));
       }
       return {type:8,data:{choices:choices.filter(c=>c.name.toLowerCase().includes(query)).slice(0,25)}};
@@ -65,7 +65,7 @@ export async function characterCommand(db:Store,guild:string,dashboard:string,bo
   const owner=body.member.user.id;
   return db.transaction(async q=>{
     const own=await q('SELECT c.*,t.tag FROM pc_characters c LEFT JOIN pc_post_tags t ON t.character_id=c.id WHERE c.owner_id=$1 ORDER BY c.id'+(db.dialect==='postgres'?' FOR UPDATE OF c':''),[owner]);
-    const matches=own.filter(r=>r.id===opts.character || r.tag===opts.character || JSON.parse(r.sheet).name.toLowerCase()===opts.character);
+    const matches=own.filter(r=>r.id===opts.character || (r.tag && forms.tagKey(r.tag)===forms.tagKey(opts.character)) || JSON.parse(r.sheet).name.toLowerCase()===opts.character);
     if(matches.length!==1)return reply('Choose one of your approved characters by name, posting tag or sheet ID.');
     const c=matches[0],s=JSON.parse(c.sheet);
     if(opts.form==='base'){await q('DELETE FROM pc_active_forms WHERE character_id=$1',[c.id]);return reply(s.name+' returned to base form.');}
