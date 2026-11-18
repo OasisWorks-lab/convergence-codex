@@ -49,7 +49,7 @@ For a local first run, open a terminal in `phoenixcore-service` and copy `.env.e
 
 ### Start the existing Bot-Hosting.net deployment
 
-1. Open **Files**, click the **GitHub** icon, and select `https://github.com/OasisWorks-lab/convergence-codex`, branch `main`. Select **Merge**, then **Sync**. In **Files**, open the top folder and check that `index.js`, `package.json`, and `phoenixcore-service` are side by side.
+1. In the deployment, open **Settings → GitHub**. Verify that **Repository** shows `OasisWorks-lab/convergence-codex` on `main`, then click **Pull now**. When the panel says **Up to date**, the **Files** tab should show `index.js`, `package.json`, and `phoenixcore-service` in the top folder.
 2. In **Startup**, keep **Entry File** set to `index.js` and select Node **24.12 or later**. The top-level package installs PhoenixCore's dependencies. Leave `PORT` empty so the bot listens on the port the host supplies.
 3. In the deployment's **Environment** tab, enter the Discord settings from the next section. Mark the bot token and OAuth2 client secret as secrets. Also add the three settings below.
 
