@@ -5,10 +5,10 @@ import {DiscordFailure,reviewMessage,type Discord} from './discord.ts';
 import {forumThread,playerThread,forumType,writableType,retryDelay} from './forum-threads.ts';
 
 type Request=ReturnType<typeof visibleRequest>;
-const waiting=(status:string)=>status==='pending'||status==='awaiting_judge';
+const waiting=(status:string)=>status==='pending'||status==='awaiting_judge'||status==='owner_review'||status==='needs_details';
 
 async function sendCard(db:Store,discord:Discord,r:Request,settings:Settings,existing:Row,now:number) {
-  const body=reviewMessage(r,discord.settings);
+  const body=reviewMessage(r,discord.settings,settings);
   const {nonce,enforce_nonce,...message}=body;
   if(existing.message_id){
     try{
@@ -23,7 +23,12 @@ async function sendCard(db:Store,discord:Discord,r:Request,settings:Settings,exi
     }
   }
   let channelId:string, messageId:string;
-  if(r.kind==='create'||isDesign(r.kind)){
+  const [native]=await db.query('SELECT channel_id FROM pc_native WHERE id=$1',[r.id]);
+  if(native){
+    const channel=await discord.guildChannel(native.channel_id);
+    if(channel.thread_metadata?.archived)await discord.call('/channels/'+channel.id,{method:'PATCH',body:JSON.stringify({archived:false})});
+    channelId=channel.id;messageId=(await discord.call('/channels/'+channelId+'/messages',{method:'POST',body:JSON.stringify(body)})).id;
+  }else if(r.kind==='create'||isDesign(r.kind)){
     const channel=await discord.guildChannel(r.kind==='create'?settings.characterChannel:settings.designChannel);
     if(forumType(channel.type)){
       const thread=await forumThread(db,discord,channel.id,'request:'+r.id,async()=>({
@@ -72,6 +77,23 @@ export async function deliverNext(db:Store,discord:Discord,now=Date.now()){
     }
   }finally{
     await db.query('UPDATE pc_review_posts SET lease_token=NULL,lease_until=0 WHERE request_id=$1 AND lease_token=$2',[post.request_id,token]);
+  }
+  return true;
+}
+
+export async function deliverOwnerDenial(db:Store,discord:Discord,now=Date.now()){
+  const [claim]=await db.query("UPDATE pc_denials SET retry_at=$1,attempts=attempts+1 WHERE request_id=(SELECT d.request_id FROM pc_denials d JOIN pc_requests r ON r.id=d.request_id WHERE d.dm_message IS NULL AND d.retry_at<=$2 AND r.status='owner_review' ORDER BY r.created_ms LIMIT 1) AND dm_message IS NULL AND retry_at<=$2 RETURNING *",[now+120000,now]);
+  if(!claim)return false;
+  try{
+    const [row]=await db.query("SELECT * FROM pc_requests WHERE id=$1 AND status='owner_review'",[claim.request_id]);
+    if(!row)return true;
+    const channel=await discord.call('/users/@me/channels',{method:'POST',body:JSON.stringify({recipient_id:discord.settings.owner})});
+    const settings=await readSettings(db),body=reviewMessage(visibleRequest(row),discord.settings,settings.value,true,'<@'+claim.helper+'>'+(claim.note?' · '+claim.note:''),claim.decision_key);
+    const sent=await discord.call('/channels/'+channel.id+'/messages',{method:'POST',body:JSON.stringify(body)});
+    if(!discordId.test(sent.id))throw Error('Discord did not confirm the denial DM.');
+    await db.query('UPDATE pc_denials SET dm_channel=$1,dm_message=$2 WHERE request_id=$3 AND attempts=$4 AND decision_key=$5',[channel.id,sent.id,claim.request_id,claim.attempts,claim.decision_key]);
+  }catch(e){
+    await db.query('UPDATE pc_denials SET retry_at=$1 WHERE request_id=$2 AND attempts=$3 AND decision_key=$4',[now+retryDelay(Number(claim.attempts),e),claim.request_id,claim.attempts,claim.decision_key]);
   }
   return true;
 }

@@ -50,7 +50,7 @@ test('one approved-player forum post across two OCs, renames and restart; update
   await db.close();db=openSqlite(file);await initialize(db,config.guild);
   fixture.names.set(player,'newname');
   const c=await submitted(db,'Mira');await decide(db,config.owner,config.owner,c.id,true);await settle(db,discord);
-  assert.equal(await provisionNext(db,discord,defaultSettings.updatesForum),false);
+  assert.equal(await provisionNext(db,discord,defaultSettings.updatesForum),true);
   const edit=await propose(db,writer,{id:randomUUID(),kind:'edit',characterId:b.id,version:1,fields:{bio:'Second arc'},reason:'Lore'},active);
   const training=await propose(db,writer,{id:randomUUID(),kind:'training',characterId:c.id,version:1,reason:'Scene',details:{location:'Earth',trainingType:'Solo',goals:'Focus',formula:'100 + 2',claimed:'+2 BPL'}},active);
   thread.thread_metadata.archived=true;await settle(db,discord);
@@ -66,6 +66,10 @@ test('one approved-player forum post across two OCs, renames and restart; update
   assert.equal(fixture.calls.filter(c=>c.method==='POST'&&c.path.endsWith('/threads')).length,1);
   const personal=await playerThread(db,discord,defaultSettings.updatesForum,other,Date.now());
   assert.notEqual(personal,thread.id);
+  fixture.channels.delete(thread.id);
+  await submitted(db,'Vale');await provisionNext(db,discord,defaultSettings.updatesForum);
+  const [replacement]=await db.query('SELECT thread_id FROM pc_forum_threads WHERE subject=$1',['player:'+player]);
+  assert.notEqual(replacement.thread_id,thread.id);assert.equal(fixture.channels.get(replacement.thread_id).parent_id,defaultSettings.updatesForum);
 });
 
 test('all designs and character applications use forum starter review cards and applied tags when required',async t=>{

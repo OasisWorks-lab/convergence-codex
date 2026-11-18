@@ -1,6 +1,6 @@
 import {readFileSync} from 'node:fs';
 import model from '../../assets/content-model.js';
-import type {Store} from './db.ts';
+import type {Store,Query} from './db.ts';
 import {attachImage} from './media.ts';
 import {requireThat} from './domain.ts';
 
@@ -28,6 +28,7 @@ function formatted(value:string){
 function checkField(field:string,value:unknown,kind:string,service:string) {
   requireThat(typeof value==='string' && value.length<=(['html','descriptionHtml','text','lore'].includes(field)?95000:8000),400,'Check the length of '+field+'.');
   const v=value.trim();
+  if(field==='playablePaths')requireThat(v.split(/\r?\n/).every(p=>p.trim().length<=240),400,'Each selectable path can contain up to 240 characters.');
   if(field==='title'||field==='name')requireThat(v && v.length<=260,400,'Enter a title of up to 260 characters.');
   if(field==='art'||field==='source'||field==='url'){
     let valid=!v || (field==='art' && /^assets\/(?:art|uploads)\/[a-zA-Z0-9_/-]+\.(?:png|jpg|jpeg|svg|gif|webp)$/i.test(v));
@@ -48,7 +49,9 @@ export async function published(db:Store){
 export async function publish(db:Store, roles:string[], actor:string, input:any, service=''){
   requireThat(roles.includes(editorRole),403,'Your Discord Owner role is required to publish Codex edits.');
   requireThat(input && typeof input.key==='string' && input.key.length<190 && Number.isSafeInteger(input.revision) && input.revision>=0,400,'Invalid Codex entry or revision.');
-  const {key,revision}=input,kind=records.get(key)?.kind||model.extraKind(baseline,key);
+  const {key,revision}=input;
+  let kind=records.get(key)?.kind||model.extraKind(baseline,key);
+  if(/^design-paths\/[a-f0-9-]{36}$/.test(key)&&(await db.query("SELECT id FROM pc_designs WHERE kind='race' AND id=$1",[key.slice(13)])).length)kind='designPaths';
   requireThat(typeof kind==='string' && Object.hasOwn(model.groupFields,kind),400,'Unknown Codex entry.');
   requireThat(input.fields && typeof input.fields==='object' && !Array.isArray(input.fields) && Object.keys(input.fields).length,400,'Enter at least one change.');
   const fields:Record<string,string>={};
@@ -76,4 +79,20 @@ export async function publish(db:Store, roles:string[], actor:string, input:any,
     await q('INSERT INTO pc_codex(entry_key,revision,fields,editor,edited_ms) VALUES($1,$2,$3,$4,$5) ON CONFLICT(entry_key) DO UPDATE SET revision=excluded.revision,fields=excluded.fields,editor=excluded.editor,edited_ms=excluded.edited_ms',[key,revision+1,JSON.stringify(next),actor,Date.now()]);
     return {key,revision:revision+1,fields:next};
   });
+}
+
+export async function racePaths(q:Query){
+  const entries=await q("SELECT entry_key,fields FROM pc_codex WHERE entry_key LIKE 'races/%' OR entry_key LIKE 'design-paths/%'");
+  const changes=new Map(entries.map(r=>[r.entry_key,JSON.parse(r.fields)]));
+  const list=(text:string)=>[...new Set(text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean))];
+  const races=baseline.races.map((r:any)=>{
+    const key='races/'+r.slug,published=changes.get(key)||{};
+    const paths=r.paths.map((p:any,i:number)=>changes.get(key+'/paths/'+i)?.name||p.name);
+    return {id:r.slug,name:published.name||r.name,paths:published.playablePaths===undefined?paths:list(published.playablePaths)};
+  });
+  for(const design of await q("SELECT id,fields FROM pc_designs WHERE kind='race' ORDER BY id")){
+    const fields=JSON.parse(design.fields),override=changes.get('design-paths/'+design.id);
+    races.push({id:design.id,name:fields.name,paths:list(override?.playablePaths??fields.paths??'')});
+  }
+  return races;
 }

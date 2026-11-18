@@ -1,0 +1,105 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import forms from '../../phoenixcore/templates.js';
+import {openSqlite,initialize,defaultSettings} from '../src/db.ts';
+import {actorFor,propose,decide,saveSettings} from '../src/domain.ts';
+import {Discord,handleInteraction,type Config} from '../src/discord.ts';
+import {deliverNext,deliverOwnerDenial} from '../src/review-delivery.ts';
+import {captureNative} from '../src/native.ts';
+import {announcement,nicknameJob} from '../src/bot-tools.ts';
+import {characterCommand,deleteArchived} from '../src/characters.ts';
+import {relay} from '../src/posting.ts';
+import {assess} from '../src/review-rules.ts';
+import {publish,editorRole,racePaths} from '../src/codex.ts';
+import {ReviewFixture} from './review-fixture.ts';
+
+const config:Config={owner:'110000000000000001',guild:'110000000000000002',clientId:'110000000000000003',service:'https://bot.example',dashboard:'https://codex.example/',publicKey:'',clientSecret:'',token:'fixture'};
+const author='110000000000000004',helper='110000000000000005',roles=[defaultSettings.judgeRole];
+const writer=actorFor(author,[],config.owner,defaultSettings),owner=actorFor(config.owner,[],config.owner,defaultSettings);
+const make=(name='Rin',added={})=>({id:randomUUID(),kind:'create',reason:'Opening',fields:{name,bpl:'100',strengths:'Patient\nKind\nPerceptive',weaknesses:'Proud\nHasty\nDistrustful',...added}});
+async function setup(t:any){const db=openSqlite(':memory:');await initialize(db,config.guild);t.after(()=>db.close());return db;}
+test('Helper checks, configurable mentions, denial DM retry and owner-only appeal decisions',async t=>{
+  const db=await setup(t),submission=make('Night Courier'),fixture=new ReviewFixture(config);
+  const dms='110000000000000006';fixture.channels.set(dms,{id:dms,type:1});let unavailable=true;
+  const discord=new Discord(config,async(url,init)=>{
+    if(new URL(String(url)).pathname.endsWith('/users/@me/channels')){
+      assert.equal(JSON.parse(String(init?.body)).recipient_id,config.owner);
+      return unavailable?Response.json({retry_after:3},{status:429}):Response.json({id:dms});
+    }
+    return fixture.fetch(url,init);
+  });
+  await saveSettings(db,owner,{revision:1,value:{...defaultSettings,submissionMessage:'Review {character}, {type}. @everyone',reviewGuidance:'Check named techniques privately.'}});
+  await propose(db,writer,submission,new Set([author]));await deliverNext(db,discord);
+  const publicCard=fixture.cards[0].body;
+  assert.equal(publicCard.content,'<@&'+roles[0]+'> Review Night Courier, New Character. @everyone');
+  assert.deepEqual(publicCard.allowed_mentions,{parse:[],roles});assert.doesNotMatch(JSON.stringify(publicCard),/Check named techniques privately/);
+  const click=(who:string,roles:string[],custom_id:string)=>handleInteraction(db,config,{type:3,application_id:config.clientId,guild_id:config.guild,member:{user:{id:who},roles},data:{custom_id}});
+  assert.doesNotMatch((await click(author,[],'pc:checks:'+submission.id)).data.content,/Check named techniques privately/);
+  const report=await click(helper,roles,'pc:checks:'+submission.id);assert.equal(report.data.flags,64);assert.match(report.data.content,/Check named techniques privately/);
+  assert.equal((await decide(db,helper,config.owner,submission.id,false,roles,'review','Check the lore')).status,'owner_review');
+  assert.equal((await db.query('SELECT * FROM pc_archives')).length,0);
+  const now=Date.now();await deliverOwnerDenial(db,discord,now);assert.equal(await deliverOwnerDenial(db,discord,now+1000),false);
+  unavailable=false;await deliverOwnerDenial(db,discord,now+30000);
+  const dm=fixture.cards.find(c=>c.channel===dms)!;assert.match(JSON.stringify(dm.body),/Check the lore/);
+  const veto=dm.body.components[0].components.find((b:any)=>b.label==='Veto denial').custom_id;
+  assert.match((await click(helper,roles,veto)).data.content,/owner must/);
+  const result=await handleInteraction(db,config,{type:3,application_id:config.clientId,user:{id:config.owner},data:{custom_id:veto}});
+  assert.equal(result.type,7);assert.equal((await db.query('SELECT * FROM pc_characters')).length,1);
+  assert.equal((await db.query('SELECT * FROM pc_archives')).length,1);
+  assert.equal(await deliverOwnerDenial(db,discord,now+100000),false);
+});
+test('Discord templates are scoped, attributed, retriable and completable without duplicating the original request',async t=>{
+  const db=await setup(t),source={guild:config.guild,channel:defaultSettings.designChannel,id:'120000000000000001',author,roles:[],content:'**TECHNIQUE SUBMISSION**\nTechnique Name: Feather Step\nType: SPT\nDescription: Travel lightly.\nRequirements: Training.\nDrawbacks: Fatigue.'};
+  assert.equal(await captureNative(db,config,{...source,guild:'120000000000000099'}),undefined);
+  assert.equal(await captureNative(db,config,{...source,bot:true}),undefined);
+  assert.equal(await captureNative(db,config,{...source,content:'Nice move!'}),undefined);
+  const id=await captureNative(db,config,source);assert.ok(id);assert.equal(await captureNative(db,config,source),id);
+  let [row]=await db.query('SELECT * FROM pc_requests WHERE id=$1',[id]);assert.equal(row.status,'pending');assert.equal(row.author_id,author);assert.equal(JSON.parse(row.after_sheet).name,'Feather Step');
+  await decide(db,helper,config.owner,id,true,roles);await deleteArchived(db,owner,id);
+  assert.equal(await captureNative(db,config,source),id);assert.equal((await db.query('SELECT * FROM pc_requests')).length,0);assert.equal((await db.query('SELECT * FROM pc_designs')).length,1);
+  const partial=await captureNative(db,config,{...source,id:'120000000000000002',content:'pc!submit technique\nTechnique Name: Quiet Step'});
+  [row]=await db.query('SELECT * FROM pc_requests WHERE id=$1',[partial!]);assert.equal(row.status,'needs_details');
+  await assert.rejects(decide(db,helper,config.owner,partial!,true,roles),/Complete/);
+  await decide(db,helper,config.owner,partial!,false,roles);assert.equal((await decide(db,config.owner,config.owner,partial!,true,[],'veto')).status,'needs_details');
+  const full={id:partial,kind:'technique',reason:'Completed from Discord',fields:{name:'Quiet Step',techType:'SPT',description:'Light movement.',requirements:'Practice.',drawbacks:'Fatigue.'}};
+  assert.equal((await propose(db,writer,full,new Set([author]),config.service,true)).status,'pending');
+  assert.equal((await db.query('SELECT * FROM pc_native WHERE id=$1',[partial!])).length,1);
+});
+test('published race paths, long backstories and non-destructive active forms drive the sheet and RP identity',async t=>{
+  const db=await setup(t),active=new Set([author]),race=(await racePaths(db.query))[0];
+  await publish(db,[editorRole],config.owner,{key:'races/'+race.id,revision:0,fields:{playablePaths:'First Path\nSecond Path'}});
+  assert.deepEqual((await racePaths(db.query))[0].paths,['First Path','Second Path']);
+  const list=[{id:'first',name:'Bloom',portrait:''},{id:'second',name:'Crown',portrait:'https://example.com/crown.gif',multiplier:'2.25',modifiers:{speed:'+3',control:'x1.5'}}];
+  const bio=Array(18).fill(Array(5).fill('The courier carefully crossed the mountain.').join(' ')).join('\n\n');
+  const form=make('Courier',{bio,lineage:race.name,path:'Second Path',attainedForms:JSON.stringify(list),tag:'test-',speed:'10',control:'20',bpl:'9007199254740993'});
+  await assert.rejects(propose(db,writer,{...form,fields:{...form.fields,path:'Wrong path'}},active),/current path/);
+  const request=await propose(db,writer,form,active);await decide(db,helper,config.owner,form.id,true,roles);
+  assert.equal(assess(request,{...defaultSettings,loreParagraphs:'18',loreSentences:'5',loreWords:'5'}).checks.filter(c=>c.state==='attention').length,0);
+  assert.equal(forms.normalize('create',{...form.fields,bio:'w'.repeat(60000)}).bio.length,60000);
+  assert.throws(()=>forms.normalize('create',{...form.fields,bio:'w'.repeat(60001)}),/60000/);
+  await publish(db,[editorRole],config.owner,{key:'races/'+race.id,revision:1,fields:{playablePaths:'First Path'}});
+  await propose(db,writer,{kind:'edit',id:randomUUID(),characterId:form.id,version:1,fields:{bio:'Unrelated edit'},reason:'Lore'},active);
+  const command=(name:string,formKey='',who=author,type=2)=>characterCommand(db,config.guild,config.dashboard,{type,guild_id:config.guild,member:{user:{id:who},roles:[]},data:{name,options:[{name:'character',value:form.id},{name:'form',value:formKey,focused:type===4}]}});
+  assert.match((await command('transform','second',helper)).data.content,/your approved/);
+  await command('transform','second');
+  assert.deepEqual((await command('revert-form','',author,4)).data.choices.map((c:any)=>c.value),['base','first']);
+  await saveSettings(db,owner,{value:{...defaultSettings,rpChannels:defaultSettings.characterChannel},revision:1});
+  await relay(db,config,{id:'130000000000000001',author,channel:defaultSettings.characterChannel,guild:config.guild,roles:[],content:'test- The sky opened.'},async post=>{assert.equal(post.name,'Courier (Crown)');assert.equal(post.portrait,list[1].portrait);return '130000000000000002';},async()=>{});
+  const sheet=await characterCommand(db,config.guild,config.dashboard,{type:2,guild_id:config.guild,member:{user:{id:author}},channel_id:defaultSettings.characterChannel,data:{name:'Character sheet',target_id:'130000000000000002'}});
+  const values=Object.fromEntries(sheet.data.embeds[0].fields.map((f:any)=>[f.name,f.value]));assert.equal(values['Current Power Level'],'20266198323167234');assert.equal(values.Speed,'13');assert.equal(values['Energy control'],'30');assert.equal(values.Strength,undefined);
+  await command('revert-form','first');assert.match((await command('revert-form','second')).data.content,/earlier/);
+  await command('revert-form');assert.equal((await db.query('SELECT * FROM pc_active_forms')).length,0);assert.equal(JSON.parse((await db.query('SELECT sheet FROM pc_characters'))[0].sheet).bpl,'9007199254740993');
+});
+test('owner embed drafts, same-channel updates and server nickname application',async t=>{
+  const db=await setup(t),fixture=new ReviewFixture(config),discord=new Discord(config,fixture.fetch);
+  const draft={kind:'welcome',action:'save',revision:0,title:'Welcome to Convergence',body:'Tell us about your OC.',color:'#ea875b',channel:defaultSettings.characterChannel};
+  await assert.rejects(announcement(db,discord,writer,draft),/Only the configured owner/);
+  await announcement(db,discord,owner,draft);assert.equal(fixture.calls.length,0);
+  await announcement(db,discord,owner,{...draft,action:'publish',revision:1});
+  await announcement(db,discord,owner,{...draft,action:'publish',revision:2,body:'Welcome, writers.'});
+  assert.equal(fixture.messages.size,1);const [message]=fixture.messages.values();assert.equal(message.embeds[0].description,'Welcome, writers.');assert.deepEqual(message.allowed_mentions.parse,[]);
+  assert.equal((await db.query('SELECT COUNT(*) AS n FROM pc_bot_profile'))[0].n,0);
+  await saveSettings(db,owner,{revision:1,value:{...defaultSettings,botNickname:'Archive Keeper',commandPrefixes:'pc! pr!'}});
+  await nicknameJob(db,discord);assert.equal(fixture.calls.at(-1)?.body.nick,'Archive Keeper');assert.equal((await db.query('SELECT status FROM pc_bot_profile'))[0].status,'Applied');
+});

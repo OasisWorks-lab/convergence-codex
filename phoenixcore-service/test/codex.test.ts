@@ -87,7 +87,7 @@ test('owner archive pauses approvals and character removal preserves attribution
   await db.query('INSERT INTO pc_posts VALUES($1,$2,$3,$4,$5,$6,$7)',[thread,post,channel,writerId,id,'One',1]);
   await assert.rejects(removeCharacter(db,writer,id,2),/Only the configured/);
   await assert.rejects(removeCharacter(db,owner,id,1),/changed/);
-  await removeCharacter(db,owner,id,2);await archiveRequest(db,owner,claim.id,false);
+  await removeCharacter(db,owner,id,2);await assert.rejects(archiveRequest(db,owner,claim.id,false),/Completed decisions/);
   assert.equal((await decide(db,ownerId,ownerId,claim.id,true)).status,'stale');
   assert.equal((await db.query('SELECT id FROM pc_characters'))[0].id,sibling);
   assert.equal((await lookupAuthor(db,owner,post)).characterName,'One');

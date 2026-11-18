@@ -14,14 +14,14 @@
     {id:'a4a12b86-6d0c-4aa9-80f1-c219352fb93f',ownerId:ids.judge,version:1,sheet:{...base,name:'Vey',lineage:'Cerealian',bio:'A scout learning to trust a partner.',bpl:'8600',wallet:'70'}}
   ];
   const forms=window.PhoenixForms, sampleChannel='555555555555555555';
-  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'',reviewChannel:'',...forms.reviewRoutes,currency:'Credits',rpChannels:sampleChannel,rpDivider:''}};
-  const tags=[],defaults=[],clone=x=>JSON.parse(JSON.stringify(x));
+  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'1100315893864603649',commandPrefixes:'pc!',submissionMessage:'{helper} A {type} submission for {character} is ready for review.',reviewChannel:'',...forms.reviewRoutes,currency:'Credits',rpChannels:sampleChannel,rpDivider:''}};
+  const embeds=[],designs=[],tags=[],defaults=[],clone=x=>JSON.parse(JSON.stringify(x));
   function state() {
     const id=ids[role],owner=role==='owner',judge=owner||role==='judge',channels=settings.value.rpChannels.split(/\s+/).filter(Boolean);
     return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:judge},players,characters:characters.map(c=>({...c,tag:tags.find(t=>t.characterId===c.id)?.tag||''})),
       scope:{online:true,categories:[{id:'566666666666666666',name:'Roleplay channels below'}],locations:channels.map(id=>({id,name:'Practice scene',type:0})),incomplete:0,scanning:false},
-      requests:requests.filter(r=>owner||(!r.archived&&(r.ownerId===id||r.authorId===id||(judge&&r.kind==='training')))),
-      catalogue:requests.filter(r=>r.status==='approved'&&forms.catalogue.includes(r.kind)).map(r=>({id:r.id,fields:r.after,kind:r.kind,authorId:r.authorId})),
+      requests:requests.filter(r=>judge||r.ownerId===id||r.authorId===id).map(r=>({...r,denial:judge?r.denial:null,...(judge?{assessment:{summary:'Ready for staff review',checks:[{label:'Roleplay review',state:'review',detail:'Check the character, requirements and limitations against the server rules.'}]}}:{})})),announcements:owner?embeds:[],
+      catalogue:designs,
       posting:{tags:tags.filter(t=>t.owner===id),defaults:defaults.filter(d=>d.owner===id&&channels.includes(d.channel)),channels},
       currency:settings.value.currency,settings:owner?settings:null});
   }
@@ -53,7 +53,7 @@
     const r={id:form.id,characterId:c?.id||form.id,ownerId:c?.ownerId||who.id,authorId:who.id,kind:form.kind,
       version:c?.version||0,before,after,award:amount,details,judgment:null,reason:form.reason,
       status:form.kind==='training'?'awaiting_judge':'pending',created:Date.now(),delivery:'Practice notification'};
-    if(immediate){savePosting({kind:'tag',characterId:c.id,tag:after.tag});r.status='approved';r.decided=Date.now();r.decidedBy=who.id;}
+    if(immediate){savePosting({kind:'tag',characterId:c.id,tag:after.tag});r.status='approved';r.archived=true;r.decided=Date.now();r.decidedBy=who.id;}
     requests.unshift(r);return {id:r.id,status:r.status};
   }
   function judge(id,input){
@@ -66,17 +66,23 @@
     r.status=characters.find(c=>c.id===r.characterId)?.version===r.version?'pending':'stale';
     return r;
   }
-  function decision(id,approve) {
-    if(role!=='owner')throw Error('Only the owner can confirm a change.');
+  function decision(id,approve,action=approve?'approve':'decline',note='') {
+    if(!state().actor.isJudge)throw Error('Helper access required.');
     const r=requests.find(x=>x.id===id);
+    if(r?.status==='owner_review'){
+      if(role!=='owner'||!['uphold','veto'].includes(action))throw Error('Owner review required.');
+      r.status=r.denial.stage;if(action==='veto'&&r.status==='awaiting_judge')return r;
+    }else if(role==='judge'&&action==='decline'&&r&&['pending','awaiting_judge'].includes(r.status)){
+      r.denial={helper:ids[role],note,stage:r.status,delivered:true};r.status='owner_review';return r;
+    }
     if(approve&&r?.status==='awaiting_judge')throw Error('Staff must assess the claim first.');
     if(!r||!['pending','awaiting_judge'].includes(r.status))return;
     const c=characters.find(x=>x.id===r.characterId);
-    r.decided=Date.now();r.decidedBy=ids.owner;
+    r.decided=Date.now();r.decidedBy=ids[role];r.archived=true;
     if(!approve){r.status='declined';return;}
     if((c?.version||0)!==r.version){r.status='stale';return;}
     r.status='approved';
-    if(forms.catalogue.includes(r.kind))return;
+    if(forms.catalogue.includes(r.kind)){designs.push({id:r.id,fields:r.after,kind:r.kind,authorId:r.authorId});return;}
     const next=clone(r.after);
     if(Object.hasOwn(next,'tag')){
       const previous=tags.find(t=>t.characterId===r.characterId)?.tag||'';
@@ -112,7 +118,9 @@
     for(const list of [tags,defaults])for(let i=list.length-1;i>=0;i--)if(list[i].characterId===id)list.splice(i,1);
     for(const r of requests)if(r.characterId===id&&['pending','awaiting_judge','archived'].includes(r.status))r.status='stale';
   }
-  window.PhoenixPreview={state,archive,remove,propose,decision,judge,savePosting,role:()=>role,switchRole:value=>{if(['player','judge','owner'].includes(value))role=value;},
+  function purge(id){if(role!=='owner'||!requests.find(r=>r.id===id)?.archived)throw Error('Choose an archived request.');requests=requests.filter(r=>r.id!==id);}
+  function embed(value){if(role!=='owner')throw Error('Owner access required.');const old=embeds.findIndex(x=>x.kind===value.kind);if(old<0)embeds.push(value);else embeds[old]=value;}
+  window.PhoenixPreview={state,purge,embed,archive,remove,propose,decision,judge,savePosting,role:()=>role,switchRole:value=>{if(['player','judge','owner'].includes(value))role=value;},
     saveSettings:input=>{
       if(role!=='owner')throw Error('Only the owner can change settings.');
       if(input.revision!==settings.revision)throw Error('Reload current settings.');

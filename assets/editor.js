@@ -16,7 +16,7 @@
     let node;
     const choices=['available','listed'].includes(name)?['yes','no']:name==='type'?['Planet','Realm','Landmark','Origin']:name==='group'?['In development','Completed','Events']:name==='theme'?data.themes.filter(t=>t.available!=='no').map(t=>t.id):null;
     if(choices){node=el('select');for(const v of choices)node.add(option(v,name==='theme'?data.themes.find(t=>t.id===v).name:v));}
-    else if(['html','descriptionHtml','description','summary','excerpt','text','lore','abilities','limitations','membership','appearance'].includes(name)){node=el('textarea');node.rows=['html','descriptionHtml','lore','text'].includes(name)?8:3;}
+    else if(['playablePaths','html','descriptionHtml','description','summary','excerpt','text','lore','abilities','limitations','membership','appearance'].includes(name)){node=el('textarea');node.rows=['html','descriptionHtml','lore','text'].includes(name)?8:3;}
     else {node=el('input');if(model.colors.includes(name)||name==='shade')node.type='color';}
     node.name=name;node.value=value??(['available','listed'].includes(name)?'yes':'');
     if(name==='art'){
@@ -38,7 +38,7 @@
   }
   function show(record){
     current=record;inputs.replaceChildren();feedback.textContent='';
-    for(const key of model.groupFields[record.kind])inputs.append(field(key,record.obj[key]));
+    for(const key of model.groupFields[record.kind])inputs.append(field(key,key==='playablePaths'&&record.obj[key]===undefined?(record.obj.paths||[]).map(p=>p.name).join('\n'):record.obj[key]));
     original=Object.fromEntries(new FormData(form));
     if(record.isNew)inputs.querySelector('[name="name"]')?.focus();
   }
