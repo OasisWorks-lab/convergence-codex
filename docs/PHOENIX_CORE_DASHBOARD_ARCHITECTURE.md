@@ -2,6 +2,8 @@
 
 Status: proposed architecture and static interface preview. No live authentication or database actions have been deployed.
 
+The first PhoenixCore service and owner-review workflow are available in this repository. [Character sheets](../phoenixcore/index.html) · [Discord and hosting setup](../phoenixcore-service/README.md)
+
 ## Requirements from the Convergence owner
 - Keep the Codex, dashboard source, bot source, and database migrations together in the convergence-codex GitHub repository.
 - List eligible registered Discord players; select a player to see character cards; select a character to see its sheet.

@@ -1,6 +1,6 @@
 {
   "name": "phoenixcore-convergence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,5 +12,8 @@
   },
   "optionalDependencies": {
     "pg": "8.16.3"
+  },
+  "dependencies": {
+    "discord.js": "14.22.1"
   }
 }

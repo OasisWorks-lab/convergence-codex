@@ -5,14 +5,15 @@ import { resolve, extname } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openSqlite, openPostgres, initialize, type Store } from './db.ts';
-import { actorFor, discordId, Problem, requireThat, readSettings, saveSettings, propose, visibleRequest } from './domain.ts';
+import { judgeTraining, actorFor, discordId, Problem, requireThat, readSettings, saveSettings, propose, visibleRequest } from './domain.ts';
+import { preferences, savePosting, lookupAuthor, startPosting } from './posting.ts';
 import { Discord, DiscordFailure, deliverNext, checkSignature, handleInteraction, type Config } from './discord.ts';
 
 const webDir=fileURLToPath(new URL('../../phoenixcore/',import.meta.url));
 const token=()=>randomBytes(32).toString('base64url');
 export const hash=(value:string)=>createHash('sha256').update(value).digest('base64url');
 const tokenPattern=/^[A-Za-z0-9_-]{43}$/;
-const allowedFiles=new Set(['index.html','config.js','app.js','preview.js','styles.css']);
+const allowedFiles=new Set(['index.html','config.js','app.js','templates.js','preview.js','styles.css']);
 const codexAssets=new Set(['/assets/brand.png','/assets/art/world-planet-sadala.svg','/assets/themes.js','/assets/themes.css','/assets/data.js']);
 const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.svg':'image/svg+xml'};
 
@@ -23,7 +24,9 @@ function safeUrl(value:string, name:string) {
   return u;
 }
 export function configuration(env=process.env):Config {
-  const required=['DISCORD_CLIENT_ID','DISCORD_CLIENT_SECRET','DISCORD_PUBLIC_KEY','DISCORD_TOKEN','DISCORD_GUILD_ID','DISCORD_OWNER_ID','SERVICE_ORIGIN','DASHBOARD_URL'];
+  const required=['DISCORD_CLIENT_ID','DISCORD_CLIENT_SECRET','DISCORD_PUBLIC_KEY','DISCORD_GUILD_ID','DISCORD_OWNER_ID','SERVICE_ORIGIN','DASHBOARD_URL'];
+  const botToken=env.DISCORD_BOT_TOKEN || env.DISCORD_TOKEN;
+  if(!botToken) throw new Error('Set DISCORD_BOT_TOKEN in the private service environment.');
   for (const key of required) if (!env[key]) throw new Error('Set '+key+' in the private service environment.');
   for(const key of ['DISCORD_CLIENT_ID','DISCORD_GUILD_ID','DISCORD_OWNER_ID']) if (!discordId.test(env[key]!)) throw new Error('Invalid '+key);
   if (!/^[0-9a-f]{64}$/i.test(env.DISCORD_PUBLIC_KEY!)) throw new Error('Invalid DISCORD_PUBLIC_KEY');
@@ -32,7 +35,7 @@ export function configuration(env=process.env):Config {
   const site=safeUrl(env.DASHBOARD_URL!,'DASHBOARD_URL');
   if(!site.pathname.endsWith('/')) throw new Error('DASHBOARD_URL must end in the dashboard directory and a trailing slash.');
   return {service:service.origin,dashboard:site.href,clientId:env.DISCORD_CLIENT_ID!,clientSecret:env.DISCORD_CLIENT_SECRET!,publicKey:env.DISCORD_PUBLIC_KEY!,
-    token:env.DISCORD_TOKEN!,guild:env.DISCORD_GUILD_ID!,owner:env.DISCORD_OWNER_ID!};
+    token:botToken,guild:env.DISCORD_GUILD_ID!,owner:env.DISCORD_OWNER_ID!};
 }
 function json(res:ServerResponse,status:number,body:any) {
   res.writeHead(status,{'content-type':'application/json; charset=utf-8'});
@@ -43,7 +46,7 @@ async function rawBody(req:IncomingMessage) {
   let length=0;
   for await (const part of req) {
     length+=part.length;
-    requireThat(length<=65536,413,'Submission is too large.');
+    requireThat(length<=384000,413,'Submission is too large.');
     parts.push(part);
   }
   return Buffer.concat(parts);
@@ -158,20 +161,34 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       if (method==='POST' && path==='/api/settings') {
         await saveSettings(db,actor,parse(await rawBody(req)));json(res,200,{ok:true});return;
       }
+      if(method==='POST' && path==='/api/posting'){
+        await savePosting(db,actor,parse(await rawBody(req)));json(res,200,{ok:true});return;
+      }
+      if(method==='GET' && path.startsWith('/api/posting/lookup/')){
+        json(res,200,await lookupAuthor(db,actor,path.slice('/api/posting/lookup/'.length)));return;
+      }
       const roster=(await discord.members()).filter(m=>!settings.value.playerRole||m.roles.includes(settings.value.playerRole));
       const active=new Set(roster.map(m=>m.user.id));
       if (method==='POST' && path==='/api/requests') {
         const r=await propose(db,actor,parse(await rawBody(req)),active);
         json(res,200,{id:r.id,status:r.status});return;
       }
+      const judgment=/^\/api\/requests\/([\da-f-]{36})\/judgment$/.exec(path);
+      if(method==='POST' && judgment) {
+        const r=await judgeTraining(db,actor,judgment[1],parse(await rawBody(req)),active);
+        json(res,200,{id:r.id,status:r.status});return;
+      }
       requireThat(method==='GET' && path==='/api/state',404,'Unknown route.');
-      const [sheets,requests]=await Promise.all([
+      const [sheets,requests,designs,posting]=await Promise.all([
         db.query('SELECT * FROM pc_characters ORDER BY id'),
-        db.query(actor.isOwner?'SELECT * FROM pc_requests ORDER BY created_ms DESC,id':'SELECT * FROM pc_requests WHERE author_id=$1 OR owner_id=$1 ORDER BY created_ms DESC,id',actor.isOwner?[]:[actor.id])
+        db.query(actor.isOwner?'SELECT * FROM pc_requests ORDER BY created_ms DESC,id':
+          "SELECT * FROM pc_requests WHERE author_id=$1 OR owner_id=$1 OR (kind='training' AND $2=1) ORDER BY created_ms DESC,id",actor.isOwner?[]:[actor.id,actor.isJudge?1:0]),
+        db.query("SELECT id,kind,after_sheet,author_id FROM pc_requests WHERE status='approved' AND kind IN ('technique','item','race','transformation') ORDER BY created_ms DESC,id"),
+        actor.isPlayer?preferences(db,actor,settings.value):null
       ]);
       json(res,200,{actor,players:roster.map(m=>({id:m.user.id,username:m.user.username,display:m.nick||m.user.global_name||m.user.username})),
         characters:sheets.filter(s=>active.has(s.owner_id)).map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,sheet:JSON.parse(s.sheet)})),
-        requests:requests.map(visibleRequest),currency:settings.value.currency,settings:actor.isOwner?settings:null});
+        posting,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(visibleRequest),currency:settings.value.currency,settings:actor.isOwner?settings:null});
     } catch(e) {
       if (res.headersSent) {res.end();return;}
       if (e instanceof Problem) json(res,e.status,{error:e.message});
@@ -186,6 +203,7 @@ async function start() {
   const db=process.env.DATABASE_URL ? await openPostgres(process.env.DATABASE_URL) : openSqlite(process.env.SQLITE_FILE||resolve(homedir(),'.phoenixcore','convergence.sqlite'));
   await initialize(db,config.guild);
   const discord=new Discord(config);
+  const stopPosting=process.env.DISCORD_RP_ENABLED==='true'?await startPosting(db,config):null;
   const server=application(db,config,discord);
   let working=false;
   async function tick() {
@@ -202,7 +220,7 @@ async function start() {
   },3600000);
   const port=Number(process.env.PORT||4100);
   server.listen(port,()=>{console.log('PhoenixCore is listening on port',port);void tick();});
-  const stop=()=>{clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
+  const stop=()=>{if(stopPosting)void stopPosting();clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
   process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 if (process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) {

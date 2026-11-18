@@ -774,3 +774,30 @@ footer span {
 .pill,.status {
   line-height:1.45;
 }
+
+.submission-tools {display:flex;flex-wrap:wrap;gap:1rem;margin:1.6rem 0 2rem}
+.submission-tools .field {width:min(100%,21rem)}
+.submission-layout {display:grid;grid-template-columns:minmax(140px,190px) minmax(0,1fr);gap:clamp(1rem,3vw,2.6rem);align-items:start}
+.section-index {position:sticky;top:1.25rem;border-left:2px solid var(--line);padding-left:.9rem}
+.section-index h2 {font:600 .95rem var(--body);margin:.25rem 0 .8rem}
+.section-index button {display:block;text-align:left;border:0;background:transparent!important;font-weight:450;padding:.38rem 0;color:var(--muted)}
+.section-index button:hover {text-decoration:underline}
+.form-section {min-width:0;margin:0;scroll-margin-top:2rem}
+.form-section legend {font:500 1.5rem var(--title);padding:0 .4rem}
+.field i {color:var(--hot);font-style:normal}
+.tier-guide {margin-top:1rem}
+.tier-guide summary {cursor:pointer;color:var(--hot)}
+.tier-guide table {border-collapse:collapse;width:100%;margin-top:.5rem}
+.tier-guide th,.tier-guide td {text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:.4rem .5rem}
+.tier-guide th {white-space:nowrap}
+.dossier dl,.dossier dd {margin:0}
+.dossier dt {font-size:.85rem;color:var(--muted);margin-top:.75rem}
+.sheet-dossier {margin-top:1rem}
+.tag-form {align-items:flex-end;margin-top:1rem}
+.mast nav {flex-wrap:wrap;column-gap:1rem;row-gap:.4rem}
+@media(max-width:760px) {
+  .submission-layout {grid-template-columns:minmax(0,1fr)}
+  .section-index {display:none}
+  .submission-tools .field {width:100%}
+  .mast nav {width:100%;overflow:visible;white-space:normal}
+}

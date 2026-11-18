@@ -20,4 +20,4 @@ Animated GIF, PNG, JPEG, and WebP card art is supported via local uploads in the
 
 ## PhoenixCore character sheets
 
-Open **PhoenixCore** in the main navigation to browse Discord players and their character cards. The offline walkthrough lets you submit a sheet edit and try the owner review. The live service sends approvals to the owner in Discord. [Dashboard](phoenixcore/index.html) · [Bot and dashboard setup](phoenixcore-service/README.md)
+Open **PhoenixCore** in the main navigation to browse Discord players and their character cards. Choose **New Submission** for characters, techniques, items, races, transformations, OC updates or training. The practice dashboard lets you try player submission, staff judgment and owner review. The live service sends approvals to the owner in Discord. [Dashboard](phoenixcore/index.html) · [Bot and dashboard setup](phoenixcore-service/README.md)
