@@ -36,7 +36,7 @@ test('Codex editing uses the exact role, publishes per entry, preserves other fi
   await publish(db,[editorRole],ownerId,{key:'themes/phoenix',revision:0,fields:{available:'no'}});
   await assert.rejects(publish(db,[editorRole],ownerId,{key:guildKey,revision:1,fields:{source:'javascript:void(0)'}}),/HTTPS/);
 });
-test('forum inheritance, explicit thread identity, literal and legacy tags, approved forms and post sheets',async t=>{
+test('forum inheritance, explicit thread identity, literal tags, approved forms and post sheets',async t=>{
   const db=await dbFor(t),first=randomUUID(),second=randomUUID(),form={id:'awakening',name:'Awakening',portrait:'https://art.test/awake.gif'};
   const character=(id:string,name:string,tag:string)=>({id,kind:'create',fields:{name,tag,bpl:'1250',lineage:'Saiyan',portrait:'https://art.test/base.png',attainedForms:JSON.stringify([form]),strengths:'Patient\nLoyal\nAgile',weaknesses:'Reckless\nDistrustful\nProud'},reason:'Character'});
   for(const c of [character(first,'Test','test-'),character(second,'Rin','rin')]){await propose(db,writer,c,active);await decide(db,ownerId,ownerId,c.id,true);}
@@ -50,8 +50,8 @@ test('forum inheritance, explicit thread identity, literal and legacy tags, appr
   };
   await speak('On my way.');assert.equal(seen.name,'Rin');
   await speak('test-The embers stir.');assert.deepEqual(seen,{name:'Test',content:'The embers stir.',portrait:'https://art.test/base.png'});
-  await speak('TEST-> A legacy prefix.');assert.equal(seen.content,'A legacy prefix.');
-  await speak('unknown> Hello');assert.equal(seen,null);
+  await speak('TEST-> A quoted line.');assert.equal(seen.content,'> A quoted line.');
+  await speak('unknown> Hello');assert.equal(seen.content,'unknown> Hello');assert.equal(seen.name,'Rin');
   const coverage={divider:'',channels:[channel,thread]};
   await savePosting(db,writer,{kind:'default',channel:thread,characterId:first},coverage);
   await speak('Thread post.');assert.equal(seen.name,'Test');

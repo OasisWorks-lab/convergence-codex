@@ -1,3 +1,4 @@
+import {ReviewFixture} from './review-fixture.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,generateKeyPairSync,sign} from 'node:crypto';
@@ -6,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {openSqlite,initialize,defaultSettings,type Store} from '../src/db.ts';
 import {actorFor,propose,decide,readSettings,saveSettings,applyAward} from '../src/domain.ts';
-import {Discord,DiscordFailure,deliverNext,reviewMessage,handleInteraction,checkSignature,type Config} from '../src/discord.ts';
+import {Discord,deliverNext,handleInteraction,checkSignature,type Config} from '../src/discord.ts';
 
 const gabe='300000000000000001',player='300000000000000002',judge='300000000000000003',altUser='300000000000000004',judgeRole='500000000000000001';
 const guild='600000000000000001',app='700000000000000001';
@@ -70,13 +71,13 @@ test('notifications retry from disk after restart and repeated Discord clicks ke
   t.after(async()=>{await db.close();await rm(temp,{recursive:true,force:true});});
   await initialize(db,guild);
   const form=opening();await propose(db,writer,form,ids);
-  const sends:any[]=[];let fail=true;
-  const discord=new Discord(config);
-  discord.sendReview=async body=>{if(fail)throw new DiscordFailure(429,20000);sends.push(body);};
+  const fixture=new ReviewFixture(config);let fail=true;
+  const discord=new Discord(config,async(url,init)=>fail?Response.json({retry_after:20},{status:429}):fixture.fetch(url,init));
   const start=Date.now();
   await deliverNext(db,discord,start);await db.close();db=openSqlite(file);await initialize(db,guild);
   assert.equal(await deliverNext(db,discord,start+1000),false);
   fail=false;await deliverNext(db,discord,start+25000);
+  const sends=fixture.cards.map(c=>c.body);
   assert.equal(sends.length,1);assert.equal(sends[0].allowed_mentions.users[0],gabe);
   assert.equal(sends[0].components[0].components[0].custom_id,'pc:approve:'+form.id);
   assert.equal(await deliverNext(db,discord,start+240000),false);
@@ -103,15 +104,12 @@ test('the roster pages through 1,000-member boundaries and omits bot accounts',a
   const roster=await discord.members();assert.equal(roster.length,1000);assert.ok(roster.some(m=>m.user.username==='member1000'));
   await discord.members();assert.equal(calls,2);
 });
-test('blocked DMs use only the configured guild channel and mention only Gabe',async t=>{
-  const db=await fresh(t),r=await propose(db,writer,opening(),ids),review=reviewMessage(r,config),seen:string[]=[];
-  const target='910000000000000001';
-  const discord=new Discord(config,async(url,init)=>{
-    const path=new URL(String(url)).pathname;seen.push(path);
-    if(path.endsWith('/users/@me/channels'))return Response.json({id:'dm'});
-    if(path.endsWith('/dm/messages'))return Response.json({}, {status:403});
-    if(path.endsWith('/channels/'+target))return Response.json({guild_id:guild});
-    assert.deepEqual(JSON.parse(String(init?.body)).allowed_mentions,{parse:[],users:[gabe]});return Response.json({id:'msg'});
-  });
-  await discord.sendReview(review,target);assert.equal(seen.length,4);
+test('review routing verifies the destination guild before sending any review',async t=>{
+  const db=await fresh(t),r=await propose(db,writer,opening(),ids),fixture=new ReviewFixture(config);
+  fixture.channels.get(defaultSettings.characterChannel).guild_id='910000000000000001';
+  await deliverNext(db,new Discord(config,fixture.fetch));
+  assert.equal(fixture.cards.length,0);
+  assert.equal(fixture.calls.some(c=>c.method==='POST'),false);
+  const [row]=await db.query('SELECT notified,last_notify_error FROM pc_requests WHERE id=$1',[r.id]);
+  assert.equal(row.notified,0);assert.match(row.last_notify_error,/outside Convergence/);
 });

@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openSqlite, openPostgres, initialize, type Store } from './db.ts';
 import { judgeTraining, actorFor, discordId, Problem, requireThat, readSettings, saveSettings, propose, visibleRequest } from './domain.ts';
 import { mediaPath, maxImageBytes, saveImage } from './media.ts';
+import {provisionNext} from './forum-threads.ts';
 import { RoleplayScope } from './scope.ts';
 import { preferences, savePosting, lookupAuthor, startPosting } from './posting.ts';
 import {archiveRequest,removeCharacter} from './characters.ts';
@@ -65,7 +66,7 @@ function redirect(res:ServerResponse,location:string) {
   res.writeHead(302,{location});res.end();
 }
 
-export function application(db:Store, config:Config, discord=new Discord(config), scope=new RoleplayScope(config.guild)) {
+export function application(db:Store, config:Config, discord=new Discord(config), scope=new RoleplayScope(config.guild),wake=()=>{}) {
   const uiOrigin=new URL(config.dashboard).origin;
   const cookieName='pc_login';
   const cookieFlags='; Path=/auth; HttpOnly; SameSite=Lax'+(config.service.startsWith('https:')?'; Secure':'');
@@ -158,7 +159,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       if (method==='POST' && path==='/discord/interactions') {
         const raw=await rawBody(req);
         requireThat(checkSignature(raw,String(req.headers['x-signature-ed25519']??''),String(req.headers['x-signature-timestamp']??''),config.publicKey),401,'Invalid Discord signature.');
-        json(res,200,await handleInteraction(db,config,parse(raw)));return;
+        const action=parse(raw);json(res,200,await handleInteraction(db,config,action));if(action.type===3)wake();return;
       }
       requireThat(path.startsWith('/api/'),404,'Unknown route.');
       const bearer=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization??'');
@@ -191,7 +192,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         if(ownerAction[1]==='requests'&&ownerAction[3]==='archive'&&typeof input?.archived==='boolean')await archiveRequest(db,actor,ownerAction[2],input.archived);
         else if(ownerAction[1]==='characters'&&ownerAction[3]==='remove')await removeCharacter(db,actor,ownerAction[2],input?.version);
         else throw new Problem(400,'Unknown owner action.');
-        json(res,200,{ok:true});return;
+        json(res,200,{ok:true});wake();return;
       }
       if(method==='POST' && path==='/api/posting'){
         const input=parse(await rawBody(req));
@@ -205,24 +206,26 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       const active=new Set(roster.map(m=>m.user.id));
       if (method==='POST' && path==='/api/requests') {
         const r=await propose(db,actor,parse(await rawBody(req)),active,config.service);
-        json(res,200,{id:r.id,status:r.status});return;
+        json(res,200,{id:r.id,status:r.status});wake();return;
       }
       const judgment=/^\/api\/requests\/([\da-f-]{36})\/judgment$/.exec(path);
       if(method==='POST' && judgment) {
         const r=await judgeTraining(db,actor,judgment[1],parse(await rawBody(req)),active);
-        json(res,200,{id:r.id,status:r.status});return;
+        json(res,200,{id:r.id,status:r.status});wake();return;
       }
       requireThat(method==='GET' && path==='/api/state',404,'Unknown route.');
       const inventory=await scope.inventory(settings.value,actor);
-      const [sheets,requests,designs,posting]=await Promise.all([
+      const [sheets,requests,designs,posting,threads]=await Promise.all([
         db.query('SELECT c.*,t.tag,a.form_key FROM pc_characters c LEFT JOIN pc_active_forms a ON a.character_id=c.id LEFT JOIN pc_post_tags t ON c.id=t.character_id AND c.owner_id=t.owner_id ORDER BY c.id'),
-        db.query('SELECT r.*,a.request_id AS archived FROM pc_requests r LEFT JOIN pc_archives a ON a.request_id=r.id '+(actor.isOwner?'':"WHERE a.request_id IS NULL AND (author_id=$1 OR owner_id=$1 OR (kind='training' AND $2=1)) ")+'ORDER BY created_ms DESC,id',actor.isOwner?[]:[actor.id,actor.isJudge?1:0]),
+        db.query('SELECT r.*,a.request_id AS archived,p.channel_id AS review_channel,p.message_id AS review_message FROM pc_requests r LEFT JOIN pc_archives a ON a.request_id=r.id LEFT JOIN pc_review_posts p ON p.request_id=r.id '+(actor.isOwner?'':"WHERE a.request_id IS NULL AND (author_id=$1 OR owner_id=$1 OR (kind='training' AND $2=1)) ")+'ORDER BY created_ms DESC,id',actor.isOwner?[]:[actor.id,actor.isJudge?1:0]),
         db.query("SELECT id,kind,after_sheet,author_id FROM pc_requests WHERE status='approved' AND kind IN ('technique','item','race','transformation') ORDER BY created_ms DESC,id"),
-        actor.isPlayer?preferences(db,actor,settings.value,inventory.locations.map(c=>c.id)):null
+        actor.isPlayer?preferences(db,actor,settings.value,inventory.locations.map(c=>c.id)):null,
+        db.query("SELECT subject,thread_id FROM pc_forum_threads WHERE forum_id=$1 AND thread_id IS NOT NULL AND subject LIKE 'player:%'"+(actor.isJudge?'':' AND subject=$2'),actor.isJudge?[settings.value.updatesForum]:[settings.value.updatesForum,'player:'+actor.id])
       ]);
-      json(res,200,{actor,players:roster.map(m=>({id:m.user.id,username:m.user.username,avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
+      const forumLinks=new Map(threads.map(t=>[t.subject,'https://discord.com/channels/'+config.guild+'/'+t.thread_id]));
+      json(res,200,{actor,players:roster.map(m=>({id:m.user.id,username:m.user.username,updatesUrl:forumLinks.get('player:'+m.user.id),avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
         characters:sheets.filter(s=>active.has(s.owner_id)).map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',activeForm:s.form_key||'',sheet:JSON.parse(s.sheet)})),
-        posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(visibleRequest),currency:settings.value.currency,settings:actor.isOwner?settings:null});
+        posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(r=>({...visibleRequest(r),reviewUrl:r.review_message?'https://discord.com/channels/'+config.guild+'/'+r.review_channel+'/'+r.review_message:undefined})),currency:settings.value.currency,settings:actor.isOwner?settings:null});
     } catch(e) {
       if (res.headersSent) {res.end();return;}
       if (e instanceof Problem) json(res,e.status,{error:e.message});
@@ -238,7 +241,7 @@ async function start() {
   await initialize(db,config.guild);
   const discord=new Discord(config);
   const scope=new RoleplayScope(config.guild);
-  const server=application(db,config,discord,scope);
+  const server=application(db,config,discord,scope,()=>{void tick();});
   let stopPosting:(()=>unknown)|undefined, retry:ReturnType<typeof setTimeout>|undefined, stopping=false;
   async function connect(){
     try {
@@ -254,7 +257,11 @@ async function start() {
   async function tick() {
     if(working) return;
     working=true;
-    try { for(let i=0;i<8;i++) if(!await deliverNext(db,discord)) break; }
+    try {
+      const {value}=await readSettings(db);
+      await provisionNext(db,discord,value.updatesForum);
+      for(let i=0;i<8;i++) if(!await deliverNext(db,discord)) break;
+    }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}
   }

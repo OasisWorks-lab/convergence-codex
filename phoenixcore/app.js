@@ -122,7 +122,7 @@
   function player(id){
     const p=state.players.find(p=>p.id===id);if(!p)return missing();
     const chars=state.characters.filter(c=>c.ownerId===id).sort((a,b)=>a.sheet.name.localeCompare(b.sheet.name));
-    return breadcrumbs([link('directory','Directory'),h(p.display)])+'<div class="sheet-head">'+avatar(p.display,p.id,p.avatar)+title(p.display,'@'+p.username)+'</div>'+
+    return breadcrumbs([link('directory','Directory'),h(p.display)])+'<div class="sheet-head">'+avatar(p.display,p.id,p.avatar)+title(p.display,'@'+p.username)+(p.updatesUrl?'<a class="button" href="'+h(p.updatesUrl)+'" target="_blank" rel="noopener">Open OC Updates ↗</a>':'')+'</div>'+
       '<div class="section-head"><h2>Characters</h2>'+(id===state.actor.id&&state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div>'+
       (chars.length?'<div class="grid">'+chars.map(c=>'<a class="card char-card" href="#sheet-'+h(c.id)+'"><div class="char-art">'+avatar(c.sheet.name,c.id,c.sheet.portrait)+'</div><div class="card-copy"><h3>'+h(c.sheet.name)+'</h3><p class="muted">'+h(c.sheet.lineage||'Lineage unlisted')+'</p><span class="bpl">'+h(num(c.sheet.bpl))+' BPL</span></div></a>').join('')+'</div>':'<p class="empty">This player has no approved characters yet.</p>');
   }
@@ -131,7 +131,7 @@
     const s=c.sheet;document.title=s.name+' · PhoenixCore';
     const own=c.ownerId===state.actor.id;
     return breadcrumbs([link('directory','Directory'),link('player-'+c.ownerId,ownerName(c.ownerId)),h(s.name)])+
-      '<div class="sheet-head">'+avatar(s.name,c.id,s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(forms.trigger(c.tag))+'</code>':'Unassigned')+'</p></div></div>'+
+      '<div class="sheet-head">'+avatar(s.name,c.id,s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'</code>':'Unassigned')+'</p></div></div>'+
       '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+(own?link('edit-'+id,'Propose edit','button primary')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
       '<div class="two"><div class="stack"><section class="panel"><h3>Base Power Level</h3><div class="big-number">'+h(num(s.bpl))+'</div></section><section class="panel"><h3>Attributes</h3>'+
       traits.map(k=>'<div class="stat-row"><span>'+h(label[k])+'</span><strong>'+h(s[k]||'Unrecorded')+'</strong></div>').join('')+'</section></div>'+
@@ -241,7 +241,7 @@ function formList(raw){
   function changesFor(c,fields){
     const old={...c.sheet,tag:c.tag||''};
     return Object.fromEntries(forms.allFields('create').map(f=>[f.key,(fields[f.key]??'').trim()])
-      .filter(([k,v])=>(k==='tag'?v.toLowerCase():v)!==(old[k]??'')));
+      .filter(([k,v])=>v!==(old[k]??'')));
   }
   function syncEditMode(f){
     if(!f||f.dataset.kind!=='edit')return;
@@ -329,6 +329,7 @@ function formList(raw){
     return breadcrumbs([link('requests','Requests'),h(r.after.name)])+title(r.after.name,(kindNames[r.kind]||'Staff award')+' · Submitted by '+ownerName(r.authorId))+
       '<div class="two"><div class="stack">'+note+judged+changes+'</div><div class="stack"><section class="panel"><h3>Decision</h3>'+status(r.status)+'<p>'+h(meanings[r.status])+'</p>'+
       (state.actor.isOwner&&(pending||waiting)?'<p class="muted">Discord notification · '+h(r.delivery)+'</p>':'')+
+      (r.reviewUrl?'<p><a href="'+h(r.reviewUrl)+'" target="_blank" rel="noopener">Open review in Discord ↗</a></p>':'')+
       (demo&&state.actor.isOwner&&(pending||waiting)?'<div class="actions">'+(pending?btn('demo-approve','Practice approve','primary'):'')+btn('demo-decline','Practice decline','danger')+'</div>':'')+
       (state.characters.some(c=>c.id===r.characterId)?link('sheet-'+r.characterId,'View approved sheet'):design&&r.status==='approved'?link('design-'+r.id,'View approved design'):'')+
       (state.actor.isOwner?'<div class="actions">'+btn(r.archived?'restore-request':'archive-request',r.archived?'Restore request':'Archive request','quiet')+'</div>':'')+'</section><section class="panel"><h3>Submission note</h3><p class="prewrap">'+h(r.reason)+'</p>'+
@@ -358,7 +359,9 @@ function formList(raw){
     return title('Bot settings','Only your configured Discord owner account can save these settings.')+'<form id="settingsForm" class="panel form"><div class="fields">'+
       field('playerRole','Player role ID',s.playerRole,{wide:true,max:20,hint:'Leave blank to list every current human member. A role filters the directory, including players with no sheets.'})+
       field('judgeRole','Training judge role ID',s.judgeRole,{wide:true,max:20,hint:'Members with this role can submit awards for your approval.'})+
-      field('reviewChannel','Fallback review channel ID',s.reviewChannel,{wide:true,max:20,hint:'PhoenixCore DMs you first. If DMs are blocked, it can mention you here. Choose a private channel.'})+
+      field('characterChannel','Character submissions channel ID',s.characterChannel,{wide:true,max:20,required:true})+
+      field('designChannel','Design submissions channel ID',s.designChannel,{wide:true,max:20,required:true,hint:'Techniques, items, races and transformations go here.'})+
+      field('updatesForum','OC updates forum ID',s.updatesForum,{wide:true,max:20,required:true,hint:'Each player has one forum post for character updates and training.'})+
       '<label class="field wide"><span>Roleplay divider category</span><select name="rpDivider">'+dividerOptions(state.scope,s.rpDivider||'')+'</select><small>Includes channels in categories below this marker and their threads. Discord moves, new channels, and deletions update coverage automatically.</small></label>'+
       field('rpChannels','Roleplay channel IDs',s.rpChannels||'',{area:true,wide:true,max:2200,hint:'Used when no divider is selected. Enter one Discord channel or thread ID per line.'})+
       field('currency','Currency display name',s.currency,{max:32,required:true})+'</div><div class="actions"><button class="primary">Save settings</button></div></form><section id="live-scope" class="panel dossier">'+scopePanel(state.scope,s.rpDivider)+'</section>';
@@ -396,7 +399,7 @@ function formList(raw){
     const prefs=state.posting;if(!prefs)return '';
     const own=state.characters.filter(c=>c.ownerId===state.actor.id);
     const selected=prefs.channels.includes(preferenceChannel)?preferenceChannel:prefs.channels[0];
-    return '<section class="panel dossier"><h2>Posting preferences</h2><form class="tag-form actions" data-id="'+h(c.id)+'">'+field('tag',c.sheet.name+'’s tag',c.tag,{max:24,hint:'Use test- directly, or rin> for a word tag.'})+'<button class="primary">Save tag</button></form>'+
+    return '<section class="panel dossier"><h2>Posting preferences</h2><form class="tag-form actions" data-id="'+h(c.id)+'">'+field('tag',c.sheet.name+'’s tag',c.tag,{max:forms.tagLimit,hint:forms.tagHint})+'<button class="primary">Save tag</button></form>'+
       '<h3>Channel defaults</h3><p>Forum defaults apply to its posts. Choose a thread to set an exception. Start a post with <code>//</code> to speak as yourself.</p>'+
       (prefs.channels.length?'<form id="defaultForm" class="fields"><label class="field">Roleplay channel or thread<select name="channel">'+options(prefs.channels.map(id=>[id,locationName(id)]),selected)+'</select></label><label class="field">Post as<select name="characterId">'+options([['','Inherit parent default'],['account','My Discord account'],...own.map(c=>[c.id,c.sheet.name])],savedDefault(prefs,selected))+'</select></label><button class="primary">Save default</button></form>':'<p>No enabled roleplay channels.</p>')+
       (prefs.defaults.length?'<details><summary>Saved defaults ('+prefs.defaults.length+')</summary><ul>'+prefs.defaults.map(d=>'<li>'+h(locationName(d.channel))+' · '+h(own.find(c=>c.id===d.characterId)?.sheet.name||'My Discord account')+'</li>').join('')+'</ul></details>':'')+'</section>';

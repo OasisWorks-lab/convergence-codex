@@ -1,7 +1,7 @@
 import {characterCommand} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
 import { createPublicKey, verify, createHash } from 'node:crypto';
-import { Problem, requireThat, readSettings, visibleRequest, decide } from './domain.ts';
+import { Problem, requireThat, visibleRequest, decide } from './domain.ts';
 import type { Store } from './db.ts';
 
 export type Config = { service: string; dashboard: string; clientId: string; clientSecret: string; publicKey: string; token: string; guild: string; owner: string };
@@ -83,16 +83,10 @@ export class Discord {
       {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
     for(const spec of specs)await this.call(path,{method:'POST',body:JSON.stringify(spec)});
   }
-  async sendReview(body: object, fallback: string) {
-    try {
-      const dm=await this.call('/users/@me/channels',{method:'POST',body:JSON.stringify({recipient_id:this.settings.owner})});
-      await this.call('/channels/' + dm.id + '/messages',{method:'POST',body:JSON.stringify(body)});
-    } catch(e) {
-      if (!(e instanceof DiscordFailure) || e.status!==403 || !fallback) throw e;
-      const channel=await this.call('/channels/' + fallback);
-      if (channel.guild_id !== this.settings.guild) throw new Error('Review channel belongs to another guild.');
-      await this.call('/channels/' + fallback + '/messages',{method:'POST',body:JSON.stringify(body)});
-    }
+  async guildChannel(id:string) {
+    const channel=await this.call('/channels/'+id);
+    if(channel.id!==id || channel.guild_id!==this.settings.guild) throw new Error('Review destination is outside Convergence.');
+    return channel;
   }
 }
 
@@ -102,7 +96,7 @@ function brief(value: any, max=140) {
   return escaped.length>max ? escaped.slice(0,max-1)+'…' : escaped || '—';
 }
 export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config) {
-  const waiting=r.status==='awaiting_judge';
+  const waiting=r.status==='awaiting_judge', open=waiting||r.status==='pending';
   const type=forms.forms[r.kind]?.title??'Staff award';
   const fieldKind=forms.catalogue.includes(r.kind)?r.kind:'create';
   const captions:Record<string,string>=Object.fromEntries(forms.allFields(fieldKind).map((f:any)=>[f.key,f.label]));
@@ -111,35 +105,25 @@ export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config) {
   const reviewValue=(key:string,value:any,limit:number)=>key==='attainedForms'?brief(forms.readForms(value).map((f:any)=>f.name+(f.portrait?' (artwork)':'')).join(', '),limit):brief(value,limit);
   const lines=notes.map(([k,v])=>'**'+(captions[k]??k)+'** '+(r.before?reviewValue(k,r.before[k],70)+' → ':'')+reviewValue(k,v,100));
   const fields=[{name:'Submitted by',value:'<@'+r.authorId+'>'},{name:'Reason',value:brief(r.reason,550)}];
+  if(r.details?.formula) fields.push({name:'Training breakdown',value:brief(r.details.formula,350)});
   if(r.details?.claimed) fields.push({name:'Player claim',value:brief(r.details.claimed,400)});
   if(r.details?.approval) fields.push({name:'Approval requested',value:brief(r.details.approval,400)});
   if(r.judgment) fields.push({name:'Staff judgment',value:'<@'+r.judgment.judgeId+'> · '+brief(r.judgment.note,350)});
   if(r.award) fields.push({name:'Calculated award',value:'+'+r.award.gain+' BPL · +'+r.award.currency+' currency'+(r.award.stats?.length?' · '+r.award.stats.length+' stat gain(s)':'')});
   const buttons=[];
-  if(!waiting) buttons.push({type:2,style:3,label:'Approve',custom_id:'pc:approve:'+r.id});
-  buttons.push({type:2,style:4,label:'Decline',custom_id:'pc:decline:'+r.id},{type:2,style:5,label:'Full request',url:c.dashboard+'#request-'+r.id});
-  return {content:'<@'+c.owner+'> '+(waiting?'A training claim is waiting for staff judgment.':'A submission is ready for your decision.'),
-    allowed_mentions:{parse:[],users:[c.owner]},nonce:createHash('sha256').update(r.id+':'+r.status).digest('hex').slice(0,24),enforce_nonce:true,
+  if(r.details?.scene)fields.push({name:'Training scene',value:r.details.scene});
+  if(open&&!waiting) buttons.push({type:2,style:3,label:'Approve',custom_id:'pc:approve:'+r.id});
+  if(open)buttons.push({type:2,style:4,label:'Decline',custom_id:'pc:decline:'+r.id});
+  buttons.push({type:2,style:5,label:waiting?'Review training':open?'Full request':'View decision',url:c.dashboard+'#request-'+r.id});
+  const labels:Record<string,string>={approved:'Approved',declined:'Declined',stale:'Outdated',archived:'Archived'};
+  const content=open?'<@'+c.owner+'> '+(waiting?'A training claim is waiting for staff judgment.':'A submission is ready for your decision.'):labels[r.status]||r.status;
+  return {content,allowed_mentions:{parse:[],users:open?[c.owner]:[]},nonce:createHash('sha256').update(r.id+':'+r.status).digest('hex').slice(0,24),enforce_nonce:true,
     embeds:[{title:type+' · '+brief(r.after.name,70),description:lines.join('\n').slice(0,2700)||'The full claim is available in PhoenixCore.',
-      color:0xea875b,fields,...((r.after.portrait||r.after.art)?{thumbnail:{url:new URL(r.after.portrait||r.after.art,c.dashboard).href}}:{}),footer:{text:'Open the full request for complete values and history.'}}],
+      color:0xea875b,fields,...((r.after.portrait||r.after.art)?{thumbnail:{url:new URL(r.after.portrait||r.after.art,c.dashboard).href}}:{}),footer:{text:'PhoenixCore request '+r.id}}],
     components:[{type:1,components:buttons}]};
 }
 
-export async function deliverNext(db: Store, discord: Discord, now=Date.now()) {
-  const [r]=await db.query(`UPDATE pc_requests SET notify_after=$1,attempts=attempts+1
-    WHERE id=(SELECT id FROM pc_requests WHERE status IN ('pending','awaiting_judge') AND notified=0 AND notify_after<=$2 ORDER BY created_ms LIMIT 1)
-    AND notified=0 AND status IN ('pending','awaiting_judge') AND notify_after<=$2 RETURNING *`,[now+120000,now]);
-  if (!r) return false;
-  try {
-    const {value}=await readSettings(db);
-    await discord.sendReview(reviewMessage(visibleRequest(r),discord.settings),value.reviewChannel);
-    await db.query('UPDATE pc_requests SET notified=1,last_notify_error=NULL WHERE id=$1 AND status=$2 AND attempts=$3',[r.id,r.status,r.attempts]);
-  } catch(e) {
-    const wait=Math.max(Math.min(3600000,5000 * 2**Math.min(Number(r.attempts),10)),e instanceof DiscordFailure?e.retryMs:0);
-    await db.query('UPDATE pc_requests SET notify_after=$1,last_notify_error=$2 WHERE id=$3 AND status=$4 AND attempts=$5',[now+wait,e instanceof DiscordFailure?'Discord '+e.status:'Delivery unavailable',r.id,r.status,r.attempts]);
-  }
-  return true;
-}
+export {deliverNext} from './review-delivery.ts';
 
 export function checkSignature(raw:Buffer, signature:string, timestamp:string, key:string, now=Date.now()) {
   if (!/^[0-9a-f]{128}$/i.test(signature) || !/^\d{9,12}$/.test(timestamp) || Math.abs(now/1000-Number(timestamp))>300) return false;
@@ -157,8 +141,7 @@ export async function handleInteraction(db:Store, config:Config, body:any) {
   if (body.type!==3 || !match) return reply('Unknown PhoenixCore action.');
   try {
     const r=await decide(db,actor,config.owner,match[2],match[1]==='approve');
-    const label=r.status==='stale'?'Outdated · a newer sheet revision exists':r.status==='approved'?'Approved':'Declined';
-    return {type:7,data:{content:label+' · '+brief(r.after.name,75),allowed_mentions:{parse:[]},embeds:[],components:[{type:1,components:[
-      {type:2,style:5,label:'View decision',url:config.dashboard+'#request-'+r.id}]}]}};
+    const {nonce,enforce_nonce,...data}=reviewMessage(r,config);
+    return {type:7,data};
   } catch(e) { if (e instanceof Problem) return reply(e.message); throw e; }
 }

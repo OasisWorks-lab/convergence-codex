@@ -1,3 +1,4 @@
+import {ReviewFixture} from './review-fixture.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -65,14 +66,14 @@ async function adjudicate(db:Store){
   await assert.rejects(propose(db,writer,{...input,details:{...claim,scene:claim.scene.replace(config.guild,'600000000000000002')}},active),/in Convergence/);
   const r=await propose(db,writer,input,active);assert.equal(r.status,'awaiting_judge');
   await assert.rejects(decide(db,owner.id,owner.id,r.id,true),/judgment/);
-  const sent:any[]=[];const discord=new Discord(config);discord.sendReview=async value=>{sent.push(value);};
+  const fixture=new ReviewFixture(config),discord=new Discord(config,fixture.fetch);
   await deliverNext(db,discord);
-  assert.ok(!sent[0].components[0].components.some((b:any)=>b.label==='Approve'));
+  assert.ok(!fixture.cards[0].body.components[0].components.some((b:any)=>b.label==='Approve'));
   const award={points:'300',currency:'20',gear:['Notebook'],stats:[{name:'Ki Control',amount:'1'}]},judgment={award,note:'Verified the scene. Awarding 300 BPL and one control point.'};
   await assert.rejects(judgeTraining(db,writer,r.id,judgment,active),/training judge/);
   assert.equal((await judgeTraining(db,judge,r.id,judgment,active)).status,'pending');
   assert.equal((await judgeTraining(db,judge,r.id,judgment,active)).status,'pending');
-  await deliverNext(db,discord);assert.notEqual(sent[0].nonce,sent[1].nonce);
+  await deliverNext(db,discord);assert.equal(fixture.cards[0].id,fixture.cards[1].id);assert.equal(fixture.cards[1].body.components[0].components[0].label,'Approve');
   assert.equal((await sheet(db,id)).bpl,'10000');
   const final=await decide(db,owner.id,owner.id,r.id,true);assert.equal(final.details.claimed,claim.claimed);assert.equal(final.judgment.judgeId,staff);
   await decide(db,owner.id,owner.id,r.id,true);
@@ -90,7 +91,7 @@ test('training that races a sheet update cannot overwrite a newer revision',asyn
   assert.equal((await sheet(db,id)).bpl,'10000');
   assert.throws(()=>applyAward(char,{percent:'1',points:'2'}),/either/);
 });
-test('tag overrides default for one message, OOC and unknown tags keep original, and only confirmed posts are removed',async t=>{
+test('tag overrides default for one message, OOC remains with the writer, and only confirmed posts are removed',async t=>{
   const db=await fresh(t),rin=await character(db),sola=await character(db,'Sola');
   await saveSettings(db,owner,{revision:1,value:settings});
   await assert.rejects(savePosting(db,outsider,{kind:'tag',characterId:rin,tag:'rin'}),/your approved/);
@@ -101,19 +102,19 @@ test('tag overrides default for one message, OOC and unknown tags keep original,
   let seq=610000000000000000n,posts:any[]=[],removed=0;
   const incoming=(content:string)=>({id:String(++seq),content,guild:config.guild,channel,author:player,roles:[] as string[]});
   const send=async(post:any)=>{posts.push(post);return String(++seq);},remove=async()=>{removed++;};
-  for(const content of ['Your move.','sola> Answer.','Again.','unknown> No.','// As myself.','((OOC))','sola>   '])await relay(db,config,incoming(content),send,remove);
-  assert.deepEqual(posts.map(p=>[p.name,p.content]),[['Rin','Your move.'],['Sola','Answer.'],['Rin','Again.']]);assert.equal(removed,3);
-  const once=incoming('rin> Once.');await Promise.all([relay(db,config,once,send,remove),relay(db,config,once,send,remove)]);
-  assert.equal(posts.length,4);
+  for(const content of ['Your move.','sola Answer.','Again.','unknown> No.','// As myself.','((OOC))','sola   '])await relay(db,config,incoming(content),send,remove);
+  assert.deepEqual(posts.map(p=>[p.name,p.content]),[['Rin','Your move.'],['Sola','Answer.'],['Rin','Again.'],['Rin','unknown> No.']]);assert.equal(removed,4);
+  const once=incoming('rin Once.');await Promise.all([relay(db,config,once,send,remove),relay(db,config,once,send,remove)]);
+  assert.equal(posts.length,5);
   const [entry]=await db.query('SELECT posted_id FROM pc_posts WHERE source_id=$1',[once.id]);
   assert.equal((await lookupAuthor(db,judge,entry.posted_id)).authorId,player);
   await assert.rejects(lookupAuthor(db,writer,entry.posted_id),/Only staff/);
   await relay(db,config,{...incoming('No.'),guild:'600000000000000002'},send,remove);
   await relay(db,config,{...incoming('No.'),channel:'500000000000000002'},send,remove);
   await assert.rejects(relay(db,config,incoming('Keep this.'),async()=>{throw Error('unavailable');},remove));
-  assert.equal(removed,4);
+  assert.equal(removed,5);
   await savePosting(db,writer,{kind:'default',characterId:'',channel});
-  await relay(db,config,incoming('Now plain.'),send,remove);assert.equal(posts.length,4);
+  await relay(db,config,incoming('Now plain.'),send,remove);assert.equal(posts.length,5);
 });
 async function checkTagEdits(db:Store) {
   const initial=await propose(db,writer,submit('create',{...char,tag:'seed'}),active);
@@ -125,12 +126,12 @@ async function checkTagEdits(db:Store) {
   assert.equal((await propose(db,writer,direct,active)).status,'approved');
   assert.equal((await propose(db,writer,direct,active)).status,'approved');
   assert.equal((await sheet(db,id)).revision,1);
-  assert.equal(await currentTag(db.query,id),'lantern');
+  assert.equal(await currentTag(db.query,id),'LANTERN');
   await assert.rejects(savePosting(db,writer,{kind:'tag',characterId:id,tag:'oops',portrait:'https://art.example/o.gif'}),/Only a posting tag/);
   const portrait='https://art.example/character.gif?version=2';
   const mixed=await propose(db,writer,edit({tag:'ember',portrait}),active);
   assert.equal(mixed.status,'pending');assert.equal((await sheet(db,id)).portrait,'');
-  assert.equal(await currentTag(db.query,id),'lantern');
+  assert.equal(await currentTag(db.query,id),'LANTERN');
   await decide(db,owner.id,owner.id,mixed.id,true);
   assert.equal((await sheet(db,id)).portrait,portrait);assert.equal(await currentTag(db.query,id),'ember');
   const race=await propose(db,writer,edit({tag:'third',bio:'A pending story'},2),active);

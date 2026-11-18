@@ -1,3 +1,4 @@
+import forms from '../../phoenixcore/templates.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -71,8 +72,12 @@ export async function openPostgres(url: string): Promise<Store> {
   };
 }
 
-export const defaultSettings = { playerRole: '', judgeRole: '', reviewChannel: '', currency: 'Credits', rpChannels: '', rpDivider: '' };
+export const defaultSettings = { playerRole: '', judgeRole: '', reviewChannel: '', ...forms.reviewRoutes as {characterChannel:string;designChannel:string;updatesForum:string}, currency: 'Credits', rpChannels: '', rpDivider: '' };
 const ddl = [
+  `CREATE TABLE IF NOT EXISTS pc_forum_threads (forum_id TEXT NOT NULL, subject TEXT NOT NULL, thread_id TEXT,
+    attempted_name TEXT, attempted_ms BIGINT, attempts INTEGER NOT NULL DEFAULT 0, retry_at BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY(forum_id,subject))`,
+  'CREATE TABLE IF NOT EXISTS pc_review_posts (request_id TEXT PRIMARY KEY, channel_id TEXT, message_id TEXT, lease_until BIGINT NOT NULL DEFAULT 0, lease_token TEXT)',
   'CREATE TABLE IF NOT EXISTS pc_codex (entry_key TEXT PRIMARY KEY, revision INTEGER NOT NULL, fields TEXT NOT NULL, editor TEXT NOT NULL, edited_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_archives (request_id TEXT PRIMARY KEY, previous_status TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_active_forms (character_id TEXT PRIMARY KEY, form_key TEXT NOT NULL)',
@@ -102,6 +107,14 @@ export async function initialize(db: Store, guildId: string) {
   await db.transaction(async q => {
     if(db.dialect==='postgres') await q('SELECT pg_advisory_xact_lock(739124861)');
     for (const statement of ddl) await q(statement);
+    if(db.dialect==='postgres') await q('ALTER TABLE pc_post_tags ADD COLUMN IF NOT EXISTS tag_key TEXT');
+    else if(!(await q('PRAGMA table_info(pc_post_tags)')).some(column=>column.name==='tag_key')) await q('ALTER TABLE pc_post_tags ADD COLUMN tag_key TEXT');
+    await q('UPDATE pc_post_tags SET tag_key=tag WHERE tag_key IS NULL');
+    await q('CREATE UNIQUE INDEX IF NOT EXISTS pc_tag_per_writer ON pc_post_tags(owner_id,tag_key)');
+    // Pending requests delivered by an earlier DM-only installation still need a server review card.
+    await q(`UPDATE pc_requests SET notified=0,notify_after=0 WHERE notified=1 AND status IN ('pending','awaiting_judge')
+      AND NOT EXISTS (SELECT 1 FROM pc_review_posts p WHERE p.request_id=pc_requests.id AND p.message_id IS NOT NULL)`);
+    await q(`INSERT INTO pc_review_posts(request_id) SELECT id FROM pc_requests WHERE status IN ('pending','awaiting_judge') ON CONFLICT DO NOTHING`);
     await q('INSERT INTO pc_config(slot,guild_id,revision,value) VALUES(1,$1,1,$2) ON CONFLICT(slot) DO NOTHING', [guildId, JSON.stringify(defaultSettings)]);
     const [config] = await q('SELECT guild_id FROM pc_config WHERE slot=1');
     if (config.guild_id !== guildId) throw new Error('This database belongs to a different Convergence server. Check DISCORD_GUILD_ID or use a new database.');
