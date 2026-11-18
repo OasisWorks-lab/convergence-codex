@@ -1,4 +1,6 @@
 import forms from '../../phoenixcore/templates.js';
+import { assignTag, currentTag } from './tags.ts';
+import { attachImage } from './media.ts';
 import { createHash } from 'node:crypto';
 import { defaultSettings, type Store, type Row } from './db.ts';
 
@@ -70,9 +72,13 @@ export async function saveSettings(db: Store, actor: Actor, input: any) {
   const channelIds=[...new Set(channels.split(/[\s,]+/).filter(Boolean))];
   requireThat(channelIds.length<=100 && channelIds.every(id=>discordId.test(id)),400,'Enter valid Discord RP channel IDs, one per line.');
   value.rpChannels=channelIds.join('\n');
+  const divider=input.value.rpDivider ?? '';
+  requireThat(typeof divider==='string' && (!divider||discordId.test(divider)),400,'Choose a valid category divider.');
+  value.rpDivider=divider;
   value.currency = textValue(input.value.currency, 32, 'Currency name', true);
   await db.transaction(async q => {
     const [old] = await q('SELECT revision,value FROM pc_config WHERE slot=1');
+    if(!Object.hasOwn(input.value,'rpDivider')) value.rpDivider=JSON.parse(old.value).rpDivider??'';
     if(!Object.hasOwn(input.value,'rpChannels')) value.rpChannels=JSON.parse(old.value).rpChannels??'';
     const rows = await q('UPDATE pc_config SET value=$1,revision=revision+1 WHERE slot=1 AND revision=$2 RETURNING revision', [JSON.stringify(value), input.revision]);
     requireThat(rows.length && old.revision === input.revision, 409, 'Settings changed. Reload and review the current values.');
@@ -93,7 +99,7 @@ function canonical(value: any): any {
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])]));
   return value;
 }
-export async function propose(db: Store, who: Actor, input: any, active: Set<string>) {
+export async function propose(db: Store, who: Actor, input: any, active: Set<string>, service='') {
   object(input); keys(input, ['id','kind','characterId','version','fields','award','reason','details']);
   requireThat(typeof input.id === 'string' && requestId.test(input.id), 400, 'Invalid request identifier.');
   const { kind, id } = input;
@@ -110,13 +116,14 @@ export async function propose(db: Store, who: Actor, input: any, active: Set<str
     }
     let ownerId=who.id, version=0, characterId=id, previous=null, award=null;
     let next: Record<string, any>;
+    let immediate=false;
     if (kind === 'create') {
       next=profile(input.fields);
     } else if (isDesign(kind)) {
       next=validateForm(kind,input.fields);
     } else {
       requireThat(typeof input.characterId === 'string' && requestId.test(input.characterId), 400, 'Choose a character.');
-      const [sheet] = await q('SELECT * FROM pc_characters WHERE id=$1', [input.characterId]);
+      const [sheet] = await q('SELECT * FROM pc_characters WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''), [input.characterId]);
       requireThat(sheet && active.has(sheet.owner_id), 404, 'Character is unavailable.');
       requireThat(kind === 'award' || sheet.owner_id === who.id, 403, 'You can propose edits only to your characters.');
       requireThat(Number.isInteger(input.version) && sheet.revision === input.version, 409, 'The sheet changed. Reload before submitting.');
@@ -130,16 +137,37 @@ export async function propose(db: Store, who: Actor, input: any, active: Set<str
         }
         next=previous;award={format:2,details};
       } else {
+        if (Object.hasOwn(input.fields??{},'tag')) {
+          const [duplicate]=await q('SELECT * FROM pc_requests WHERE id=$1',[id]);
+          if (duplicate) {
+            requireThat(duplicate.fingerprint===fingerprint,409,'That submission identifier was already used.');
+            return visibleRequest(duplicate);
+          }
+        }
         next=profile(input.fields,previous);
-        if(input.details!==undefined) award={format:2,details:validateForm('edit',input.details)};
+        if (Object.hasOwn(next,'tag')) {
+          const beforeTag=await currentTag(q,characterId);
+          if (beforeTag===next.tag) delete next.tag;
+          else {
+            previous.tag=beforeTag;
+            immediate=Object.keys(next).every(k=>k==='tag'||JSON.stringify(next[k]??'')===JSON.stringify(previous[k]??''));
+          }
+        }
+        if(!immediate && input.details!==undefined) award={format:2,details:validateForm('edit',input.details)};
       }
       requireThat(kind==='training' || JSON.stringify(previous) !== JSON.stringify(next), 400, 'The proposed sheet is already current.');
     }
+    if(kind==='create' || kind==='edit' || isDesign(kind)) await attachImage(q,input.fields?.portrait||input.fields?.art,service,who.id);
     const rows = await q(`INSERT INTO pc_requests
       (id,fingerprint,kind,character_id,owner_id,author_id,base_revision,before_sheet,after_sheet,reason,award,status,created_ms)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO NOTHING RETURNING *`,
       [id,fingerprint,kind,characterId,ownerId,who.id,version,previous && JSON.stringify(previous),JSON.stringify(next),reason,award && JSON.stringify(award),kind==='training'?'awaiting_judge':'pending',Date.now()]);
-    if (rows.length) return visibleRequest(rows[0]);
+    if (rows.length) {
+      if (!immediate) return visibleRequest(rows[0]);
+      requireThat(await assignTag(q,ownerId,characterId,next.tag),409,'You already use that tag on another character.');
+      const [saved]=await q("UPDATE pc_requests SET status='approved',decided_by=$1,decided_ms=$2,notified=1 WHERE id=$3 RETURNING *",[who.id,Date.now(),id]);
+      return visibleRequest(saved);
+    }
     const [concurrent] = await q('SELECT * FROM pc_requests WHERE id=$1', [id]);
     requireThat(concurrent?.fingerprint === fingerprint, 409, 'That submission identifier was already used.');
     return visibleRequest(concurrent);
@@ -182,10 +210,18 @@ export async function decide(db: Store, reviewer: string, ownerId: string, id: s
     }
     const r=rows[0];
     if (approve && !isDesign(r.kind)) {
-      const touched = r.kind === 'create'
-        ? await q('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3) ON CONFLICT(id) DO NOTHING RETURNING id', [r.character_id,r.owner_id,r.after_sheet])
-        : await q('UPDATE pc_characters SET sheet=$1,revision=revision+1 WHERE id=$2 AND owner_id=$3 AND revision=$4 RETURNING id', [r.after_sheet,r.character_id,r.owner_id,r.base_revision]);
-      if (!touched.length) {
+      const after=JSON.parse(r.after_sheet), before=r.before_sheet?JSON.parse(r.before_sheet):null;
+      const writesTag=Object.hasOwn(after,'tag');
+      const tag=after.tag;
+      delete after.tag;
+      await q('SAVEPOINT character_review');
+      const touched=r.kind==='create'
+        ?await q('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3) ON CONFLICT(id) DO NOTHING RETURNING id',[r.character_id,r.owner_id,JSON.stringify(after)])
+        :await q('UPDATE pc_characters SET sheet=$1,revision=revision+1 WHERE id=$2 AND owner_id=$3 AND revision=$4 RETURNING id',[JSON.stringify(after),r.character_id,r.owner_id,r.base_revision]);
+      const applied=touched.length>0 && (!writesTag || ((await currentTag(q,r.character_id))===(before?.tag||'') && await assignTag(q,r.owner_id,r.character_id,tag)));
+      if (!applied) await q('ROLLBACK TO SAVEPOINT character_review');
+      await q('RELEASE SAVEPOINT character_review');
+      if (!applied) {
         await q("UPDATE pc_requests SET status='stale' WHERE id=$1", [id]);
         r.status='stale';
       }

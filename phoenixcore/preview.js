@@ -14,11 +14,12 @@
     {id:'a4a12b86-6d0c-4aa9-80f1-c219352fb93f',ownerId:ids.judge,version:1,sheet:{...base,name:'Vey',lineage:'Cerealian',bio:'A scout learning to trust a partner.',bpl:'8600',wallet:'70'}}
   ];
   const forms=window.PhoenixForms, sampleChannel='555555555555555555';
-  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'',reviewChannel:'',currency:'Credits',rpChannels:sampleChannel}};
+  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'',reviewChannel:'',currency:'Credits',rpChannels:sampleChannel,rpDivider:''}};
   const tags=[],defaults=[],clone=x=>JSON.parse(JSON.stringify(x));
   function state() {
     const id=ids[role],owner=role==='owner',judge=owner||role==='judge',channels=settings.value.rpChannels.split(/\s+/).filter(Boolean);
-    return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:judge},players,characters,
+    return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:judge},players,characters:characters.map(c=>({...c,tag:tags.find(t=>t.characterId===c.id)?.tag||''})),
+      scope:{online:true,categories:[{id:'566666666666666666',name:'Roleplay channels below'}],locations:channels.map(id=>({id,name:'Practice scene',type:0})),incomplete:0,scanning:false},
       requests:requests.filter(r=>owner||r.ownerId===id||r.authorId===id||(judge&&r.kind==='training')),
       catalogue:requests.filter(r=>r.status==='approved'&&forms.catalogue.includes(r.kind)).map(r=>({id:r.id,fields:r.after,kind:r.kind,authorId:r.authorId})),
       posting:{tags:tags.filter(t=>t.owner===id),defaults:defaults.filter(d=>d.owner===id&&channels.includes(d.channel)),channels},
@@ -32,6 +33,7 @@
     if(award&&!who.isJudge)throw Error('A training judge must assign awards.');
     if(targeted&&!award&&c.ownerId!==who.id)throw Error('Choose your own character.');
     const before=targeted?clone(c.sheet):null;
+    let immediate=false;
     let after,amount=null,details=null;
     if(design)after=forms.normalize(form.kind,form.fields);
     else if(create)after={wallet:'0',gear:[],...forms.normalize('create',form.fields)};
@@ -39,13 +41,19 @@
     else if(form.kind==='training'){after=before;details=forms.normalize('training',form.details);}
     else {
       after={...before,...forms.normalize('create',form.fields,true)};
-      if(form.details)details=forms.normalize('edit',form.details);
+      if(Object.hasOwn(after,'tag')){
+        const old=tags.find(t=>t.characterId===c.id)?.tag||'';
+        if(old===after.tag)delete after.tag;
+        else {before.tag=old;immediate=Object.keys(after).every(k=>k==='tag'||JSON.stringify(after[k]??'')===JSON.stringify(before[k]??''));}
+      }
+      if(!immediate&&form.details)details=forms.normalize('edit',form.details);
       if(JSON.stringify(before)===JSON.stringify(after))throw Error('Change a field before submitting.');
     }
     if(!form.reason.trim())throw Error('Enter a reason for the request.');
     const r={id:form.id,characterId:c?.id||form.id,ownerId:c?.ownerId||who.id,authorId:who.id,kind:form.kind,
       version:c?.version||0,before,after,award:amount,details,judgment:null,reason:form.reason,
       status:form.kind==='training'?'awaiting_judge':'pending',created:Date.now(),delivery:'Practice notification'};
+    if(immediate){savePosting({kind:'tag',characterId:c.id,tag:after.tag});r.status='approved';r.decided=Date.now();r.decidedBy=who.id;}
     requests.unshift(r);return {id:r.id,status:r.status};
   }
   function judge(id,input){
@@ -69,8 +77,17 @@
     if((c?.version||0)!==r.version){r.status='stale';return;}
     r.status='approved';
     if(forms.catalogue.includes(r.kind))return;
-    if(c){c.version++;c.sheet=clone(r.after);}
-    else characters.push({id:r.characterId,ownerId:r.ownerId,version:1,sheet:clone(r.after)});
+    const next=clone(r.after);
+    if(Object.hasOwn(next,'tag')){
+      const previous=tags.find(t=>t.characterId===r.characterId)?.tag||'';
+      if(previous!==(r.before?.tag||'') || tags.some(t=>t.owner===r.ownerId&&t.tag===next.tag&&t.characterId!==r.characterId)){r.status='stale';return;}
+      const index=tags.findIndex(t=>t.characterId===r.characterId);
+      if(index>=0)tags.splice(index,1);
+      if(next.tag)tags.push({owner:r.ownerId,characterId:r.characterId,tag:next.tag});
+      delete next.tag;
+    }
+    if(c){c.version++;c.sheet=next;}
+    else characters.push({id:r.characterId,ownerId:r.ownerId,version:1,sheet:next});
   }
   function savePosting(input){
     const owner=ids[role];

@@ -5,6 +5,8 @@ import {openSqlite,openPostgres,initialize,defaultSettings,type Store} from '../
 import {propose,decide,judgeTraining,actorFor,saveSettings,applyAward} from '../src/domain.ts';
 import {Discord,deliverNext,type Config} from '../src/discord.ts';
 import {savePosting,relay,lookupAuthor,preferences} from '../src/posting.ts';
+import {currentTag} from '../src/tags.ts';
+import {RoleplayScope} from '../src/scope.ts';
 import forms from '../../phoenixcore/templates.js';
 
 const config:Config={owner:'300000000000000001',guild:'600000000000000001',clientId:'700000000000000001',service:'https://service.example',dashboard:'https://site.example/phoenixcore/',publicKey:'00'.repeat(32),token:'test',clientSecret:'test'};
@@ -111,6 +113,51 @@ test('tag overrides default for one message, OOC and unknown tags keep original,
   await savePosting(db,writer,{kind:'default',characterId:'',channel});
   await relay(db,config,incoming('Now plain.'),send,remove);assert.equal(posts.length,4);
 });
+async function checkTagEdits(db:Store) {
+  const initial=await propose(db,writer,submit('create',{...char,tag:'seed'}),active);
+  const id=initial.characterId;
+  await decide(db,owner.id,owner.id,initial.id,true);
+  assert.equal(await currentTag(db.query,id),'seed');
+  const edit=(fields:any,version=1)=>({...submit('edit',fields),characterId:id,version});
+  const direct=edit({tag:' LANTERN '});
+  assert.equal((await propose(db,writer,direct,active)).status,'approved');
+  assert.equal((await propose(db,writer,direct,active)).status,'approved');
+  assert.equal((await sheet(db,id)).revision,1);
+  assert.equal(await currentTag(db.query,id),'lantern');
+  await assert.rejects(savePosting(db,writer,{kind:'tag',characterId:id,tag:'oops',portrait:'https://art.example/o.gif'}),/Only a posting tag/);
+  const portrait='https://art.example/character.gif?version=2';
+  const mixed=await propose(db,writer,edit({tag:'ember',portrait}),active);
+  assert.equal(mixed.status,'pending');assert.equal((await sheet(db,id)).portrait,'');
+  assert.equal(await currentTag(db.query,id),'lantern');
+  await decide(db,owner.id,owner.id,mixed.id,true);
+  assert.equal((await sheet(db,id)).portrait,portrait);assert.equal(await currentTag(db.query,id),'ember');
+  const race=await propose(db,writer,edit({tag:'third',bio:'A pending story'},2),active);
+  await savePosting(db,writer,{kind:'tag',characterId:id,tag:'fourth'});
+  assert.equal((await decide(db,owner.id,owner.id,race.id,true)).status,'stale');
+  assert.equal((await sheet(db,id)).bio,'');assert.equal(await currentTag(db.query,id),'fourth');
+  const unrelated=await propose(db,writer,edit({bio:'A later story'},2),active);
+  await propose(db,writer,edit({tag:''},2),active);
+  await decide(db,owner.id,owner.id,unrelated.id,true);
+  assert.equal(await currentTag(db.query,id),'');assert.equal((await sheet(db,id)).bio,'A later story');
+}
+test('only tag-only edits apply immediately; mixed reviews are atomic and preserve later tags',async t=>checkTagEdits(await fresh(t)));
+test('category and thread coverage follows live ordering, parent changes and a deleted divider',()=>{
+  const scope=new RoleplayScope(config.guild),cats=new Map<string,any>();
+  const fakeGuild={available:true,client:{isReady:()=>true},channels:{cache:cats}};
+  scope.guild=fakeGuild as any;
+  const pivot={id:'200',rawPosition:4,type:4},lower={id:'300',rawPosition:5,type:4},higher={id:'100',rawPosition:3,type:4};
+  cats.set(pivot.id,pivot);
+  const parent:any={type:15,id:'400',guildId:config.guild,parent:lower,isThread:()=>false};
+  const thread:any={type:11,id:'500',guildId:config.guild,parent,isThread:()=>true};
+  const rule={...settings,rpDivider:pivot.id};
+  assert.ok(scope.eligible(rule,parent));assert.ok(scope.eligible(rule,thread));
+  lower.rawPosition=2;assert.equal(scope.eligible(rule,thread),false);
+  lower.rawPosition=4;assert.ok(scope.eligible(rule,thread));
+  parent.parent=pivot;assert.equal(scope.eligible(rule,parent),false);
+  parent.parent=higher;assert.equal(scope.eligible(rule,thread),false);
+  parent.parent=null;assert.equal(scope.eligible(rule,parent),false);
+  parent.parent=lower;cats.delete(pivot.id);assert.equal(scope.eligible(rule,thread),false);
+});
 test('PostgreSQL training and notification transitions', {skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
-  const db=await openPostgres(process.env.PHOENIX_TEST_DATABASE_URL!);t.after(()=>db.close());await initialize(db,config.guild);await adjudicate(db);
+  const db=await openPostgres(process.env.PHOENIX_TEST_DATABASE_URL!);t.after(()=>db.close());await initialize(db,config.guild);await adjudicate(db);await checkTagEdits(db);
 });

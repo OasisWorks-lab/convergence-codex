@@ -31,7 +31,7 @@ test('new and edited sheets are proposed privately, and only the owner decides',
   const edit={id:randomUUID(),kind:'edit',characterId:r.characterId,version:1,fields:{speed:'Quick acceleration'},reason:'Training note'};
   await assert.rejects(propose(db,other,edit,ids),/your characters/);
   await assert.rejects(propose(db,writer,{...edit,fields:{wallet:'400'}},ids),/unsupported/);
-  await assert.rejects(propose(db,writer,{...edit,fields:{portrait:'https://untrusted.example/a'}},ids),/Discord image/);
+  await assert.rejects(propose(db,writer,{...edit,fields:{portrait:'javascript:alert(1)'}},ids),/HTTPS image/);
   await assert.rejects(propose(db,writer,edit,new Set([player,judge].slice(1))),/current player/);
   const e=await propose(db,writer,edit,ids);
   assert.equal(JSON.parse((await db.query('SELECT sheet FROM pc_characters'))[0].sheet).speed,'');

@@ -1,38 +1,38 @@
+import forms from '../../phoenixcore/templates.js';
+import type { RoleplayScope } from './scope.ts';
+import { assignTag } from './tags.ts';
 import { discordId, readSettings, requireThat, type Actor, type Settings } from './domain.ts';
 import type { Store } from './db.ts';
 import type { Config } from './discord.ts';
 
-const tagPattern=/^[a-z0-9][a-z0-9_-]{0,23}$/;
 const channelIds=(settings:Settings)=>settings.rpChannels.split(/\s+/).filter(Boolean);
-export async function preferences(db:Store,actor:Actor,settings:Settings) {
+export async function preferences(db:Store,actor:Actor,settings:Settings,liveChannels?:string[]) {
   const [tags,defaults]=await Promise.all([
     db.query('SELECT character_id,tag FROM pc_post_tags WHERE owner_id=$1 ORDER BY tag',[actor.id]),
     db.query('SELECT channel_id,character_id FROM pc_post_defaults WHERE owner_id=$1 ORDER BY channel_id',[actor.id])
   ]);
-  const channels=channelIds(settings);
+  const channels=settings.rpDivider?(liveChannels??[]):channelIds(settings);
   return {tags:tags.map(t=>({characterId:t.character_id,tag:t.tag})),channels,
     defaults:defaults.filter(d=>channels.includes(d.channel_id)).map(d=>({channel:d.channel_id,characterId:d.character_id}))};
 }
-export async function savePosting(db:Store, actor:Actor, input:any) {
+export async function savePosting(db:Store, actor:Actor, input:any, coverage?:{divider:string;channels:string[]}) {
   requireThat(actor.isPlayer,403,'Only current players can set posting preferences.');
   requireThat(input && typeof input.characterId==='string' && ['tag','default'].includes(input.kind),400,'Choose a character posting preference.');
   await db.transaction(async q=>{
     if(input.characterId || input.kind==='tag'){
-      const [sheet]=await q('SELECT owner_id FROM pc_characters WHERE id=$1',[input.characterId]);
+      const [sheet]=await q('SELECT owner_id FROM pc_characters WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[input.characterId]);
       requireThat(sheet?.owner_id===actor.id,403,'Choose one of your approved characters.');
     }
     if(input.kind==='tag'){
-      requireThat(typeof input.tag==='string',400,'Enter a character tag.');
-      const tag=input.tag.trim().toLowerCase();
-      requireThat(!tag||tagPattern.test(tag),400,'Use a tag of 1–24 letters, numbers, underscores or hyphens.');
-      await q('DELETE FROM pc_post_tags WHERE owner_id=$1 AND character_id=$2',[actor.id,input.characterId]);
-      if(tag){
-        const added=await q('INSERT INTO pc_post_tags(owner_id,tag,character_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING tag',[actor.id,tag,input.characterId]);
-        requireThat(added.length,409,'That tag is already assigned. Refresh your preferences.');
-      }
+      requireThat(Object.keys(input).every(k=>['kind','characterId','tag'].includes(k)),400,'Only a posting tag can be changed here.');
+      let tag;
+      try {tag=forms.normalizeTag(input.tag);} catch {requireThat(false,400,'Use a valid posting tag of 1–24 characters.');}
+      requireThat(await assignTag(q,actor.id,input.characterId,tag),409,'That tag is already assigned. Refresh your preferences.');
     } else {
       const [row]=await q('SELECT value FROM pc_config WHERE slot=1');
-      requireThat(discordId.test(input.channel) && channelIds({rpChannels:'',...JSON.parse(row.value)}).includes(input.channel),400,'Choose an enabled roleplay channel.');
+      const settings=JSON.parse(row.value);
+      const allowed=settings.rpDivider?(coverage?.divider===settings.rpDivider?coverage.channels:[]):channelIds(settings);
+      requireThat(discordId.test(input.channel) && allowed.includes(input.channel),400,'Choose an enabled roleplay channel.');
       if(!input.characterId)await q('DELETE FROM pc_post_defaults WHERE owner_id=$1 AND channel_id=$2',[actor.id,input.channel]);
       else await q('INSERT INTO pc_post_defaults(owner_id,channel_id,character_id) VALUES($1,$2,$3) ON CONFLICT(owner_id,channel_id) DO UPDATE SET character_id=excluded.character_id',[actor.id,input.channel,input.characterId]);
     }
@@ -48,10 +48,10 @@ export async function lookupAuthor(db:Store,actor:Actor,message:string){
 
 type IncomingPost={id:string;channel:string;guild:string;author:string;roles:string[];content:string};
 type CharacterPost={content:string;name:string;portrait:string};
-export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>){
+export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean){
   if(source.guild!==config.guild || !source.content.trim() || source.content.length>2000 || /^\s*(?:\/\/|\(\()/.test(source.content))return;
   const {value}=await readSettings(db);
-  if(!channelIds(value).includes(source.channel) || (value.playerRole&&!source.roles.includes(value.playerRole)))return;
+  if(!(value.rpDivider?inScope?.(value):channelIds(value).includes(source.channel)) || (value.playerRole&&!source.roles.includes(value.playerRole)))return;
   const explicit=/^([a-z0-9][a-z0-9_-]{0,23})>\s*([\s\S]*)$/i.exec(source.content);
   if(!explicit && /^[^\s>]+>/.test(source.content))return;
   const content=explicit?explicit[2]:source.content;
@@ -70,9 +70,17 @@ export async function relay(db:Store,config:Config,source:IncomingPost,send:(pos
   await remove();
 }
 
-export async function startPosting(db:Store,config:Config){
-  const {Client,GatewayIntentBits,PermissionFlagsBits,MessageType,ChannelType}=await import('discord.js');
+export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
+  const {Client,GatewayIntentBits,PermissionFlagsBits,MessageType}=await import('discord.js');
   const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],rest:{retries:0}});
+  client.once('clientReady',ready=>{
+    scope.guild=ready.guilds.cache.get(config.guild)??null;
+    console.log(scope.guild?'PhoenixCore is online in the Convergence Discord server.':'PhoenixCore connected but could not find its configured Discord server.');
+  });
+  client.on('threadCreate',t=>scope.archiveEvent(t));
+  client.on('threadUpdate',(_,t)=>scope.archiveEvent(t));
+  client.on('threadDelete',t=>scope.archiveEvent(t,true));
+  client.on('channelDelete',c=>{scope.archives.delete(c.id);});
   const hooks=new Map<string,Promise<any>>();
   async function channelHook(parent:any){
     const all=await parent.fetchWebhooks();
@@ -86,9 +94,9 @@ export async function startPosting(db:Store,config:Config){
     const channel=message.channel;
     const parent=channel.isThread()?channel.parent:channel;
     if(!parent||!('fetchWebhooks' in parent)||!('createWebhook' in parent))return;
-    if(!channel.isThread() && channel.type!==ChannelType.GuildText && channel.type!==ChannelType.GuildAnnouncement)return;
+    if(!channel.isTextBased())return;
     const permissions=channel.permissionsFor(message.guild.members.me);
-    if(!permissions?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.ManageMessages,channel.isThread()?PermissionFlagsBits.SendMessagesInThreads:PermissionFlagsBits.SendMessages]) ||
+    if(!permissions?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.ManageMessages,channel.isThread()?PermissionFlagsBits.SendMessagesInThreads:PermissionFlagsBits.SendMessages]) ||
       !parent.permissionsFor(message.guild.members.me)?.has(PermissionFlagsBits.ManageWebhooks))return;
     const original=message.content;
     try {
@@ -104,10 +112,10 @@ export async function startPosting(db:Store,config:Config){
       },async()=>{
         const current=await message.fetch(true);
         if(current.content===original && !current.editedTimestamp && !current.attachments.size)await current.delete();
-      });
+      },settings=>scope.eligible(settings,channel));
     }catch{console.warn('Character post could not be completed. Original Discord posts are retained on delivery failure.');}
   });
   client.on('error',()=>console.warn('Discord roleplay connection reported an error.'));
   try{await client.login(config.token);}catch(e){await client.destroy();throw e;}
-  return ()=>client.destroy();
+  return ()=>{scope.clear();return client.destroy();};
 }

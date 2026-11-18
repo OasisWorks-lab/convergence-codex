@@ -16,9 +16,15 @@
   const go=r=>{if(route()===r)render();else location.hash=r;};
   const ownerName=id=>state.players.find(p=>p.id===id)?.display||'Discord member';
   const initials=s=>s.trim().split(/\s+/).slice(0,2).map(w=>Array.from(w)[0]||'').join('').toUpperCase();
+  const practiceImages=new Map();
+  const source=value=>practiceImages.get(value)||value;
+  function artwork(value, description){
+    if(!value || !window.PhoenixForms.validImage(value))return '';
+    return '<img class="submission-art" referrerpolicy="no-referrer" loading="lazy" alt="'+h(description)+'" src="'+h(source(value))+'">';
+  }
   function avatar(s,id,src=''){
     const tint=['',' sage',' rose'][String(id).charCodeAt(0)%3];
-    return '<span class="avatar'+tint+'">'+(src?'<img referrerpolicy="no-referrer" alt="" src="'+h(src)+'">':h(initials(s)))+'</span>';
+    return '<span class="avatar'+tint+'">'+(src?'<img referrerpolicy="no-referrer" alt="" src="'+h(source(src))+'">':h(initials(s)))+'</span>';
   }
   function tell(msg,error=false){const box=$('#notice');box.hidden=!msg;box.className=error?'error':'';box.textContent=msg;}
   function title(heading,support=''){
@@ -38,8 +44,9 @@
   async function call(path,method='GET',data) {
     const headers={};
     if(session)headers.authorization='Bearer '+session;
-    if(data!==undefined)headers['content-type']='application/json';
-    const res=await fetch(api+path,{method,headers,body:data===undefined?undefined:JSON.stringify(data),credentials:'omit',referrerPolicy:'no-referrer',cache:'no-store'});
+    const binary=data instanceof Blob;
+    if(data!==undefined)headers['content-type']=binary?(data.type||'application/octet-stream'):'application/json';
+    const res=await fetch(api+path,{method,headers,body:data===undefined?undefined:binary?data:JSON.stringify(data),credentials:'omit',referrerPolicy:'no-referrer',cache:'no-store'});
     const result=await res.json().catch(()=>({}));
     if(!res.ok){if(res.status===401){session='';store.remove('session');state=null;render();}throw Error(result.error||'PhoenixCore is unavailable.');}
     return result;
@@ -111,13 +118,13 @@
     const s=c.sheet;document.title=s.name+' · PhoenixCore';
     const own=c.ownerId===state.actor.id;
     return breadcrumbs([link('directory','Directory'),link('player-'+c.ownerId,ownerName(c.ownerId)),h(s.name)])+
-      '<div class="sheet-head">'+avatar(s.name,c.id,s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p></div></div>'+
+      '<div class="sheet-head">'+avatar(s.name,c.id,s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'&gt;</code>':'Unassigned')+'</p></div></div>'+
       '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+(own?link('edit-'+id,'Propose edit','button primary')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
       '<div class="two"><div class="stack"><section class="panel"><h3>Base Power Level</h3><div class="big-number">'+h(num(s.bpl))+'</div></section><section class="panel"><h3>Attributes</h3>'+
       traits.map(k=>'<div class="stat-row"><span>'+h(label[k])+'</span><strong>'+h(s[k]||'Unrecorded')+'</strong></div>').join('')+'</section></div>'+
       '<div class="stack"><section class="panel"><h3>Wallet &amp; gear</h3><p><b>'+h(num(s.wallet))+'</b> '+h(state.currency)+'</p><div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section><section class="panel"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section></div></div>'+
       (s.progress?.length?'<section class="panel dossier"><h3>Training stats</h3>'+s.progress.map(x=>'<div class="stat-row"><span>'+h(x.name)+'</span><strong>'+h(num(x.amount))+'</strong></div>').join('')+'</section>':'')+
-      '<div class="stack sheet-dossier">'+displayGroups('create',s,['name','lineage','portrait','bio','bpl',...traits])+'</div>';
+      '<div class="stack sheet-dossier">'+displayGroups('create',s,['name','lineage','portrait','tag','bio','bpl',...traits])+'</div>';
   }
   const missing=()=>title('Unavailable','This entry is unavailable for your Discord account.')+link('directory','Back to directory','button');
   const forms=window.PhoenixForms;
@@ -128,6 +135,9 @@
   function submissionField(f,values,editing=false){
     const val=values[f.key]??(editing?'':f.initial||'');
     const req=f.required && !editing;
+    if(f.media) return '<div class="field wide media-picker"><label><span>'+h(f.label)+' URL</span><input data-media-url name="'+h(f.key)+'" value="'+h(val)+'" maxlength="'+f.max+'" placeholder="https://…"></label>'+
+      '<label><span>Upload '+h(f.label.toLowerCase())+'</span><input type="file" data-media-file accept="image/png,image/jpeg,image/webp,image/gif"></label>'+
+      '<small>Choose a PNG, JPG, WebP or GIF up to 5 MiB, or paste a direct HTTPS image link.</small><div data-media-preview>'+artwork(val,f.label+' preview')+'</div><small data-upload-status aria-live="polite"></small></div>';
     if(f.options) return '<label class="field"><span>'+h(f.label)+(req?' <i>*</i>':'')+'</span><select name="'+h(f.key)+'"'+(req?' required':'')+'>'+
       options([['','Choose…'],...f.options],val)+'</select></label>';
     return field(f.key,f.label,val,{area:f.area,wide:f.area,max:f.max,required:req,numeric:f.whole,hint:f.hint||'',pattern:f.whole?'0|[1-9][0-9]*':''});
@@ -154,13 +164,50 @@
     if(targeted&&!c)return head+'<p class="empty">'+(mine.length?'Choose the character this submission belongs to.':'You need an approved character for this request. '+link('new','Submit a new character'))+'</p>';
     const isEdit=kind==='edit';
     const anchors=[...forms.forms[kind].sections.map((s,i)=>[s.title,'section-'+kind+'-'+i]),...(isEdit?forms.forms.create.sections.map((s,i)=>[s.title,'section-create-'+i]):[])];
-    const copy=kind==='training'?'Staff assess the scene and proposed gains before Gabe confirms the award.':isEdit?'Change the fields you need and describe the decision you’re asking for.':'Fields marked * are required.';
-    const values=isEdit?{...c.sheet,...d}:d;
+    const copy=kind==='training'?'Staff assess the scene and proposed gains before Gabe confirms the award.':isEdit?'A posting tag by itself saves immediately. Changing the portrait or any other sheet field sends the whole edit to Gabe.':'Fields marked * are required.';
+    const values=isEdit?{...c.sheet,tag:c.tag||'',...d}:d;
     return head+'<div class="submission-layout"><aside class="section-index"><h2>On this form</h2>'+anchors.map(([name,id])=>'<button type="button" data-section="'+id+'">'+h(name)+'</button>').join('')+'</aside>'+
       '<form id="submissionForm" class="form stack" data-kind="'+kind+'" data-id="'+h(id)+'" data-version="'+(c?.version||0)+'"><div><h2>'+h(kindNames[kind])+'</h2><p class="hint">'+h(copy)+'</p></div>'+
       groups(kind,values)+(isEdit?groups('create',values,true):'')+
       '<div class="panel form">'+field('reason',isEdit?'Reason for update':'Note for Gabe',d.reason||'',{area:true,wide:true,max:600,required:isEdit,hint:isEdit?'Explain the RP event, lore change or correction.':'Optional context for the review.'})+
       '<div class="actions"><button class="primary" type="submit">'+(kind==='training'?'Submit training claim':'Send for approval')+'</button>'+link(c?'sheet-'+id:'directory','Cancel','button')+'</div></div></form></div>';
+  }
+  function changesFor(c,fields){
+    const old={...c.sheet,tag:c.tag||''};
+    return Object.fromEntries(forms.allFields('create').map(f=>[f.key,(fields[f.key]??'').trim()])
+      .filter(([k,v])=>(k==='tag'?v.toLowerCase():v)!==(old[k]??'')));
+  }
+  function syncEditMode(f){
+    if(!f||f.dataset.kind!=='edit')return;
+    const c=state.characters.find(x=>x.id===f.dataset.id);
+    if(!c)return;
+    const keys=Object.keys(changesFor(c,Object.fromEntries(new FormData(f))));
+    const tagOnly=keys.length===1 && keys[0]==='tag';
+    for(const key of ['summary','approval','reason']){
+      const input=f.elements[key];input.required=!tagOnly;
+      const mark=input.closest('label')?.querySelector('i');if(mark)mark.hidden=tagOnly;
+    }
+    f.querySelector('button[type="submit"]').textContent=tagOnly?'Save posting tag':'Send for approval';
+  }
+  async function uploadArt(input){
+    const file=input.files?.[0];if(!file)return;
+    const f=input.form, picker=input.closest('.media-picker'),url=picker.querySelector('[data-media-url]'),status=picker.querySelector('[data-upload-status]');
+    const submit=f.querySelector('button[type="submit"]');
+    input.disabled=true;url.readOnly=true;submit.disabled=true;f.dataset.uploading='1';
+    try {
+      if(file.size>5*1024*1024 || file.size===0)throw Error('Choose a nonempty file of 5 MiB or less.');
+      if(!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type))throw Error('Choose a PNG, JPG, WebP or GIF.');
+      status.textContent='Uploading image…';
+      let result;
+      if(demo){
+        result='../assets/uploads/practice-'+crypto.randomUUID()+'.'+(file.type==='image/jpeg'?'jpg':file.type.slice(6));
+        practiceImages.set(result,URL.createObjectURL(file));
+      }else result=(await call('/api/media','POST',file)).url;
+      url.value=result;picker.querySelector('[data-media-preview]').innerHTML=artwork(result,'Selected artwork');
+      drafts.set(draftKey(f.dataset.kind,f.dataset.id,f.dataset.version),Object.fromEntries(new FormData(f)));
+      status.textContent='Image ready to submit.';
+    }catch(error){status.textContent=error.message;}
+    finally{input.value='';input.disabled=false;url.readOnly=false;submit.disabled=false;delete f.dataset.uploading;syncEditMode(f);}
   }
   function recordDraft(){
     const f=$('#submissionForm');if(f)drafts.set(draftKey(f.dataset.kind,f.dataset.id,f.dataset.version),Object.fromEntries(new FormData(f)));
@@ -168,7 +215,7 @@
   function displayGroups(kind,values,excluded=[]){
     return forms.forms[kind].sections.map(group=>{
       const visible=group.fields.filter(f=>!excluded.includes(f.key)&&values[f.key]);
-      return visible.length?'<section class="panel dossier"><h3>'+h(group.title)+'</h3><dl>'+visible.map(f=>'<div><dt>'+h(f.label)+'</dt><dd class="prewrap">'+h(values[f.key])+'</dd></div>').join('')+'</dl></section>':'';
+      return visible.length?'<section class="panel dossier"><h3>'+h(group.title)+'</h3><dl>'+visible.map(f=>'<div><dt>'+h(f.label)+'</dt><dd class="prewrap">'+(f.media?artwork(values[f.key],f.label):h(values[f.key]))+'</dd></div>').join('')+'</dl></section>':'';
     }).join('');
   }
   function catalogue(id){
@@ -178,7 +225,7 @@
       return breadcrumbs([link('catalogue','Approved designs'),h(kindNames[entry.kind])])+title(entry.fields.name,kindNames[entry.kind]+' · Submitted by '+ownerName(entry.authorId))+'<div class="stack">'+displayGroups(entry.kind,entry.fields,['name'])+'</div>';
     }
     return title('Approved designs','Techniques, items, races and transformations approved for Convergence.')+
-      (list.length?'<div class="grid">'+list.map(e=>'<a class="card" href="#design-'+h(e.id)+'"><small class="eyeline">'+h(kindNames[e.kind])+'</small><h3>'+h(e.fields.name)+'</h3><p class="muted">'+h(ownerName(e.authorId))+'</p></a>').join('')+'</div>':'<p class="empty">The first approved design will appear here.</p>');
+      (list.length?'<div class="grid">'+list.map(e=>'<a class="card" href="#design-'+h(e.id)+'">'+artwork(e.fields.art,e.fields.name)+'<small class="eyeline">'+h(kindNames[e.kind])+'</small><h3>'+h(e.fields.name)+'</h3><p class="muted">'+h(ownerName(e.authorId))+'</p></a>').join('')+'</div>':'<p class="empty">The first approved design will appear here.</p>');
   }
   function award(id,claim=null){
     const c=state.characters.find(c=>c.id===id);if(!c||!state.actor.isJudge)return missing();
@@ -205,7 +252,7 @@
     const captions={...label,progress:'Training stats',...Object.fromEntries(forms.allFields(design?r.kind:'create').map(f=>[f.key,f.label]))};
     const changed=Object.keys(r.after).filter(k=>r.before?JSON.stringify(r.before[k])!==JSON.stringify(r.after[k]):r.after[k]!==''&&(!Array.isArray(r.after[k])||r.after[k].length));
     const meanings={pending:'Awaiting Gabe’s Discord decision.',awaiting_judge:'Staff must assess the training claim before Gabe can approve an award.',stale:'The sheet has a newer revision. Submit against the current sheet.',approved:design?'This design is in the approved collection.':'This change was applied to the character.',declined:'Gabe declined this submission.'};
-    const changes=changed.length?'<section class="panel"><h2>Requested changes</h2><div class="diff muted"><b>Field</b><b>Approved</b><b>Proposed</b></div>'+changed.map(k=>'<div class="diff"><span>'+h(captions[k]||k)+'</span><span class="prewrap">'+h(display(r.before?.[k]))+'</span><span class="new prewrap">'+h(display(r.after[k]))+'</span></div>').join('')+'</section>':'';
+    const changes=changed.length?'<section class="panel"><h2>Requested changes</h2><div class="diff muted"><b>Field</b><b>Approved</b><b>Proposed</b></div>'+changed.map(k=>'<div class="diff"><span>'+h(captions[k]||k)+'</span><span class="prewrap">'+(k==='portrait'||k==='art'?artwork(r.before?.[k],'Approved artwork')||'—':h(display(r.before?.[k])))+'</span><span class="new prewrap">'+(k==='portrait'||k==='art'?artwork(r.after[k],'Proposed artwork')||'—':h(display(r.after[k])))+'</span></div>').join('')+'</section>':'';
     const judged=r.judgment?'<section class="panel"><h3>Staff judgment</h3><p>'+h(ownerName(r.judgment.judgeId))+'</p><p class="prewrap">'+h(r.judgment.note)+'</p></section>':'';
     const note=r.details?displayGroups(r.kind,r.details):'';
     return breadcrumbs([link('requests','Requests'),h(r.after.name)])+title(r.after.name,(kindNames[r.kind]||'Staff award')+' · Submitted by '+ownerName(r.authorId))+
@@ -217,6 +264,23 @@
       (r.award?'<p class="bpl">+'+h(num(r.award.gain))+' BPL · +'+h(num(r.award.currency))+' '+h(state.currency)+'</p>':'')+'</section></div></div>'+
       (waiting&&state.actor.isJudge?award(r.characterId,r):'');
   }
+  function scopePanel(scope,divider){
+    if(!scope)return '';
+    const items=scope.locations||[],threads=items.filter(c=>[10,11,12].includes(c.type)).length;
+    const missing=items.filter(c=>c.missing?.length);
+    const present=scope.categories.some(c=>c.id===divider);
+    return '<h2>Discord posting coverage</h2><p>Discord connection · <b>'+(scope.online?'Online':'Offline')+'</b></p>'+
+      (divider&&!present?'<p>The saved divider is unavailable. Automatic posting is paused.</p>':'')+
+      '<p>'+h(items.length-threads)+' channels · '+h(threads)+' visible threads'+(scope.scanning?' · Checking archived threads…':'')+'</p>'+
+      (scope.incomplete?'<p>Archived threads could not be fully listed in '+h(scope.incomplete)+' channels.</p>':'')+
+      (missing.length?'<p>'+h(missing.length)+' locations need additional bot permissions. See the list for details.</p>':'')+
+      (items.length?'<details data-location-list><summary>Channel and thread IDs</summary><ul class="scope-list">'+items.map(c=>'<li><strong>'+h(c.name)+'</strong> <code>'+h(c.id)+'</code>'+(c.missing?.length?'<small>Needs '+h(c.missing.join(', '))+'</small>':'')+'</li>').join('')+'</ul></details>':'');
+  }
+  function dividerOptions(scope,id){
+    const values=(scope?.categories||[]).map(c=>[c.id,c.name]);
+    if(id&&!values.some(([v])=>v===id))values.push([id,'Unavailable category · '+id]);
+    return options([['','Use manual channel IDs'],...values],id);
+  }
   function settings(){
     if(!state.actor.isOwner||!state.settings)return missing();
     const s=state.settings.value;
@@ -224,8 +288,9 @@
       field('playerRole','Player role ID',s.playerRole,{wide:true,max:20,hint:'Leave blank to list every current human member. A role filters the directory, including players with no sheets.'})+
       field('judgeRole','Training judge role ID',s.judgeRole,{wide:true,max:20,hint:'Members with this role can submit awards for your approval.'})+
       field('reviewChannel','Fallback review channel ID',s.reviewChannel,{wide:true,max:20,hint:'PhoenixCore DMs you first. If DMs are blocked, it can mention you here. Choose a private channel.'})+
-      field('rpChannels','Roleplay channel IDs',s.rpChannels||'',{area:true,wide:true,max:2200,hint:'One Discord channel or thread ID per line. Character posting operates only in these locations.'})+
-      field('currency','Currency display name',s.currency,{max:32,required:true})+'</div><div class="actions"><button class="primary">Save settings</button></div></form>';
+      '<label class="field wide"><span>Roleplay divider category</span><select name="rpDivider">'+dividerOptions(state.scope,s.rpDivider||'')+'</select><small>Includes channels in categories below this marker and their threads. Discord moves, new channels, and deletions update coverage automatically.</small></label>'+
+      field('rpChannels','Roleplay channel IDs',s.rpChannels||'',{area:true,wide:true,max:2200,hint:'Used when no divider is selected. Enter one Discord channel or thread ID per line.'})+
+      field('currency','Currency display name',s.currency,{max:32,required:true})+'</div><div class="actions"><button class="primary">Save settings</button></div></form><section id="live-scope" class="panel dossier">'+scopePanel(state.scope,s.rpDivider)+'</section>';
   }
   function render(){
     chrome();const view=$('#view');
@@ -244,7 +309,7 @@
     else if(r.startsWith('award-'))view.innerHTML=award(r.slice(6));
     else if(r.startsWith('request-'))view.innerHTML=requestView(r.slice(8));
     else view.innerHTML=missing();
-    filterPlayers();estimate();tierFeedback();
+    filterPlayers();estimate();tierFeedback();syncEditMode($('#submissionForm'));
   }
   function posting(){
     if(!state.actor.isPlayer&&!state.actor.isJudge)return missing();
@@ -254,7 +319,7 @@
       '<div class="two"><div class="stack"><section class="panel"><h2>Character tags</h2><p>With the tag <code>rin</code>, type <code>rin&gt; Your move.</code> to speak as Rin.</p>'+
       (own.length?own.map(c=>'<form class="tag-form actions" data-id="'+h(c.id)+'">'+field('tag',c.sheet.name+'’s tag',prefs.tags.find(t=>t.characterId===c.id)?.tag||'',{max:24,hint:'Letters, numbers, hyphens or underscores. Clear to remove.'})+'<button class="primary">Save tag</button></form>').join(''):'<p>'+link('new','Submit your first character')+'</p>')+
       '</section><section class="panel"><h2>Channel defaults</h2><p>A default lets you type <code>Your move.</code> directly. A different character’s tag overrides it for one post. Start a message with <code>//</code> to speak as yourself.</p>'+
-      (prefs.channels.length&&own.length?'<form id="defaultForm" class="fields"><label class="field">Roleplay channel<select name="channel">'+options(prefs.channels.map(id=>[id,id]),prefs.channels[0])+'</select></label><label class="field">Post as<select name="characterId">'+options([['','My Discord account'],...choices],prefs.defaults.find(d=>d.channel===prefs.channels[0])?.characterId||'')+'</select></label><button class="primary">Save default</button></form>':'<p class="muted">An approved character and an enabled roleplay channel are needed to set a default.</p>')+
+      (prefs.channels.length&&own.length?'<form id="defaultForm" class="fields"><label class="field">Roleplay channel<select name="channel">'+options(prefs.channels.map(id=>[id,state.scope?.locations.find(c=>c.id===id)?.name||id]),prefs.channels[0])+'</select></label><label class="field">Post as<select name="characterId">'+options([['','My Discord account'],...choices],prefs.defaults.find(d=>d.channel===prefs.channels[0])?.characterId||'')+'</select></label><button class="primary">Save default</button></form>':'<p class="muted">An approved character and an enabled roleplay channel are needed to set a default.</p>')+
       (prefs.defaults.length?'<ul>'+prefs.defaults.map(d=>'<li>'+h(d.channel)+' · '+h(own.find(c=>c.id===d.characterId)?.sheet.name||'Unavailable character')+'</li>').join('')+'</ul>':'')+
       '</section></div><aside class="panel"><h3>Posting in Discord</h3><p>Character posts use the approved name and portrait. Replies, attachments and out-of-character messages stay in their original Discord format.</p>'+
       (state.actor.isJudge?'<form id="attributionForm" class="form">'+field('message','Look up a character post','',{max:20,required:true,hint:'Copy the Discord message ID to see the credited writer.'})+'<button class="primary">Look up writer</button><p id="attribution" role="status"></p></form>':'')+'</aside></div>';
@@ -276,12 +341,18 @@
       $('#estimate').textContent='Base Power Level · '+num(c.sheet.bpl)+' → '+num(result.next.bpl)+' · Wallet '+num(result.next.wallet)+' '+state.currency;
     } catch(e) {$('#estimate').textContent=e.message;}
   }
+  document.addEventListener('error',e=>{
+    const preview=e.target.closest?.('[data-media-preview]');
+    if(preview)preview.textContent='This link could not display an image. Paste a direct image link or upload the file.';
+  },true);
   document.addEventListener('input',e=>{
     if(e.target.id==='filter')filterPlayers();
-    if(e.target.form?.id==='submissionForm'){recordDraft();tierFeedback();}
+    if(e.target.form?.id==='submissionForm' && !e.target.matches('[data-media-file]')){recordDraft();tierFeedback();syncEditMode(e.target.form);}
     if(e.target.form?.id==='awardForm')estimate();
   });
   document.addEventListener('change',async e=>{
+    if(e.target.matches('[data-media-file]')){await uploadArt(e.target);return;}
+    if(e.target.matches('[data-media-url]'))e.target.closest('.media-picker').querySelector('[data-media-preview]').innerHTML=artwork(e.target.value.trim(),'Selected artwork');
     if(e.target.id==='persona'&&demo){recordDraft();preview.switchRole(e.target.value);tell('');await load();}
     if(e.target.id==='submissionType'){recordDraft();go(e.target.value==='create'?'new':'new-'+e.target.value);}
     if(e.target.id==='submissionCharacter'){
@@ -296,6 +367,19 @@
   function refreshReview(){
     if(!demo&&session&&!document.hidden&&/^(request|sheet-)/.test(route())&&!$('#awardForm'))void load().catch(e=>tell(e.message,true));
   }
+  async function refreshScope(){
+    if(demo||document.hidden||!session||!$('#live-scope'))return;
+    try{
+      const current=await call('/api/posting/scope');
+      const panel=$('#live-scope');if(!panel)return;
+      const open=panel.querySelector('details')?.open;
+      state.scope=current;panel.innerHTML=scopePanel(current,state.settings.value.rpDivider);
+      if(open&&panel.querySelector('details'))panel.querySelector('details').open=true;
+      const select=$('#settingsForm').elements.rpDivider;
+      if(document.activeElement!==select)select.innerHTML=dividerOptions(current,select.value);
+    }catch{ /* Keep the last confirmed inventory until the next refresh. */ }
+  }
+  window.setInterval(refreshScope,15000);
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
@@ -317,11 +401,12 @@
     if(kind==='award'){data.award=parseAward(fields);return data;}
     if(kind==='edit'||kind==='training'){
       const details=Object.fromEntries(forms.allFields(kind).map(v=>[v.key,fields[v.key]]));
-      data.details=forms.normalize(kind,details);
       for(const k of Object.keys(details))delete fields[k];
-      if(kind==='training')return data;
-      const changed=Object.fromEntries(Object.entries(fields).filter(([k,v])=>v.trim()!==(c.sheet[k]??'')));
-      if(!Object.keys(changed).length)throw Error('Change at least one sheet field for Gabe to review.');
+      if(kind==='training'){data.details=forms.normalize(kind,details);return data;}
+      const changed=changesFor(c,fields), changedKeys=Object.keys(changed);
+      if(!changedKeys.length)throw Error('Change at least one sheet field.');
+      if(changedKeys.length===1&&changedKeys[0]==='tag')data.reason='Updated RP posting tag';
+      else data.details=forms.normalize(kind,details);
       data.fields=forms.normalize('create',changed,true);
     }else data.fields=forms.normalize(kind,fields);
     return data;
@@ -357,6 +442,7 @@
       data.id=f.dataset.key;
       const result=demo?preview.propose(data):await call('/api/requests','POST',data);
       drafts.delete(draftKey(data.kind,f.dataset.id,f.dataset.version));
+      if(data.kind==='edit'&&result.status==='approved'){await load();go('sheet-'+data.characterId);tell('Posting tag saved. You can use it in Discord now.');return;}
       await load();go('request-'+result.id);
       tell(data.kind==='training'?'Training submitted for staff judgment.':demo?'Practice request submitted. Switch to Owner to review.':'Submitted. PhoenixCore will notify Gabe in Discord.');
     }catch(err){tell(err.message,true);$('#notice').scrollIntoView({block:'nearest'});}

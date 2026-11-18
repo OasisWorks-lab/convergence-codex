@@ -6,10 +6,27 @@
   const pick = (key, label, options, extra = {}) => line(key, label, {options, ...extra});
   const section = (title, ...fields) => ({title, fields});
   const required = {required: true};
+  const image = (key, label) => line(key, label, {media:true, max:2048});
+  const tagPattern = /^[a-z0-9][a-z0-9_-]{0,23}$/;
+  function normalizeTag(raw) {
+    if (typeof raw !== 'string') throw Error('Enter a posting tag.');
+    const tag=raw.trim().toLowerCase();
+    if (tag && !tagPattern.test(tag)) throw Error('Use 1–24 letters, numbers, underscores or hyphens for the posting tag. Start with a letter or number.');
+    return tag;
+  }
+  function validImage(value) {
+    if (/^\.\.\/assets\/uploads\/[a-zA-Z0-9_./-]+\.(png|jpe?g|webp|gif)$/i.test(value) && !value.slice(3).includes('..')) return true;
+    try {
+      const url=new URL(value);
+      const localUpload=url.protocol==='http:' && ['localhost','127.0.0.1','[::1]'].includes(url.hostname) && /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp)$/.test(url.pathname);
+      return !url.username && !url.password && (url.protocol==='https:' || localUpload);
+    } catch { return false; }
+  }
   const stats = ['strength', 'speed', 'durability', 'intelligence', 'control'];
   const character = [
     section('History',
       line('name','Character name',{max:64,required:true}), line('alias','Alias'),
+      line('tag','RP posting tag',{max:24,hint:'For example, rin lets you post as Rin with rin> followed by your message.'}),
       pick('characterType','Character type',[['OC','Player character (OC)'],['NPC','Non-player character (NPC)']],{initial:'OC'}),
       prose('bio','Lore / backstory',{max:18000,hint:'Long backstories are welcome. Paragraph breaks are preserved.'}),
       prose('family','Family in RP',{hint:'Known relatives, living or deceased.'}), prose('enemies','Enemies in RP',{hint:'Rivals, grudges or vendettas.'}),
@@ -18,7 +35,7 @@
       line('age','Age'),line('gender','Gender'),line('lineage','Race / lineage',{max:80}),
       line('path','Path'),line('className','Class'),line('height','Height'),line('weight','Weight'),
       prose('personality','Personality & mannerisms',{hint:'Speech, behavior, quirks and emotional tone.'}),
-      line('alignment','Alignment'),line('portrait','Portrait image',{max:500,hint:'A Discord image URL or an image under ../assets/uploads/.'})),
+      line('alignment','Alignment'),image('portrait','Character portrait')),
     section('Strengths, weaknesses & equipment',
       prose('strengths','Personal strengths',{required:true,minLines:3,hint:'Enter at least three distinct personal strengths, one per line. Think beyond racial abilities.'}),
       prose('weaknesses','Personal weaknesses',{required:true,minLines:3,hint:'Enter at least three distinct flaws that affect play, one per line.'}),
@@ -30,14 +47,14 @@
   const technique = [
     section('Basic information',line('name','Technique name',{max:100,...required}),
       pick('techType','Technique type',[['ULT','ULT · Ultimate'],['SUP','SUP · Support'],['SPT','SPT · Special'],['STK','STK · Strike']],required),
-      prose('appearance','Visual / appearance',{hint:'Describe the technique or include a visual link.'})),
+      prose('appearance','Visual / appearance'),image('art','Technique artwork')),
     section('Details',prose('description','Description',{...required,hint:'Explain what it does and any connection to a racial identity.'}),
       prose('requirements','Requirements',{...required,hint:'Include form thresholds, stat gates, Ki types or transformation dependencies.'}),
       prose('drawbacks','Drawbacks',{...required,hint:'Describe the risks, costs and limits.'}))
   ];
   const item = [
     section('Basic information',line('name','Item name',{max:100,...required}),prose('description','Description',required),prose('lore','Lore'),
-      prose('appearance','Appearance',{hint:'Describe its physical form or paste a visual link.'})),
+      prose('appearance','Appearance'),image('art','Item artwork')),
     section('Mechanics',prose('effects','Effects / abilities',{...required,hint:'Include active abilities, passives, utility and any modes.'}),
       prose('drawbacks','Drawbacks / limitations',required)),
     section('Special details',line('energySource','Energy source'),line('itemType','Item type'),
@@ -55,11 +72,11 @@
       prose('history','Race history',{max:12000})),
     section('Cultural information',line('build','Average height / weight'),prose('traditions','Traditions / practices'),prose('religion','Religious views'),
       prose('opposition','Discrimination / opposition'),prose('mannerisms','Common mannerisms'),prose('reproduction','Reproduction / offspring'),
-      prose('appearance','Appearance overview',{hint:'Describe the race or paste an image or GIF link.'}))
+      prose('appearance','Appearance overview'),image('art','Race artwork'))
   ];
   const transformation = [
     section('Basic information',line('name','Form name',{max:100,...required}),line('lineage','Associated race / universal path'),
-      prose('appearance','Visual appearance',required),prose('aura','Aura / FX details')),
+      prose('appearance','Visual appearance',required),image('art','Transformation artwork'),prose('aura','Aura / FX details')),
     section('Description',prose('description','What the form means',{...required,max:6000,hint:'Describe what entering this form feels like and how it fits the character’s journey or race.'})),
     section('Mechanics',prose('requirements','Requirements',required),prose('drawbacks','Drawbacks',required),
       line('multiplier','Multiplier',{...required,hint:'Enter the proposed multiplier and any condition that changes it.'}),prose('effects','Additional effects'))
@@ -101,15 +118,8 @@
         if (distinct.size!==entries.length || entries.length<(f.minLines||1) || entries.length>(f.maxLines||Infinity)) throw Error(f.label+' needs '+(f.minLines?'at least '+f.minLines:'up to '+f.maxLines)+' distinct entries, one per line.');
       }
       if (f.key==='scene' && value && !/^https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\/?$/.test(value)) throw Error('Use a Discord message link for the training scene.');
-      if (f.key==='portrait' && value) {
-        let allowed=/^\.\.\/assets\/uploads\/[a-zA-Z0-9_./-]+\.(png|jpe?g|webp|gif)$/i.test(value) && !value.slice(3).includes('..');
-        try {
-          const url=new URL(value);
-          allowed ||= url.protocol==='https:' && !url.username && !url.password && !url.port && ['cdn.discordapp.com','media.discordapp.net'].includes(url.hostname);
-        } catch { /* Local Codex artwork is a relative path. */ }
-        if(!allowed) throw Error('Use a Discord image URL or an image under ../assets/uploads/.');
-      }
-      output[f.key]=value;
+      if (f.media && value && !validImage(value)) throw Error('Use an HTTPS image or GIF link, or upload an image.');
+      output[f.key]=f.key==='tag'?normalizeTag(value):value;
     }
     return output;
   }
@@ -159,7 +169,7 @@
     assert(gain > 0n || BigInt(currency) > 0n || gear.length || awards.length, 'The award must change the sheet after whole-point rounding.');
     return { next, award: { percent, gain: String(gain), currency, gear,...(points!=='0'?{points}:{}),...(awards.length?{stats:awards}:{}) } };
   }
-  const api={calculateAward,forms,allFields,normalize,catalogue,tiers,stats};
+  const api={normalizeTag,validImage,calculateAward,forms,allFields,normalize,catalogue,tiers,stats};
   if(typeof module==='object' && module.exports) module.exports=api;
   else globalThis.PhoenixForms=api;
 })();
