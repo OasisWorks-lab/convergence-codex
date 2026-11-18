@@ -87,7 +87,7 @@ export async function racePaths(q:Query){
   const list=(text:string)=>[...new Set(text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean))];
   const races=baseline.races.map((r:any)=>{
     const key='races/'+r.slug,published=changes.get(key)||{};
-    const paths=r.paths.map((p:any,i:number)=>changes.get(key+'/paths/'+i)?.name||p.name);
+    const paths=r.paths.flatMap((p:any,i:number)=>p.classification==='foundational'?[]:[changes.get(key+'/paths/'+i)?.name||p.name]);
     return {id:r.slug,name:published.name||r.name,paths:published.playablePaths===undefined?paths:list(published.playablePaths)};
   });
   for(const design of await q("SELECT id,fields FROM pc_designs WHERE kind='race' ORDER BY id")){

@@ -267,7 +267,16 @@ export async function decide(db:Store,reviewer:string,ownerId:string,id:string,a
     const final=['approved','declined'].includes(target);
     const rows=await q('UPDATE pc_requests SET status=$1,decided_by=$2,decided_ms=$3,notified=0,notify_after=0,attempts=0,last_notify_error=NULL WHERE id=$4 RETURNING *',[target,final?reviewer:null,final?Date.now():null,id]);
     const r=rows[0];
-    if (target==='approved' && !isDesign(r.kind)) {
+    if(target==='approved'&&['create','edit'].includes(r.kind)){
+      const next=JSON.parse(r.after_sheet),before=r.before_sheet?JSON.parse(r.before_sheet):{};
+      if(next.path&&(next.path!==before.path||next.lineage!==before.lineage)){
+        const race=(await racePaths(q)).find((race:any)=>race.name===next.lineage);
+        if(!race?.paths.includes(next.path)){
+          await q("UPDATE pc_requests SET status='stale' WHERE id=$1",[id]);r.status='stale';
+        }
+      }
+    }
+    if (r.status==='approved' && !isDesign(r.kind)) {
       const after=JSON.parse(r.after_sheet), before=r.before_sheet?JSON.parse(r.before_sheet):null;
       const writesTag=Object.hasOwn(after,'tag');
       const tag=after.tag;

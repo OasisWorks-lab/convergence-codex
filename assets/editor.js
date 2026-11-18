@@ -38,7 +38,7 @@
   }
   function show(record){
     current=record;inputs.replaceChildren();feedback.textContent='';
-    for(const key of model.groupFields[record.kind])inputs.append(field(key,key==='playablePaths'&&record.obj[key]===undefined?(record.obj.paths||[]).map(p=>p.name).join('\n'):record.obj[key]));
+    for(const key of model.groupFields[record.kind])inputs.append(field(key,key==='playablePaths'&&record.obj[key]===undefined?(record.obj.paths||[]).filter(p=>p.classification!=='foundational').map(p=>p.name).join('\n'):record.obj[key]));
     original=Object.fromEntries(new FormData(form));
     if(record.isNew)inputs.querySelector('[name="name"]')?.focus();
   }

@@ -54,10 +54,13 @@ test('Discord templates are scoped, attributed, retriable and completable withou
   assert.equal(await captureNative(db,config,{...source,guild:'120000000000000099'}),undefined);
   assert.equal(await captureNative(db,config,{...source,bot:true}),undefined);
   assert.equal(await captureNative(db,config,{...source,content:'Nice move!'}),undefined);
+  const original=await captureNative(db,config,{...source,channel:defaultSettings.characterChannel,id:'120000000000000089',content:'Name/Alias: Rin / Courier\nRace / Path / Class: Saiyan / Divine Path / Runner\nHeight & Weight: Six feet / 170 lbs'});
+  const [originalRow]=await db.query('SELECT input FROM pc_native WHERE id=$1',[original!]);const entry=JSON.parse(originalRow.input).fields;
+  assert.equal(entry.name,'Rin');assert.equal(entry.alias,'Courier');assert.equal(entry.path,'Divine Path');assert.equal(entry.weight,'170 lbs');
   const id=await captureNative(db,config,source);assert.ok(id);assert.equal(await captureNative(db,config,source),id);
   let [row]=await db.query('SELECT * FROM pc_requests WHERE id=$1',[id]);assert.equal(row.status,'pending');assert.equal(row.author_id,author);assert.equal(JSON.parse(row.after_sheet).name,'Feather Step');
   await decide(db,helper,config.owner,id,true,roles);await deleteArchived(db,owner,id);
-  assert.equal(await captureNative(db,config,source),id);assert.equal((await db.query('SELECT * FROM pc_requests')).length,0);assert.equal((await db.query('SELECT * FROM pc_designs')).length,1);
+  assert.equal(await captureNative(db,config,source),id);assert.equal((await db.query('SELECT * FROM pc_requests WHERE id=$1',[id])).length,0);assert.equal((await db.query('SELECT * FROM pc_designs')).length,1);
   const partial=await captureNative(db,config,{...source,id:'120000000000000002',content:'pc!submit technique\nTechnique Name: Quiet Step'});
   [row]=await db.query('SELECT * FROM pc_requests WHERE id=$1',[partial!]);assert.equal(row.status,'needs_details');
   await assert.rejects(decide(db,helper,config.owner,partial!,true,roles),/Complete/);

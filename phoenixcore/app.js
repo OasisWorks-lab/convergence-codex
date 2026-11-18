@@ -185,7 +185,7 @@ function formList(raw){
     return '<div class="attained-row media-picker" data-form-id="'+h(f.id)+'"><label>Form name<input data-form-name maxlength="100" value="'+h(f.name)+'" required></label>'+
       '<label>Form portrait URL<input data-media-url maxlength="2048" value="'+h(f.portrait)+'"></label><label>Upload form portrait<input type="file" data-media-file accept="image/png,image/jpeg,image/webp,image/gif"></label>'+
       '<label>Power Level multiplier<input data-multiplier value="'+h(f.multiplier||'')+'" placeholder="e.g. 2.5" maxlength="13"></label><details><summary>Form stat adjustments</summary>'+traits.map(k=>'<label>'+h(label[k])+'<input data-modifier="'+k+'" maxlength="20" placeholder="+2 or x1.5" value="'+h(f.modifiers?.[k]||'')+'"></label>').join('')+'</details>'+
-      '<div data-media-preview>'+artwork(f.portrait,f.name)+'</div><small data-upload-status role="status"></small><button type="button" data-remove-form>Remove form</button></div>';
+      '<div data-media-preview>'+artwork(f.portrait,f.name)+'</div><small data-upload-status role="status"></small><div class="actions"><button type="button" data-move-form="up">Move earlier</button><button type="button" data-move-form="down">Move later</button><button type="button" data-remove-form>Remove form</button></div></div>';
   }
   function formPicker(value,lineage){
     let rows=[];try{rows=JSON.parse(value||'[]');}catch{}
@@ -204,7 +204,7 @@ function formList(raw){
     hidden.value=rows.length?JSON.stringify(rows):'';
   }
   function currentRaces(){
-    return state.races||[...window.CONVERGENCE_DATA.races.map(r=>({id:r.slug,name:r.name,paths:r.playablePaths===undefined?r.paths.map(p=>p.name):r.playablePaths.split(/\r?\n/).filter(Boolean)})),...(state.catalogue||[]).filter(d=>d.kind==='race').map(d=>({id:d.id,name:d.fields.name,paths:(d.fields.paths||'').split(/\r?\n/).filter(Boolean)}))];
+    return state.races||[...window.CONVERGENCE_DATA.races.map(r=>({id:r.slug,name:r.name,paths:r.playablePaths===undefined?r.paths.filter(p=>p.classification!=='foundational').map(p=>p.name):r.playablePaths.split(/\r?\n/).filter(Boolean)})),...(state.catalogue||[]).filter(d=>d.kind==='race').map(d=>({id:d.id,name:d.fields.name,paths:(d.fields.paths||'').split(/\r?\n/).filter(Boolean)}))];
   }
   function pathChoices(race,selected='',legacy=''){
     const paths=[...new Set([...(currentRaces().find(r=>r.name===race)?.paths||[]),...(legacy?[legacy]:[])])];
@@ -540,6 +540,12 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const move=e.target.closest('[data-move-form]');
+    if(move){
+      const row=move.closest('.attained-row'),parent=row.parentElement,up=move.dataset.moveForm==='up',sibling=up?row.previousElementSibling:row.nextElementSibling;
+      if(sibling){if(up)parent.insertBefore(row,sibling);else parent.insertBefore(sibling,row);syncForms(move.form);recordDraft();syncEditMode(move.form);}
+      return;
+    }
     const add=e.target.closest('[data-add-form]'),remove=e.target.closest('[data-remove-form]');
     if(add||remove){
       const f=(add||remove).form;

@@ -7,7 +7,7 @@ import type {Config} from './discord.ts';
 
 const clean=(s:string)=>s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 const kinds:Record<string,string>={oc:'create',npc:'create',character:'create','new character':'create','oc npc template':'create',technique:'technique',item:'item',race:'race',form:'transformation',transformation:'transformation','oc update':'edit','character update':'edit',update:'edit',training:'training'};
-const aliases:Record<string,string>={'name alias':'name','lore backstory':'bio','family irp':'family','enemies irp':'enemies','race path class':'lineage','strengths 3 required':'strengths','weaknesses 3 required':'weaknesses','strengths':'strengths','weaknesses':'weaknesses','type':'techType','visual appearance':'appearance','effects abilities':'effects','form name':'name','technique name':'name','item name':'name','race name':'name','final pl stat increase claimed':'claimed','training goal s':'goals','approval request':'approval','reason for update':'reason','occupation role':'occupation','description':'description','bpl':'bpl','character name':'name','portrait':'portrait','path':'path'};
+const aliases:Record<string,string>={'name alias':'nameAlias','lore backstory':'bio','family irp':'family','enemies irp':'enemies','race path class':'ancestry','height weight':'dimensions','strengths 3 required':'strengths','weaknesses 3 required':'weaknesses','strengths':'strengths','weaknesses':'weaknesses','type':'techType','visual appearance':'appearance','effects abilities':'effects','form name':'name','technique name':'name','item name':'name','race name':'name','final pl stat increase claimed':'claimed','training goal s':'goals','approval request':'approval','reason for update':'reason','occupation role':'occupation','description':'description','bpl':'bpl','character name':'name','portrait':'portrait','path':'path'};
 type Source={id:string;channel:string;parent?:string;guild:string;author:string;roles:string[];content:string;title?:string;attachments?:any[];bot?:boolean;reply?:boolean};
 function identifier(id:string){
   const hex=createHash('sha256').update('phoenixcore:discord:'+id).digest('hex');
@@ -39,8 +39,12 @@ export function parseNative(raw:string,channelKind:string,title='',explicit=fals
     if(active)values[active]+='\n'+line;
   }
   if(!labels&&!type&&!explicit&&!title)return;
-  if(!kind||(!explicit&&!type&&labels<2&&!title))return;
+  if(!kind||(!explicit&&!type&&labels<2&&!title&&!values.name&&!values.nameAlias))return;
   for(const k of Object.keys(values))values[k]=values[k].trim();
+  for(const [combined,targets] of [['nameAlias',['name','alias']],['ancestry',['lineage','path','className']],['dimensions',['height','weight']]] as const){
+    if(!values[combined])continue;
+    const parts=values[combined].split(/\s*[|/]\s*/);targets.forEach((target,i)=>{if(parts[i]&&!values[target])values[target]=parts[i];});delete values[combined];
+  }
   if(kind==='technique'&&values.techType)values.techType=values.techType.split(/\s|[|–-]/)[0].toUpperCase();
   return {kind,values};
 }
@@ -60,6 +64,7 @@ export async function captureNative(db:Store,config:Config,src:Source,chosenKind
   const id=identifier(src.id);
   if((await db.query('SELECT id FROM pc_native WHERE id=$1 UNION ALL SELECT id FROM pc_deleted_requests WHERE id=$1',[id])).length)return id;
   const {kind,values}=parsed;
+  const needsFormPicker=!!values.attainedForms;delete values.attainedForms;
   const files=(src.attachments||[]).slice(0,10).filter(a=>{try{const url=new URL(a.url);return url.protocol==='https:'&&['cdn.discordapp.com','media.discordapp.net'].includes(url.hostname)&&url.pathname.startsWith('/attachments/');}catch{return false;}});
   const image=files.find(a=>/^image\/(png|jpeg|gif|webp)$/.test(a.contentType||a.content_type||'')&&a.size<=maxImageBytes);
   if(image){
@@ -91,7 +96,7 @@ export async function captureNative(db:Store,config:Config,src:Source,chosenKind
     await q("INSERT INTO pc_requests(id,fingerprint,kind,character_id,owner_id,author_id,base_revision,after_sheet,reason,status,created_ms) VALUES($1,$2,$3,$4,$5,$5,0,$6,$7,'needs_details',$8)",[id,'discord:'+src.id,kind,input.characterId||id,src.author,JSON.stringify(after),input.reason,Date.now()]);
     await q('INSERT INTO pc_review_posts(request_id) VALUES($1)',[id]);return true;
   });
-  if(added){
+  if(added&&!needsFormPicker){
     try{await propose(db,who,input,new Set([who.id]),config.service,true);}catch(e){if(!(e instanceof Problem))throw e;}
   }
   return id;
