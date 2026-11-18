@@ -1,3 +1,4 @@
+from base64 import b64decode
 from pathlib import Path
 from os import environ
 from playwright.sync_api import expect, sync_playwright
@@ -140,6 +141,23 @@ with sync_playwright() as p:
     page.get_by_label("Post as").select_option(label="Rin")
     page.get_by_role("button",name="Save default").click()
     expect(page.get_by_label("Post as")).to_have_value("42cd18dc-4684-45fc-8817-e1c79ad1a9ee")
+    page.goto(base+"#edit-42cd18dc-4684-45fc-8817-e1c79ad1a9ee")
+    page.get_by_label("RP posting tag",exact=False).fill("courier")
+    page.get_by_role("button",name="Save posting tag").click()
+    expect(page.get_by_text("courier>",exact=True)).to_be_visible()
+    page.get_by_role("link",name="Propose edit").click()
+    page.get_by_label("RP posting tag",exact=False).fill("courier2")
+    gif=b64decode("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")
+    page.get_by_label("Upload character portrait").set_input_files({"name":"portrait.gif","mimeType":"image/gif","buffer":gif})
+    expect(page.get_by_text("Image ready to submit.")).to_be_visible()
+    page.get_by_label("Updated description").fill("A new portrait and tag.")
+    page.get_by_label("Approval requested").fill("Approve both changes.")
+    page.get_by_label("Reason for update").fill("A new chapter.")
+    page.get_by_role("button",name="Send for approval").click()
+    expect(page.locator(".status")).to_have_text("Pending")
+    expect(page.get_by_alt_text("Proposed artwork")).to_be_visible()
+    page.get_by_role("link",name="View approved sheet").click()
+    expect(page.get_by_text("courier>",exact=True)).to_be_visible()
     phone=browser.new_page(viewport={"width":375,"height":812},device_scale_factor=1)
     phone.goto(base)
     phone.locator("#players .person").first.wait_for()

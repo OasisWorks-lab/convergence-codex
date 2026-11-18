@@ -107,7 +107,7 @@ export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config) {
   return {content:'<@'+c.owner+'> '+(waiting?'A training claim is waiting for staff judgment.':'A submission is ready for your decision.'),
     allowed_mentions:{parse:[],users:[c.owner]},nonce:createHash('sha256').update(r.id+':'+r.status).digest('hex').slice(0,24),enforce_nonce:true,
     embeds:[{title:type+' · '+brief(r.after.name,70),description:lines.join('\n').slice(0,2700)||'The full claim is available in PhoenixCore.',
-      color:0xea875b,fields,footer:{text:'Open the full request for complete values and history.'}}],
+      color:0xea875b,fields,...((r.after.portrait||r.after.art)?{thumbnail:{url:new URL(r.after.portrait||r.after.art,c.dashboard).href}}:{}),footer:{text:'Open the full request for complete values and history.'}}],
     components:[{type:1,components:buttons}]};
 }
 

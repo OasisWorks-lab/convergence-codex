@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-export type Params = (string | number | null)[];
+export type Params = (string | number | Uint8Array | null)[];
 export type Row = Record<string, any>;
 export type Query = (sql: string, values?: Params) => Promise<Row[]>;
 export interface Store {
@@ -71,7 +71,7 @@ export async function openPostgres(url: string): Promise<Store> {
   };
 }
 
-export const defaultSettings = { playerRole: '', judgeRole: '', reviewChannel: '', currency: 'Credits', rpChannels: '' };
+export const defaultSettings = { playerRole: '', judgeRole: '', reviewChannel: '', currency: 'Credits', rpChannels: '', rpDivider: '' };
 const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_config (slot INTEGER PRIMARY KEY, guild_id TEXT NOT NULL, revision INTEGER NOT NULL, value TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_settings_history (revision INTEGER PRIMARY KEY, actor TEXT NOT NULL, old_value TEXT NOT NULL, new_value TEXT NOT NULL, at_ms BIGINT NOT NULL)',
@@ -86,6 +86,8 @@ const ddl = [
     attempts INTEGER NOT NULL DEFAULT 0, last_notify_error TEXT)`,
   'CREATE INDEX IF NOT EXISTS pc_requests_delivery ON pc_requests(status,notified,notify_after)',
   'CREATE TABLE IF NOT EXISTS pc_post_tags (owner_id TEXT NOT NULL, tag TEXT NOT NULL, character_id TEXT NOT NULL UNIQUE, PRIMARY KEY(owner_id,tag))',
+  'CREATE TABLE IF NOT EXISTS pc_images (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, mime TEXT NOT NULL, bytes BYTEA NOT NULL, size INTEGER NOT NULL, attached INTEGER NOT NULL DEFAULT 0, created_ms BIGINT NOT NULL)',
+  'CREATE INDEX IF NOT EXISTS pc_images_staging ON pc_images(owner_id,attached,created_ms)',
   'CREATE TABLE IF NOT EXISTS pc_post_defaults (owner_id TEXT NOT NULL, channel_id TEXT NOT NULL, character_id TEXT NOT NULL, PRIMARY KEY(owner_id,channel_id))',
   'CREATE TABLE IF NOT EXISTS pc_posts (source_id TEXT PRIMARY KEY, posted_id TEXT UNIQUE, channel_id TEXT NOT NULL, author_id TEXT NOT NULL, character_id TEXT NOT NULL, character_name TEXT NOT NULL, created_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_auth_state (id TEXT PRIMARY KEY, binding TEXT NOT NULL, challenge TEXT NOT NULL, expires BIGINT NOT NULL)',

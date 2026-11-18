@@ -6,6 +6,8 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openSqlite, openPostgres, initialize, type Store } from './db.ts';
 import { judgeTraining, actorFor, discordId, Problem, requireThat, readSettings, saveSettings, propose, visibleRequest } from './domain.ts';
+import { mediaPath, maxImageBytes, saveImage } from './media.ts';
+import { RoleplayScope } from './scope.ts';
 import { preferences, savePosting, lookupAuthor, startPosting } from './posting.ts';
 import { Discord, DiscordFailure, deliverNext, checkSignature, handleInteraction, type Config } from './discord.ts';
 
@@ -41,12 +43,12 @@ function json(res:ServerResponse,status:number,body:any) {
   res.writeHead(status,{'content-type':'application/json; charset=utf-8'});
   res.end(JSON.stringify(body));
 }
-async function rawBody(req:IncomingMessage) {
+async function rawBody(req:IncomingMessage, limit=384000) {
   const parts:Buffer[]=[];
   let length=0;
   for await (const part of req) {
     length+=part.length;
-    requireThat(length<=384000,413,'Submission is too large.');
+    requireThat(length<=limit,413,'Submission is too large.');
     parts.push(part);
   }
   return Buffer.concat(parts);
@@ -61,7 +63,7 @@ function redirect(res:ServerResponse,location:string) {
   res.writeHead(302,{location});res.end();
 }
 
-export function application(db:Store, config:Config, discord=new Discord(config)) {
+export function application(db:Store, config:Config, discord=new Discord(config), scope=new RoleplayScope(config.guild)) {
   const uiOrigin=new URL(config.dashboard).origin;
   const cookieName='pc_login';
   const cookieFlags='; Path=/auth; HttpOnly; SameSite=Lax'+(config.service.startsWith('https:')?'; Secure':'');
@@ -87,8 +89,16 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         }
         if(method==='POST') {
           requireThat(origin===uiOrigin,403,'Open the configured Codex dashboard.');
-          requireThat(req.headers['content-type']?.split(';')[0]==='application/json',415,'Use JSON.');
+          if(path==='/api/media') requireThat(['image/png','image/jpeg','image/gif','image/webp','application/octet-stream'].includes(req.headers['content-type']?.split(';')[0]||''),415,'Choose a PNG, JPEG, WebP or GIF file.');
+          else requireThat(req.headers['content-type']?.split(';')[0]==='application/json',415,'Use JSON.');
         }
+      }
+      const media=mediaPath.exec(path);
+      if(media && (method==='GET'||method==='HEAD')){
+        const [image]=await db.query('SELECT bytes,mime,size FROM pc_images WHERE id=$1',[media[1]]);
+        requireThat(image,404,'Image unavailable.');
+        res.writeHead(200,{'content-type':image.mime,'content-length':image.size,'cache-control':'public, max-age=86400, immutable','content-security-policy':"default-src 'none'; sandbox"});
+        res.end(method==='HEAD'?undefined:Buffer.from(image.bytes));return;
       }
       if (method==='GET' && path==='/health') {json(res,200,{ok:true});return;}
       if (method==='GET' && (path==='/'||path==='/phoenixcore')) {redirect(res,'/phoenixcore/');return;}
@@ -158,11 +168,21 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       }
       const [member,settings]=await Promise.all([discord.member(session.user_id),readSettings(db)]);
       const actor=actorFor(session.user_id,member.roles,config.owner,settings.value);
+      if(method==='POST' && path==='/api/media'){
+        requireThat(actor.isPlayer,403,'Only Convergence players can upload submission artwork.');
+        const image=await saveImage(db,actor.id,await rawBody(req,maxImageBytes),config.service);
+        json(res,201,{url:image});return;
+      }
+      if(method==='GET' && path==='/api/posting/scope'){
+        json(res,200,await scope.inventory(settings.value,actor));return;
+      }
       if (method==='POST' && path==='/api/settings') {
         await saveSettings(db,actor,parse(await rawBody(req)));json(res,200,{ok:true});return;
       }
       if(method==='POST' && path==='/api/posting'){
-        await savePosting(db,actor,parse(await rawBody(req)));json(res,200,{ok:true});return;
+        const input=parse(await rawBody(req));
+        const coverage=input?.kind==='default' && settings.value.rpDivider?{divider:settings.value.rpDivider,channels:(await scope.inventory(settings.value,actor)).locations.map(c=>c.id)}:undefined;
+        await savePosting(db,actor,input,coverage);json(res,200,{ok:true});return;
       }
       if(method==='GET' && path.startsWith('/api/posting/lookup/')){
         json(res,200,await lookupAuthor(db,actor,path.slice('/api/posting/lookup/'.length)));return;
@@ -170,7 +190,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       const roster=(await discord.members()).filter(m=>!settings.value.playerRole||m.roles.includes(settings.value.playerRole));
       const active=new Set(roster.map(m=>m.user.id));
       if (method==='POST' && path==='/api/requests') {
-        const r=await propose(db,actor,parse(await rawBody(req)),active);
+        const r=await propose(db,actor,parse(await rawBody(req)),active,config.service);
         json(res,200,{id:r.id,status:r.status});return;
       }
       const judgment=/^\/api\/requests\/([\da-f-]{36})\/judgment$/.exec(path);
@@ -179,16 +199,17 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         json(res,200,{id:r.id,status:r.status});return;
       }
       requireThat(method==='GET' && path==='/api/state',404,'Unknown route.');
+      const inventory=await scope.inventory(settings.value,actor);
       const [sheets,requests,designs,posting]=await Promise.all([
-        db.query('SELECT * FROM pc_characters ORDER BY id'),
+        db.query('SELECT c.*,t.tag FROM pc_characters c LEFT JOIN pc_post_tags t ON c.id=t.character_id AND c.owner_id=t.owner_id ORDER BY c.id'),
         db.query(actor.isOwner?'SELECT * FROM pc_requests ORDER BY created_ms DESC,id':
           "SELECT * FROM pc_requests WHERE author_id=$1 OR owner_id=$1 OR (kind='training' AND $2=1) ORDER BY created_ms DESC,id",actor.isOwner?[]:[actor.id,actor.isJudge?1:0]),
         db.query("SELECT id,kind,after_sheet,author_id FROM pc_requests WHERE status='approved' AND kind IN ('technique','item','race','transformation') ORDER BY created_ms DESC,id"),
-        actor.isPlayer?preferences(db,actor,settings.value):null
+        actor.isPlayer?preferences(db,actor,settings.value,inventory.locations.map(c=>c.id)):null
       ]);
       json(res,200,{actor,players:roster.map(m=>({id:m.user.id,username:m.user.username,display:m.nick||m.user.global_name||m.user.username})),
-        characters:sheets.filter(s=>active.has(s.owner_id)).map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,sheet:JSON.parse(s.sheet)})),
-        posting,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(visibleRequest),currency:settings.value.currency,settings:actor.isOwner?settings:null});
+        characters:sheets.filter(s=>active.has(s.owner_id)).map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',sheet:JSON.parse(s.sheet)})),
+        posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(visibleRequest),currency:settings.value.currency,settings:actor.isOwner?settings:null});
     } catch(e) {
       if (res.headersSent) {res.end();return;}
       if (e instanceof Problem) json(res,e.status,{error:e.message});
@@ -203,8 +224,19 @@ async function start() {
   const db=process.env.DATABASE_URL ? await openPostgres(process.env.DATABASE_URL) : openSqlite(process.env.SQLITE_FILE||resolve(homedir(),'.phoenixcore','convergence.sqlite'));
   await initialize(db,config.guild);
   const discord=new Discord(config);
-  const stopPosting=process.env.DISCORD_RP_ENABLED==='true'?await startPosting(db,config):null;
-  const server=application(db,config,discord);
+  const scope=new RoleplayScope(config.guild);
+  const server=application(db,config,discord,scope);
+  let stopPosting:(()=>unknown)|undefined, retry:ReturnType<typeof setTimeout>|undefined, stopping=false;
+  async function connect(){
+    try {
+      const stop=await startPosting(db,config,scope);
+      if(stopping)stop();else stopPosting=stop;
+    }catch{
+      console.warn('Discord RP connection failed. Check the bot token and Message Content Intent. Retrying in one minute.');
+      if(!stopping)retry=setTimeout(connect,60000);
+    }
+  }
+  if(process.env.DISCORD_RP_ENABLED==='true')void connect();
   let working=false;
   async function tick() {
     if(working) return;
@@ -215,7 +247,8 @@ async function start() {
   }
   const notify=setInterval(tick,4000);
   const cleanup=setInterval(async()=>{
-    try {for(const table of ['pc_sessions','pc_auth_state','pc_exchanges']) await db.query('DELETE FROM '+table+' WHERE expires<=$1',[Date.now()]);}
+    try {await db.query('DELETE FROM pc_images WHERE attached=0 AND created_ms<$1',[Date.now()-86400000]);
+      for(const table of ['pc_sessions','pc_auth_state','pc_exchanges']) await db.query('DELETE FROM '+table+' WHERE expires<=$1',[Date.now()]);}
     catch {console.error('Expired login cleanup will retry.');}
   },3600000);
   const port=Number(process.env.PORT || process.env.SERVER_PORT || 4100);
@@ -224,7 +257,7 @@ async function start() {
     console.log('PhoenixCore is listening on port',typeof address==='object' && address ? address.port : port);
     void tick();
   });
-  const stop=()=>{if(stopPosting)void stopPosting();clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
+  const stop=()=>{stopping=true;clearTimeout(retry);if(stopPosting)void stopPosting();clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
   process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 export function main() {
