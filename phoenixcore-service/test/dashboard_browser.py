@@ -75,7 +75,8 @@ with sync_playwright() as p:
     page.get_by_label("Character name").fill("Akira")
     page.get_by_label("Race / lineage",exact=True).select_option(label="Saiyan")
     paths=page.get_by_label("Path",exact=True)
-    assert paths.locator("option").count()>1
+    expect(paths).to_be_visible()
+    expect(paths.locator("option").nth(1)).to_be_attached()
     path_name=paths.locator("option").nth(1).inner_text()
     paths.select_option(label=path_name)
     page.get_by_label("Race / lineage",exact=True).select_option(label="Other lineage…")

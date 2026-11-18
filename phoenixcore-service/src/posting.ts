@@ -101,6 +101,7 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
     if(!guild)return;
     try{
       const {value}=await readSettings(db);
+      const helper=value.judgeRole?await guild.roles.fetch(value.judgeRole).catch(()=>null):null;
       const checks=[['Character submissions',value.characterChannel],['Design submissions',value.designChannel],['OC updates',value.updatesForum]];
       for(const [label,id] of checks){
         try{
@@ -111,6 +112,7 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
           if(!target.isThread())needed.push(flags.SendMessages);
           if(forumType(target.type)||target.isThread())needed.push(flags.SendMessagesInThreads);
           const missing=target.permissionsFor(ready.user)?.missing(needed)??['ViewChannel'];
+          if(value.judgeRole && (!helper||!helper.mentionable&&!target.permissionsFor(ready.user)?.has(flags.MentionEveryone)))console.warn(label+' '+id+' needs a mentionable Helper role or permission for PhoenixCore to mention roles.');
           if(missing.length)console.warn(label+' '+id+' missing bot permissions: '+missing.join(', '));
           else console.log(label+' '+id+' ready ('+(forumType(target.type)?'forum':target.isThread()?'thread':'text channel')+').');
         }catch{console.warn(label+' '+id+' is unavailable or has an unsupported channel type.');}

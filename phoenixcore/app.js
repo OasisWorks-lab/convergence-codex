@@ -211,7 +211,11 @@ function formList(raw){
     return options([['',paths.length?'Choose a path…':'No paths listed'],...paths.map(p=>[p,p])],selected);
   }
   function refreshChoices(f){
-    if(f?.elements.path){const c=state.characters.find(c=>c.id===f.dataset.id),legacy=c?.sheet.lineage===f.elements.lineage.value?c.sheet.path:'';f.elements.path.innerHTML=pathChoices(f.elements.lineage.value,f.elements.path.value,legacy);}
+    const path=f?.elements.namedItem('path'),lineage=f?.elements.namedItem('lineage')?.value;
+    if(path){
+      const sheet=state.characters.find(c=>c.id===f.dataset.id)?.sheet;
+      path.innerHTML=pathChoices(lineage,path.value,sheet&&sheet.lineage===lineage?sheet.path:'');
+    }
     const picker=f?.querySelector('[data-form-choice]');if(picker)picker.innerHTML=formChoices(f.elements.lineage.value);
   }
 
@@ -219,7 +223,7 @@ function formList(raw){
     const val=values[f.key]??(editing?'':f.initial||'');
     const req=f.required && !editing;
     if(f.key==='attainedForms')return formPicker(val,values.lineage);
-    if(f.key==='path')return '<label class="field">Path<select name="path">'+pathChoices(values.lineage,val,editing?val:'')+'</select></label>';
+    if(f.key==='path')return '<label class="field">Path<select name="path" aria-label="Path">'+pathChoices(values.lineage,val,editing?val:'')+'</select></label>';
     if(f.key==='lineage'){
       const races=[...new Set([...currentRaces().map(r=>r.name),...(val?[val]:[])])].sort();
       return '<label class="field">Race / lineage<select data-lineage aria-label="Race / lineage">'+options([['','Choose…'],...races.map(n=>[n,n]),['__custom','Other lineage…']],val)+'</select></label><label class="field" data-custom-lineage hidden>Custom lineage<input name="lineage" maxlength="80" value="'+h(val)+'"></label>';
