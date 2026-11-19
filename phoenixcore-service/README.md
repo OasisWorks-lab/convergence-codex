@@ -125,3 +125,17 @@ Set the Helper role and notification text in **Bot settings**. The notification 
 New player-authored template posts in the configured review channels and the writer’s OC Updates thread appear under **Requests**. A complete template enters normal review. Select **Complete Discord submission** to finish an incomplete template from its original text. Writers can also start a post with `pc!submit item` (or another submission type). For an existing post use Discord’s message **Apps → Catalog submission** and choose its template. This preserves the writer, source link, text and available attachments.
 
 The Owner role can change **Selectable character paths** in race Edit Mode. The bot owner with that role can also manage paths together in **Bot settings → Character paths by race**. Set a server nickname and command prefixes in **Bot settings**. Use **Discord embeds** to preview and save guidelines or welcome drafts, then choose **Publish to Discord** to post to a text channel or thread. Publishing to the same channel updates the existing message.
+
+
+## NPC roleplay in Discord
+
+Choose **Directory → NPC catalog** on the dashboard to see approved NPC sheets. King Azurik is seeded once on the configured owner’s profile. His portrait, personality, history, techniques and base Power Level can be changed through the existing character update workflow. Removing him from the directory retires him from future scenes. The reboot begins with every Chronicle and Saga unplayed.
+
+1. In an enabled Convergence roleplay channel or a forum post, enter `/roleplay-start`, choose **King Azurik**, and select **Audience** or **Training spar**. Each channel or thread hosts its own scene.
+2. Additional writers choose **Join scene**. On your turn, post one or more in-character messages and choose **Finish turn**. **Write turn** opens a private input and publishes the submitted roleplay to the scene. **Pass turn** advances the order. The initiator and Discord administrators can also pass an absent writer.
+3. After all writers finish, the NPC responds once. In a spar, try asking Azurik to show his form, taking a practice strike, and asking him to stand down. His attained Grade 4 form uses the current Codex multiplier. Scene form and PL are local to that encounter. Staff adjudicate lasting injuries, rewards and sheet changes.
+4. Use `/roleplay-status` to reopen controls and see the current form, Power Level and turn order. The initiator or a Discord administrator can use `/roleplay-cancel`. A running scene resumes after a bot restart.
+
+Keep `DISCORD_RP_ENABLED=true` on the host. The roleplay health endpoint at `/health/roleplay` reports the gateway and guild command registration. Discord needs permission to send messages, read channel history, embed links and post in threads. Manage Webhooks enables the NPC’s own Discord display name and portrait. With standard posting permissions the bot can also use an attributed character embed.
+
+Guided dialogue runs on the bot host. For optional open-ended dialogue, the owner sets `PHOENIX_NPC_OPENAI_KEY`, an enabled Responses API model in `PHOENIX_NPC_AI_MODEL`, and a positive daily reply cap in `PHOENIX_NPC_AI_DAILY_REPLIES`, then restarts. In a scene explicitly started with **AI dialogue**, participating writers’ text, recent scene history and the character brief go to OpenAI. The default is guided. The daily cap counts attempted AI replies across the server. At the cap or during a provider outage, the scene continues with guided replies.

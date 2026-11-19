@@ -42,6 +42,10 @@ function checkField(field:string,value:unknown,kind:string,service:string) {
   if(field==='theme')requireThat(/^[a-z0-9-]{1,40}$/.test(v),400,'Select an available theme.');
   return ['html','descriptionHtml'].includes(field)&&v?formatted(v):v;
 }
+export async function publishedFormText(q:Query,key:string): Promise<string> {
+  const [saved]=await q('SELECT fields FROM pc_codex WHERE entry_key=$1',[key]);
+  return (saved && JSON.parse(saved.fields).html) ?? records.get(key)?.obj.html ?? '';
+}
 export async function published(db:Store){
   const rows=await db.query('SELECT entry_key,revision,fields FROM pc_codex ORDER BY entry_key');
   return rows.map(r=>({key:r.entry_key,revision:Number(r.revision),fields:JSON.parse(r.fields)}));
