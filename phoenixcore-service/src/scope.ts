@@ -23,6 +23,17 @@ export class RoleplayScope {
   guild:Guild|null=null;
   archives=new Map<string,Archive>();
   scanning=false;
+  npcCommandsReady=false;
+  interactionEligible(settings:Settings, body:any) {
+    if(body.guild_id!==this.guildId)return false;
+    const id=body.channel_id, raw=body.channel;
+    const live=this.guild?.channels.cache.get(id);
+    if(live)return [0,5,10,11,12].includes(live.type) && this.eligible(settings,live);
+    if(![0,5,10,11,12].includes(raw?.type))return false;
+    if(!settings.rpDivider)return [id,raw.parent_id].some(value=>value&&settings.rpChannels.split(/\s+/).includes(value));
+    const parent=this.guild?.channels.cache.get(raw.parent_id);
+    return !!parent && [10,11,12].includes(raw.type) && this.eligible(settings,parent);
+  }
   constructor(guildId:string) { this.guildId=guildId; }
   online() { return !!this.guild?.available && this.guild.client.isReady(); }
   clear() { this.guild=null; this.archives.clear(); }

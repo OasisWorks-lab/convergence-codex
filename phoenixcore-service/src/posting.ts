@@ -1,4 +1,6 @@
 import {forumType,writableType} from './forum-threads.ts';
+import {captureTurn} from './npc-scenes.ts';
+import type { Query } from './db.ts';
 import {captureNative} from './native.ts';
 import {activeForm,characterCommand} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
@@ -6,7 +8,7 @@ import type { RoleplayScope } from './scope.ts';
 import { assignTag } from './tags.ts';
 import { discordId, readSettings, requireThat, type Actor, type Settings } from './domain.ts';
 import type { Store } from './db.ts';
-import type { Config } from './discord.ts';
+import { Discord, handleInteraction, type Config } from './discord.ts';
 
 const channelIds=(settings:Settings)=>settings.rpChannels.split(/\s+/).filter(Boolean);
 export async function preferences(db:Store,actor:Actor,settings:Settings,liveChannels?:string[]) {
@@ -68,20 +70,26 @@ function matchPrefix(text:string,tags:{tag_key:string;character_id:string}[]) {
   }
   return match;
 }
-export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean,settings?:Settings){
-  if(source.guild!==config.guild || !source.content.trim() || source.content.length>2000)return;
-  const value=settings||(await readSettings(db)).value;
-  if(!(value.rpDivider?inScope?.(value):[source.channel,source.parent||''].some(id=>channelIds(value).includes(id))) || (value.playerRole&&!source.roles.includes(value.playerRole)))return;
-  const tags=await db.query('SELECT tag_key,character_id FROM pc_post_tags WHERE owner_id=$1',[source.author]);
+async function resolveWriter(q:Query,source:IncomingPost){
+  const tags=await q('SELECT tag_key,character_id FROM pc_post_tags WHERE owner_id=$1',[source.author]);
   const tagged=matchPrefix(source.content,tags as {tag_key:string;character_id:string}[]);
   if(!tagged && /^\s*(?:\/\/|\(\()/.test(source.content))return;
   const content=tagged?tagged.content:source.content;
   if(!content.trim())return;
-  const [choice]=tagged?[tagged]:await db.query('SELECT character_id FROM pc_post_defaults WHERE owner_id=$1 AND channel_id IN ($2,$3) ORDER BY CASE WHEN channel_id=$2 THEN 0 ELSE 1 END LIMIT 1',[source.author,source.channel,source.parent||source.channel]);
-  if(!choice?.character_id)return;
-  const [sheet]=await db.query('SELECT c.*,a.form_key FROM pc_characters c LEFT JOIN pc_active_forms a ON a.character_id=c.id WHERE c.id=$1 AND c.owner_id=$2',[choice.character_id,source.author]);
-  if(!sheet)return;
+  const [choice]=tagged?[tagged]:await q('SELECT character_id FROM pc_post_defaults WHERE owner_id=$1 AND channel_id IN ($2,$3) ORDER BY CASE WHEN channel_id=$2 THEN 0 ELSE 1 END LIMIT 1',[source.author,source.channel,source.parent||source.channel]);
+  if(!choice?.character_id)return {content};
+  const [sheet]=await q('SELECT c.*,a.form_key FROM pc_characters c LEFT JOIN pc_active_forms a ON a.character_id=c.id WHERE c.id=$1 AND c.owner_id=$2',[choice.character_id,source.author]);
+  if(!sheet)return {content};
   const character=JSON.parse(sheet.sheet),form=activeForm(character,sheet.form_key);
+  return {sheet,character,form,content};
+}
+export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean,settings?:Settings){
+  if(source.guild!==config.guild || !source.content.trim() || source.content.length>2000)return;
+  const value=settings||(await readSettings(db)).value;
+  if(!(value.rpDivider?inScope?.(value):[source.channel,source.parent||''].some(id=>channelIds(value).includes(id))) || (value.playerRole&&!source.roles.includes(value.playerRole)))return;
+  const choice=await resolveWriter(db.query,source);
+  if(!choice?.sheet)return;
+  const {sheet,character,form,content}=choice;
   const reserved=await db.query('INSERT INTO pc_posts(source_id,channel_id,author_id,character_id,character_name,created_ms) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(source_id) DO NOTHING RETURNING source_id',
     [source.id,source.channel,source.author,sheet.id,character.name,Date.now()]);
   if(!reserved.length)return;
@@ -94,6 +102,24 @@ export async function relay(db:Store,config:Config,source:IncomingPost,send:(pos
 export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
   const {Client,GatewayIntentBits,PermissionFlagsBits,MessageType}=await import('discord.js');
   const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],rest:{retries:0}});
+  const discord=new Discord(config);
+  client.on('interactionCreate',async interaction=>{
+    // Discord delivers interactions by HTTP or gateway, depending on the application setting.
+    const data=interaction.isChatInputCommand()||interaction.isAutocomplete()
+      ? {name:interaction.commandName,options:interaction.options.data}
+      : interaction.isButton()?{custom_id:interaction.customId}
+      : interaction.isModalSubmit()&&interaction.customId.startsWith('npc:')?{custom_id:interaction.customId,components:[{components:[{custom_id:'post',value:interaction.fields.getTextInputValue('post')}]}]}:null;
+    if(!data||!interaction.inGuild()||interaction.guildId!==config.guild ||
+      !(('name' in data && ['roleplay-start','roleplay-status','roleplay-cancel'].includes(data.name!))||('custom_id' in data && data.custom_id?.startsWith('npc:'))))return;
+    const member=interaction.member,roles=Array.isArray(member.roles)?member.roles:[...member.roles.cache.keys()];
+    const channel=interaction.channel;
+    const body={id:interaction.id,type:interaction.type,application_id:interaction.applicationId,guild_id:interaction.guildId,channel_id:interaction.channelId,
+      channel:{type:channel?.type,parent_id:channel&&'parentId'in channel?channel.parentId:null},member:{user:interaction.user,roles,nick:'nickname' in member?member.nickname:member.nick,permissions:String(interaction.memberPermissions?.bitfield||0n)},data};
+    try{
+      const result=await handleInteraction(db,config,body,discord,undefined,scope);
+      await client.rest.post('/interactions/'+interaction.id+'/'+interaction.token+'/callback',{auth:false,body:result});
+    }catch{console.warn('Discord could not acknowledge the NPC interaction.');}
+  });
   client.once('clientReady',async ready=>{
     scope.guild=ready.guilds.cache.get(config.guild)??null;
     console.log(scope.guild?'PhoenixCore is online in the Convergence Discord server.':'PhoenixCore connected but could not find its configured Discord server.');
@@ -141,11 +167,23 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
         const command=/^(help|transform|revert-form)(?:\s+([\s\S]*))?$/i.exec(message.content.slice(prefix.length).trim());
         if(command){
           const [name,form]=(command[2]||'').split('|').map(x=>x.trim()),action=command[1].toLowerCase();
-          const response=action==='help'?'Use /transform or /revert-form, or type '+prefix+'transform Character | Form. To submit a template in its review channel, start with '+prefix+'submit and the submission type.':(await characterCommand(db,config.guild,config.dashboard,{guild_id:message.guildId,member:{user:{id:message.author.id},roles},data:{name:action,options:[{name:'character',value:name},...(form?[{name:'form',value:form}]:[])]}})).data.content;
+          const response=action==='help'?'Start NPC scenes with /roleplay-start. Use /transform or /revert-form, or type '+prefix+'transform Character | Form. To submit a template in its review channel, start with '+prefix+'submit and the submission type.':(await characterCommand(db,config.guild,config.dashboard,{guild_id:message.guildId,member:{user:{id:message.author.id},roles},data:{name:action,options:[{name:'character',value:name},...(form?[{name:'form',value:form}]:[])]}})).data.content;
           await message.reply({content:response,allowedMentions:{parse:[],repliedUser:false}});return;
         }
       }
     }catch{console.warn('Discord submission or character command could not be processed.');return;}
+    if((message.type===MessageType.Default||message.type===MessageType.Reply) && scope.eligible(settings,message.channel)
+      && (!settings.playerRole||roles.includes(settings.playerRole)||message.author.id===config.owner)
+      && !settings.commandPrefixes.split(/\s+/).filter(Boolean).some(p=>message.content.startsWith(p))){
+      try{
+        const source={id:message.id,channel:message.channelId,parent:thread?.parentId||undefined,guild:message.guildId,author:message.author.id,roles,content:message.content};
+        const captured=await captureTurn(db,source.channel,source.author,source.id,async q=>{
+          const speaker=await resolveWriter(q,source);
+          return {text:speaker?.content||'',name:speaker?.character?.name||message.member!.displayName};
+        });
+        if(captured==='full')await message.reply({content:'This scene turn is full. Choose Finish turn to continue.',allowedMentions:{parse:[],repliedUser:false}});
+      }catch{console.warn('NPC scene could not record a turn. Writers can use Write turn.');}
+    }
     if(message.type!==MessageType.Default||message.attachments.size||message.stickers.size||message.poll||message.reference||!message.deletable)return;
     const channel=message.channel;
     const parent=channel.isThread()?channel.parent:channel;
