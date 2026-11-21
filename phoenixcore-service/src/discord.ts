@@ -1,5 +1,6 @@
 import { npcCommands, sceneInteraction } from './npc-scenes.ts';
 import type { RoleplayScope } from './scope.ts';
+import servicePackage from '../package.json' with {type:'json'};
 import {characterCommand} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
 import { createPublicKey, verify, createHash } from 'node:crypto';
@@ -56,6 +57,7 @@ export class Discord {
   constructor(settings: Config, fetcher=fetch) { this.settings=settings; this.fetcher=fetcher; }
   async call(path: string, init: RequestInit = {}) {
     const headers=new Headers(init.headers);
+    headers.set('user-agent','DiscordBot (https://github.com/OasisWorks-lab/convergence-codex, '+servicePackage.version+')');
     if (!headers.has('authorization') && path !== '/oauth2/token') headers.set('authorization','Bot ' + this.settings.token);
     if (init.body && !headers.has('content-type')) headers.set('content-type','application/json');
     const response=await this.fetcher('https://discord.com/api/v10' + path, { ...init, headers, signal:AbortSignal.timeout(8500) });

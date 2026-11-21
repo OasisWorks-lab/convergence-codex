@@ -135,6 +135,7 @@ test('guild command registration resumes after throttling, updates changed defin
   const writes:string[]=[];
   let throttle=true;
   const discord=new Discord(config,async(url,init)=>{
+    assert.match(new Headers(init?.headers).get('user-agent')||'',/^DiscordBot \(https:\/\/github\.com\/OasisWorks-lab\/convergence-codex, \d/);
     const path=new URL(String(url)).pathname;
     if(!init?.method || init.method==='GET')return Response.json(installed);
     const data=JSON.parse(String(init.body));
