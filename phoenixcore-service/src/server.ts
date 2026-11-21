@@ -11,7 +11,7 @@ import {provisionNext} from './forum-threads.ts';
 import { RoleplayScope } from './scope.ts';
 import { preferences, savePosting, lookupAuthor, startPosting } from './posting.ts';
 import {archiveRequest,deleteArchived,removeCharacter} from './characters.ts';
-import { accountAvatar, Discord, DiscordFailure, deliverNext, checkSignature, handleInteraction, type Config } from './discord.ts';
+import { accountAvatar, Discord, DiscordFailure, CommandRegistrationError, deliverNext, checkSignature, handleInteraction, type Config } from './discord.ts';
 
 import {nicknameJob,announcement} from './bot-tools.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
@@ -331,8 +331,18 @@ async function start() {
     const address=server.address();
     console.log('PhoenixCore is listening on port',typeof address==='object' && address ? address.port : port);
     if(process.env.DISCORD_RP_ENABLED==='true'){
-      const register=async()=>{try{await discord.registerCommands();scope.npcCommandsReady=true;console.log('Registered /roleplay-start, /roleplay-status, /roleplay-cancel and character commands in Convergence.');}
-        catch{if(!stopping)setTimeout(register,60000).unref();console.warn('Character commands could not register. Retrying in one minute.');}};
+      const register=async()=>{
+        if(stopping)return;
+        try {
+          await discord.registerCommands();
+          scope.npcCommandsReady=true;
+          console.log('Verified /roleplay-start, /roleplay-status, /roleplay-cancel and character commands in Convergence.');
+        } catch(error) {
+          const retryMs=error instanceof CommandRegistrationError && error.retryMs ? error.retryMs+500 : 15000;
+          console.warn('Guild command registration: '+(error instanceof CommandRegistrationError?error.message:'unavailable')+'; retry in '+Math.ceil(retryMs/1000)+'s.');
+          if(!stopping)setTimeout(register,Math.min(retryMs,2147483647)).unref();
+        }
+      };
       void register();
     }
     void tick();
