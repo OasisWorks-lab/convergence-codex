@@ -1,3 +1,5 @@
+import { npcCommands, sceneInteraction } from './npc-scenes.ts';
+import type { RoleplayScope } from './scope.ts';
 import {characterCommand} from './characters.ts';
 import forms from '../../phoenixcore/templates.js';
 import { createPublicKey, verify, createHash } from 'node:crypto';
@@ -85,7 +87,7 @@ export class Discord {
       {name:'character',description:'Your character name, posting tag or sheet ID',type:3,required:true,autocomplete:true},
       {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
     specs.push({name:'revert-form',type:1,description:'Return to base or an earlier attained form.',options:[{name:'character',type:3,description:'Your approved character',required:true,autocomplete:true},{name:'form',type:3,description:'Base or an earlier attained form',required:false,autocomplete:true}]});
-    for(const spec of specs)await this.call(path,{method:'POST',body:JSON.stringify(spec)});
+    for(const spec of [...specs,...npcCommands()])await this.call(path,{method:'POST',body:JSON.stringify(spec)});
   }
   async guildChannel(id:string) {
     const channel=await this.call('/channels/'+id);
@@ -142,11 +144,13 @@ export function checkSignature(raw:Buffer, signature:string, timestamp:string, k
   const publicKey=createPublicKey({key:Buffer.concat([Buffer.from('302a300506032b6570032100','hex'),Buffer.from(key,'hex')]),format:'der',type:'spki'});
   return verify(null,Buffer.concat([Buffer.from(timestamp),raw]),publicKey,Buffer.from(signature,'hex'));
 }
-export async function handleInteraction(db:Store, config:Config, body:any,discord=new Discord(config),defer?:(work:()=>Promise<string>)=>void) {
+export async function handleInteraction(db:Store, config:Config, body:any,discord=new Discord(config),defer?:(work:()=>Promise<string>)=>void,scope?:RoleplayScope) {
   if (body.type===1) return {type:1};
   const reply=(content:string)=>({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
   if(body.application_id!==config.clientId || (body.guild_id && body.guild_id!==config.guild)) return reply('This action belongs to a different installation.');
   const actor=body.member?.user?.id ?? body.user?.id;
+  if(((body.type===2||body.type===4)&&['roleplay-start','roleplay-status','roleplay-cancel'].includes(body.data?.name)) ||
+      ((body.type===3||body.type===5)&&String(body.data?.custom_id||'').startsWith('npc:')))return sceneInteraction(db,config,body,scope);
   if((body.type===2||body.type===4) && ['Character sheet','transform','revert-form'].includes(body.data?.name))return characterCommand(db,config.guild,config.dashboard,body);
   if(body.data?.name==='Catalog submission'||String(body.data?.custom_id||'').startsWith('pc:catalog:')){
     const {value}=await readSettings(db);

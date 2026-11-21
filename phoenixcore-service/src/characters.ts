@@ -1,4 +1,5 @@
 import forms from '../../phoenixcore/templates.js';
+import {ruleSheet} from './npc-catalog.ts';
 import type {Store} from './db.ts';
 import {requireThat, readSettings, type Actor} from './domain.ts';
 
@@ -68,9 +69,10 @@ export async function characterCommand(db:Store,guild:string,dashboard:string,bo
   }
   if(body.guild_id!==guild || !body.member?.user?.id)return reply('Open this command in Convergence.');
   if(body.data.name==='Character sheet'){
-    const [character]=await db.query('SELECT c.*,a.form_key FROM pc_posts p JOIN pc_characters c ON c.id=p.character_id LEFT JOIN pc_active_forms a ON a.character_id=c.id WHERE p.posted_id=$1 AND p.channel_id=$2',[String(body.data.target_id),String(body.channel_id)]);
+    let [character]=await db.query('SELECT c.*,a.form_key FROM pc_posts p JOIN pc_characters c ON c.id=p.character_id LEFT JOIN pc_active_forms a ON a.character_id=c.id WHERE p.posted_id=$1 AND p.channel_id=$2',[String(body.data.target_id),String(body.channel_id)]);
+    if(!character)[character]=await db.query('SELECT c.*,p.form_key FROM pc_npc_posts p JOIN pc_characters c ON c.id=p.character_id WHERE p.post_id=$1 AND p.channel_id=$2',[String(body.data.target_id),String(body.channel_id)]);
     if(!character)return reply('Choose a PhoenixCore character post with a current sheet.');
-    const s=JSON.parse(character.sheet),active=activeForm(s,character.form_key);
+    const s=await ruleSheet(db.query,character.id,JSON.parse(character.sheet)),active=activeForm(s,character.form_key);
     const current=forms.effectiveSheet(s,active);
     const labels=['Speed','Durability','Intelligence','Energy control'];
     const fields=[{name:'Base Power Level',value:String(s.bpl)},{name:'Active form',value:active?.name||'Base'},{name:'Current Power Level',value:String(current.bpl)},...forms.stats.map((k:string,i:number)=>({name:labels[i],value:String(current[k]||'Unrecorded'),inline:true}))];

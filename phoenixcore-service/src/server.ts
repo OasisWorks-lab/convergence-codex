@@ -14,6 +14,9 @@ import {archiveRequest,deleteArchived,removeCharacter} from './characters.ts';
 import { accountAvatar, Discord, DiscordFailure, deliverNext, checkSignature, handleInteraction, type Config } from './discord.ts';
 
 import {nicknameJob,announcement} from './bot-tools.ts';
+import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
+import { aiOptions } from './npc-voice.ts';
+import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
 import {editorRole, published, publish,racePaths} from './codex.ts';
@@ -107,6 +110,9 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         res.writeHead(200,{'content-type':image.mime,'content-length':image.size,'cache-control':'public, max-age=86400, immutable','content-security-policy':"default-src 'none'; sandbox"});
         res.end(method==='HEAD'?undefined:Buffer.from(image.bytes));return;
       }
+      if(method==='GET' && path==='/health/roleplay'){
+        json(res,200,{feature:'npc-scenes-v1',gateway:scope.online(),commandsRegistered:scope.npcCommandsReady,dialogue:aiOptions()?'guided-and-ai':'guided'});return;
+      }
       if (method==='GET' && path==='/health') {json(res,200,{ok:true});return;}
       if(method==='GET' && uiOrigin!==config.service && ['/','/phoenixcore','/phoenixcore/','/phoenixcore/index.html'].includes(path)){
         redirect(res,config.dashboard+(url.searchParams.get('demo')==='1'?'?demo=1':''));return;
@@ -170,7 +176,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
           let content;try{content=await work();wake();}catch{content='PhoenixCore could not catalog this post. Open the original message and try again.';}
           try{await discord.call('/webhooks/'+config.clientId+'/'+encodeURIComponent(action.token)+'/messages/@original',{method:'PATCH',body:JSON.stringify({content,components:[],allowed_mentions:{parse:[]}})});}catch{console.warn('Discord could not display the catalog result.');}
         });
-        json(res,200,await handleInteraction(db,config,action,discord,deferred));if(action.type===3)wake();return;
+        json(res,200,await handleInteraction(db,config,action,discord,deferred,scope));if(action.type===3)wake();return;
       }
       requireThat(path.startsWith('/api/'),404,'Unknown route.');
       const bearer=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization??'');
@@ -254,9 +260,11 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         db.query("SELECT subject,thread_id FROM pc_forum_threads WHERE forum_id=$1 AND thread_id IS NOT NULL AND subject LIKE 'player:%'"+(actor.isJudge?'':' AND subject=$2'),actor.isJudge?[settings.value.updatesForum]:[settings.value.updatesForum,'player:'+actor.id]),
         racePaths(db.query),actor.isOwner?db.query('SELECT * FROM pc_announcements'):[],actor.isOwner?db.query('SELECT status FROM pc_bot_profile WHERE slot=1'):[],member.roles.includes(editorRole)?published(db):[]
       ]);
+      const king=sheets.find(row=>isAzurik(row.id,JSON.parse(row.sheet)));
+      if(king)king.sheet=JSON.stringify(await ruleSheet(db.query,king.id,JSON.parse(king.sheet)));
       const forumLinks=new Map(threads.map(t=>[t.subject,'https://discord.com/channels/'+config.guild+'/'+t.thread_id]));
       json(res,200,{actor,races,canEditPaths:member.roles.includes(editorRole),pathRevisions:Object.fromEntries(pathEntries.map(x=>[x.key,x.revision])),announcements:embeds.map(e=>({kind:e.kind,revision:Number(e.revision),draft:JSON.parse(e.draft),url:e.message_id?'https://discord.com/channels/'+config.guild+'/'+e.channel_id+'/'+e.message_id:null})),nicknameStatus:nick[0]?.status,players:roster.map(m=>({id:m.user.id,username:m.user.username,updatesUrl:forumLinks.get('player:'+m.user.id),avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
-        characters:sheets.filter(s=>active.has(s.owner_id)).map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',activeForm:s.form_key||'',sheet:JSON.parse(s.sheet)})),
+        characters:sheets.filter(s=>active.has(s.owner_id)||JSON.parse(s.sheet).characterType==='NPC').map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',activeForm:s.form_key||'',sheet:JSON.parse(s.sheet)})),
         posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(r=>({...visibleRequest(r),...(r.source_id?{native:{source:'https://discord.com/channels/'+config.guild+'/'+r.source_channel+'/'+r.source_id,text:r.raw_text,input:JSON.parse(r.native_input),attachments:JSON.parse(r.attachments)}}:{}),...(actor.isJudge?{assessment:assess(visibleRequest(r),settings.value),denial:r.helper?{helper:r.helper,key:r.decision_key,note:r.denial_note,delivered:!!r.dm_message}:null}:{}),reviewUrl:r.review_message?'https://discord.com/channels/'+config.guild+'/'+r.review_channel+'/'+r.review_message:undefined})),currency:settings.value.currency,settings:actor.isOwner?settings:null});
     } catch(e) {
       if (res.headersSent) {res.end();return;}
@@ -271,6 +279,7 @@ async function start() {
   const config=configuration();
   const db=process.env.DATABASE_URL ? await openPostgres(process.env.DATABASE_URL) : openSqlite(process.env.SQLITE_FILE||resolve(homedir(),'.phoenixcore','convergence.sqlite'));
   await initialize(db,config.guild);
+  await seedAzurik(db,config.owner);
   const discord=new Discord(config);
   const scope=new RoleplayScope(config.guild);
   const server=application(db,config,discord,scope,()=>{void tick();});
@@ -299,9 +308,21 @@ async function start() {
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}
   }
+  let deliveringNpc=false;
+  const npcClock=setInterval(async()=>{
+    if(deliveringNpc||stopping)return;
+    deliveringNpc=true;
+    try{for(let i=0;i<4;i++)if(!await deliverScene(db,(s,move,retry)=>sendNpcPost(discord,s,move,retry,async channel=>{
+        const {value}=await readSettings(db);
+        return scope.interactionEligible(value,{guild_id:config.guild,channel_id:channel.id,channel});
+      })))break;}
+    catch{console.warn('NPC scene delivery will retry.');}
+    finally{deliveringNpc=false;}
+  },1500);
   const notify=setInterval(tick,4000);
   const cleanup=setInterval(async()=>{
-    try {await db.query('DELETE FROM pc_images WHERE attached=0 AND created_ms<$1',[Date.now()-86400000]);
+    try {await db.query('DELETE FROM pc_rp_receipts WHERE created_ms<$1',[Date.now()-86400000]);
+      await db.query('DELETE FROM pc_images WHERE attached=0 AND created_ms<$1',[Date.now()-86400000]);
       for(const table of ['pc_sessions','pc_auth_state','pc_exchanges']) await db.query('DELETE FROM '+table+' WHERE expires<=$1',[Date.now()]);}
     catch {console.error('Expired login cleanup will retry.');}
   },3600000);
@@ -310,13 +331,13 @@ async function start() {
     const address=server.address();
     console.log('PhoenixCore is listening on port',typeof address==='object' && address ? address.port : port);
     if(process.env.DISCORD_RP_ENABLED==='true'){
-      const register=async()=>{try{await discord.registerCommands();console.log('Registered /transform, /revert-form, Character sheet and Catalog submission in Convergence.');}
+      const register=async()=>{try{await discord.registerCommands();scope.npcCommandsReady=true;console.log('Registered /roleplay-start, /roleplay-status, /roleplay-cancel and character commands in Convergence.');}
         catch{if(!stopping)setTimeout(register,60000).unref();console.warn('Character commands could not register. Retrying in one minute.');}};
       void register();
     }
     void tick();
   });
-  const stop=()=>{stopping=true;clearTimeout(retry);if(stopPosting)void stopPosting();clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
+  const stop=()=>{stopping=true;clearTimeout(retry);if(stopPosting)void stopPosting();clearInterval(npcClock);clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
   process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 export function main() {

@@ -74,6 +74,11 @@ export async function openPostgres(url: string): Promise<Store> {
 
 export const defaultSettings = { playerRole: '', judgeRole: '1100315893864603649', submissionMessage:'{helper} A {type} submission for {character} is ready for review.', commandPrefixes:'pc!', botNickname:'', loreParagraphs:'0', loreSentences:'0', loreWords:'0', reviewGuidance:'', reviewChannel: '', ...forms.reviewRoutes as {characterChannel:string;designChannel:string;updatesForum:string}, currency: 'Credits', rpChannels: '', rpDivider: '' };
 const ddl = [
+  'CREATE TABLE IF NOT EXISTS pc_rp_scenes (channel_id TEXT PRIMARY KEY, scene_id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, ready_at BIGINT NOT NULL DEFAULT 0, lease_token TEXT, lease_until BIGINT NOT NULL DEFAULT 0, speech TEXT, attempts INTEGER NOT NULL DEFAULT 0, delivery_note TEXT)',
+  'CREATE TABLE IF NOT EXISTS pc_npc_posts (post_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, character_id TEXT NOT NULL, form_key TEXT NOT NULL)',
+  'CREATE INDEX IF NOT EXISTS pc_rp_delivery ON pc_rp_scenes(ready_at,lease_until)',
+  'CREATE TABLE IF NOT EXISTS pc_rp_receipts (id TEXT PRIMARY KEY, created_ms BIGINT NOT NULL, result TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_npc_ai_usage (day TEXT PRIMARY KEY, used INTEGER NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_migrations (name TEXT PRIMARY KEY)',
   'CREATE TABLE IF NOT EXISTS pc_denials (request_id TEXT PRIMARY KEY, decision_key TEXT NOT NULL, stage TEXT NOT NULL, helper TEXT NOT NULL, note TEXT NOT NULL, dm_channel TEXT, dm_message TEXT, attempts INTEGER NOT NULL DEFAULT 0, retry_at BIGINT NOT NULL DEFAULT 0)',
   'CREATE TABLE IF NOT EXISTS pc_designs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, author_id TEXT NOT NULL, fields TEXT NOT NULL)',
