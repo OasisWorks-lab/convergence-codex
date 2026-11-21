@@ -42,9 +42,27 @@ function checkField(field:string,value:unknown,kind:string,service:string) {
   if(field==='theme')requireThat(/^[a-z0-9-]{1,40}$/.test(v),400,'Select an available theme.');
   return ['html','descriptionHtml'].includes(field)&&v?formatted(v):v;
 }
-export async function publishedFormText(q:Query,key:string): Promise<string> {
+const formKeys=new Map<string,string>();
+for(const race of baseline.races)for(const [pi,path] of race.paths.entries())for(const [fi,form] of path.forms.entries()){
+  formKeys.set('race-'+(form.messageId||race.slug+'-'+pi+'-'+fi),'races/'+race.slug+'/paths/'+pi+'/forms/'+fi);
+}
+for(const entry of baseline.universal)for(const [i,form] of entry.messages.entries()){
+  formKeys.set('univ-'+(form.messageId||entry.slug+'-'+i),'universal/'+entry.slug+'/messages/'+(form.codexId||i));
+}
+export async function publishedForm(q:Query,key:string) {
   const [saved]=await q('SELECT fields FROM pc_codex WHERE entry_key=$1',[key]);
-  return (saved && JSON.parse(saved.fields).html) ?? records.get(key)?.obj.html ?? '';
+  return {...records.get(key)?.obj,...(saved?JSON.parse(saved.fields):{})};
+}
+export async function formArtwork(q:Query,id:string,keyOverride?:string):Promise<string>{
+  const key=keyOverride||formKeys.get(id);
+  let art='';
+  if(key)art=(await publishedForm(q,key)).art||'';
+  else if(/^[0-9a-f-]{36}$/.test(id)){
+    const [design]=await q("SELECT fields FROM pc_designs WHERE kind='transformation' AND id=$1",[id]);
+    if(design)art=JSON.parse(design.fields).art||'';
+  }
+  if(!art||/(?:^|\/)assets\/brand\.png$/i.test(art))return '';
+  return art.startsWith('assets/')?'../'+art:art;
 }
 export async function published(db:Store){
   const rows=await db.query('SELECT entry_key,revision,fields FROM pc_codex ORDER BY entry_key');

@@ -75,6 +75,10 @@ export async function openPostgres(url: string): Promise<Store> {
 export const defaultSettings = { playerRole: '', judgeRole: '1100315893864603649', submissionMessage:'{helper} A {type} submission for {character} is ready for review.', commandPrefixes:'pc!', botNickname:'', loreParagraphs:'0', loreSentences:'0', loreWords:'0', reviewGuidance:'', reviewChannel: '', ...forms.reviewRoutes as {characterChannel:string;designChannel:string;updatesForum:string}, currency: 'Credits', rpChannels: '', rpDivider: '' };
 const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_rp_scenes (channel_id TEXT PRIMARY KEY, scene_id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, ready_at BIGINT NOT NULL DEFAULT 0, lease_token TEXT, lease_until BIGINT NOT NULL DEFAULT 0, speech TEXT, attempts INTEGER NOT NULL DEFAULT 0, delivery_note TEXT)',
+  'CREATE TABLE IF NOT EXISTS pc_rp_clocks (scene_id TEXT PRIMARY KEY REFERENCES pc_rp_scenes(scene_id) ON DELETE CASCADE,due_at BIGINT NOT NULL)',
+  'CREATE INDEX IF NOT EXISTS pc_rp_clock_due ON pc_rp_clocks(due_at)',
+  'CREATE TABLE IF NOT EXISTS pc_rp_notices (id TEXT PRIMARY KEY,scene_id TEXT NOT NULL REFERENCES pc_rp_scenes(scene_id) ON DELETE CASCADE,turn_key TEXT NOT NULL,payload TEXT NOT NULL,retry_at BIGINT NOT NULL,lease TEXT)',
+  'CREATE INDEX IF NOT EXISTS pc_rp_notice_due ON pc_rp_notices(retry_at)',
   'CREATE TABLE IF NOT EXISTS pc_npc_posts (post_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, character_id TEXT NOT NULL, form_key TEXT NOT NULL)',
   'CREATE INDEX IF NOT EXISTS pc_rp_delivery ON pc_rp_scenes(ready_at,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_rp_receipts (id TEXT PRIMARY KEY, created_ms BIGINT NOT NULL, result TEXT NOT NULL)',

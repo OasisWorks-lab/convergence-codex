@@ -1,4 +1,4 @@
-import { npcCommands, sceneInteraction } from './npc-scenes.ts';
+import { npcCommands, sceneCommand, sceneInteraction } from './npc-scenes.ts';
 import type { RoleplayScope } from './scope.ts';
 import servicePackage from '../package.json' with {type:'json'};
 import {characterCommand} from './characters.ts';
@@ -43,7 +43,7 @@ export class CommandRegistrationError extends Error {
 function commandShape(command:any) {
   const options=(command.options||[]).map((o:any)=>({
     name:o.name, type:o.type, description:o.description,
-    required:o.required??false, autocomplete:o.autocomplete??false, max_length:o.max_length??null,
+    required:o.required??false, autocomplete:o.autocomplete??false, max_length:o.max_length??null, min_value:o.min_value??null, max_value:o.max_value??null,
     choices:(o.choices||[]).map((c:any)=>[c.name,c.value])
   }));
   return JSON.stringify([command.name,command.type,command.description||'',options]);
@@ -206,8 +206,14 @@ export async function handleInteraction(db:Store, config:Config, body:any,discor
   const reply=(content:string)=>({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
   if(body.application_id!==config.clientId || (body.guild_id && body.guild_id!==config.guild)) return reply('This action belongs to a different installation.');
   const actor=body.member?.user?.id ?? body.user?.id;
-  if(((body.type===2||body.type===4)&&['roleplay-start','roleplay-status','roleplay-cancel'].includes(body.data?.name)) ||
-      ((body.type===3||body.type===5)&&String(body.data?.custom_id||'').startsWith('npc:')))return sceneInteraction(db,config,body,scope);
+  if(((body.type===2||body.type===4)&&sceneCommand(body.data?.name)) ||
+      ((body.type===3||body.type===5)&&String(body.data?.custom_id||'').startsWith('npc:'))){
+    const run=()=>sceneInteraction(db,config,body,scope,discord);
+    if(defer&&body.type===2&&body.data.name==='roleplay-start'){
+      defer(async()=>(await run()).data.content);return {type:5,data:{flags:64}};
+    }
+    return run();
+  }
   if((body.type===2||body.type===4) && ['Character sheet','transform','revert-form'].includes(body.data?.name))return characterCommand(db,config.guild,config.dashboard,body);
   if(body.data?.name==='Catalog submission'||String(body.data?.custom_id||'').startsWith('pc:catalog:')){
     const {value}=await readSettings(db);

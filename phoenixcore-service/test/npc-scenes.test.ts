@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {openSqlite,initialize,defaultSettings} from '../src/db.ts';
+import {openSqlite,openPostgres,initialize,defaultSettings} from '../src/db.ts';
 import {Discord,handleInteraction} from '../src/discord.ts';
 import {azurikId,loadNpc,npcChoices,seedAzurik} from '../src/npc-catalog.ts';
+import {captureWriterPost} from '../src/posting.ts';
+import {deliverTurnNotice,expireTurn,lockedScene,queueNotice,restoreTurnClocks,setClock,turnWindow} from '../src/npc-turns.ts';
+import {readSceneHistory} from '../src/npc-history.ts';
+import {guided} from '../src/npc-voice.ts';
+import {replyLength} from '../src/npc-prose.ts';
 import {captureTurn} from '../src/npc-scenes.ts';
 import {deliverScene,sendNpcPost} from '../src/npc-delivery.ts';
 import {RoleplayScope} from '../src/scope.ts';
@@ -22,7 +27,7 @@ async function setup(t:any) {
   const command=(name:string,user=host,extra:any={})=>run(ctx(user,{name,...extra}));
   const start=(mode='audience')=>command('roleplay-start',host,{options:[{name:'npc',value:azurikId},{name:'scene',value:mode}]});
   const event=(message:any,action:string,user:string,value='')=>{
-    const b=message.data.components[0].components.find((p:any)=>p.custom_id.endsWith(':'+action));
+    const b=message.data.components[0].components.find((p:any)=>p.custom_id.split(':')[3]===action);
     return ctx(user,{custom_id:b.custom_id},3);
   };
   return {db,scope,ctx,run,start,command,event};
@@ -44,35 +49,34 @@ test('catalog and scope use approved NPC sheets and live forum parents; archived
 test('two writers post, finish and pass in order; one reply per round, scene-specific form, access control and stale controls',async t=>{
   const {db,ctx,run,command,start,event}=await setup(t);
   const first=await start('spar'); const panel=await run(event(first,'join',guest));
-  assert.match(panel.data.content,new RegExp(guest)); assert.match((await run(event(panel,'finish',guest))).data.content,/turn/);
+  assert.match(panel.data.content,new RegExp(guest)); assert.match((await command('finish-turn',guest)).data.content,/turn/);
   assert.equal(await captureTurn(db,thread,guest,'early',async()=>({name:'Rin',text:'Early attack'})),undefined);
   assert.equal(await captureTurn(db,thread,host,'m1',async()=>({name:'Kale',text:'I power up to Super Saiyan and invite you to transform.'})),'added');
   assert.equal(await captureTurn(db,thread,host,'m1',async()=>({name:'Kale',text:'same'})),'duplicate');
-  const click=event(panel,'finish',host);
+  const click=ctx(host,{name:'finish-turn'});
   const second=await run(click);assert.deepEqual(await run(click),second);assert.match(second.data.content,new RegExp(guest));
   assert.equal(await deliverScene(db,async()=>post),false);
-  const modal=await run(event(second,'write',guest));assert.equal(modal.type,9);
-  const sendModal=ctx(guest,{custom_id:modal.data.custom_id,components:[{components:[{custom_id:'post',value:'I take a guarded stance.'}]}]},5);
-  const complete=await run(sendModal);assert.match(complete.data.content,/responding/);assert.equal(complete.data.embeds[0].description,'I take a guarded stance.');
+  assert.equal(await captureTurn(db,thread,guest,'guest-post',async()=>({name:'Rin',text:'I take a guarded stance.'})),'added');
+  const complete=await command('finish-turn',guest);assert.match(complete.data.content,/responding/);
   let delivered:any;
   assert.equal(await deliverScene(db,async (scene,move)=>{assert.equal(scene.posts.length,2);delivered=move;return post;}),true);
-  assert.equal(delivered.pl,'850000000');assert.match(delivered.name,/Mastered Super Saiyan/);
+  assert.match(delivered.artwork,/b03405cd172508e1410ef4dfbe4fb678.gif/);assert.equal(delivered.pl,'850000000');assert.match(delivered.name,/Mastered Super Saiyan/);
   assert.equal(await deliverScene(db,async()=>{throw Error('duplicate');}),false);
   const card=await characterCommand(db,guild,config.dashboard,ctx(guest,{name:'Character sheet',target_id:post}));
   assert.equal(card.data.embeds[0].fields.find((f:any)=>f.name==='Current Power Level').value,'850000000');
   const status=await command('roleplay-status');assert.match(status.data.content,/Round 2/);
-  assert.match((await run(event(first,'finish',host))).data.content,/Round 2/);
+  assert.match((await run(event(first,'pass',host))).data.content,/Round 2/);
   assert.match((await command('roleplay-cancel',stranger)).data.content,/Only the writer/);
   const admin=ctx(stranger,{name:'roleplay-cancel'});admin.member.permissions='8';assert.match((await run(admin)).data.content,/ended/);
   const newer=await start();assert.ok(newer.data.embeds);assert.match((await run(event(first,'join',guest))).data.content,/earlier scene/);
   assert.match((await command('roleplay-cancel')).data.content,/ended/);
 });
 test('live Grade 4 rule changes apply without changing base or attained forms; replies survive failed delivery',async t=>{
-  const {db,start,run,event}=await setup(t);
+  const {db,start,command}=await setup(t);
   await db.query('INSERT INTO pc_codex VALUES($1,1,$2,$3,$4)',['races/saiyan/paths/0/forms/1',JSON.stringify({html:'<h2>Requirements</h2>Grade 4: 25,000,000.<h2>Multipliers</h2>Grade 4: ×90'}),host,Date.now()]);
   const s=await loadNpc(db.query,azurikId);assert.equal(JSON.parse(s.attainedForms)[0].multiplier,'90');assert.equal(s.bpl,'10000000');
   const panel=await start('spar');await captureTurn(db,thread,host,'m2',async()=>({name:'Kale',text:'Please show me your form.'}));
-  await run(event(panel,'finish',host));let calls=0;
+  await command('finish-turn');let calls=0;
   const voice=async(...args:Parameters<typeof narrate>)=>{calls++;return narrate(...args);};
   await deliverScene(db,async(_,move)=>{assert.equal(move.pl,'900000000');throw Error('transient');},voice);
   await db.query('UPDATE pc_rp_scenes SET ready_at=1 WHERE channel_id=$1',[thread]);
@@ -109,7 +113,7 @@ test('AI dialogue is opt-in, bounded by its daily server budget, and falls back 
   let calls=0;
   const fake=async(_url:any,init:any)=>{
     calls++;const req=JSON.parse(init.body);assert.equal(req.store,false);assert.doesNotMatch(req.input,new RegExp(host));
-    return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'“Whom would you protect?”'}]}]});
+    return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'Azurik gives the question some thought. He opens his hand and looks toward the person who spoke. “Whom would you protect first, if you took that road? I would hear their name before I give my word about the journey.”'}]}]});
   };
   assert.equal((await narrate(db,scene,sheet,fake as any)).source,'Guided');assert.equal(calls,0);
   scene.ai=true;assert.equal((await narrate(db,scene,sheet,fake as any)).source,'AI');
@@ -148,8 +152,136 @@ test('guild command registration resumes after throttling, updates changed defin
   await assert.rejects(discord.registerCommands(),(e:any)=>/roleplay-cancel.*429.*20028/.test(e.message)&&e.retryMs===1250);
   await discord.registerCommands();const after=[...writes];await discord.registerCommands();
   assert.deepEqual(writes,after);
-  assert.equal(writes.filter(s=>s==='POST roleplay-start').length,1);
+  assert.equal(writes.filter(s=>s==='POST roleplay-start').length,1);assert.equal(writes.filter(s=>s==='POST finish-turn').length,1);
   assert.deepEqual(writes.filter(s=>s.includes('roleplay-status')),['PATCH roleplay-status']);
   assert.equal(writes.some(s=>/unrelated|Character sheet/.test(s)),false);
   assert.deepEqual(installed.filter(s=>s.name.startsWith('roleplay-')).map(s=>s.name).sort(),['roleplay-cancel','roleplay-start','roleplay-status']);
+});
+
+test('start defers Discord history, reads the last five in this thread in order, and zero makes no read',async t=>{
+  const {db,scope,ctx,command}=await setup(t);
+  const discord=new Discord(config),actor={user:{id:host,username:'Writer'},permissions:'65536',roles:[]};
+  const id='150000000000000099';
+  const options=[{name:'npc',value:azurikId}];
+  const history=[
+    {id:'15',content:'// pause for lunch',author:{username:'Rin'}},
+    {id:'14',content:'The hatch begins to open.',webhook_id:'94',author:{bot:true,username:'Rin'}},
+    {id:'13',content:'Turn order',author:{bot:true,id:config.clientId}},
+    {id:'12',content:'The signal sounds like three bells.',author:{username:'Iris'}},
+    {id:'11',content:'Not from here.',channel_id:channel,author:{username:'Elsewhere'}}
+  ].map(m=>({type:0,channel_id:thread,...m}));
+  const paths:string[]=[];
+  discord.call=async(path)=>{paths.push(path);return history;};
+  let job:any;
+  const initial=await handleInteraction(db,config,ctx(host,{name:'roleplay-start',options},2,{id,member:actor}),discord,w=>{job=w;},scope);
+  assert.equal(initial.type,5);assert.equal(initial.data.flags,64);assert.equal(paths.length,0);
+  assert.match(await job(),/Scene opened/);assert.deepEqual(paths,['/channels/'+thread+'/messages?limit=5&before='+id]);
+  let s=JSON.parse((await db.query('SELECT state FROM pc_rp_scenes'))[0].state);
+  assert.equal(s.mode,'open');assert.deepEqual(s.history.map((m:any)=>m.name),['Iris','Rin']);
+  assert.match(s.history[0].text,/three bells/);
+  await command('roleplay-cancel');
+  const zero=ctx(host,{name:'roleplay-start',options:[...options,{name:'context',value:0}]},2,{member:actor});
+  assert.match((await handleInteraction(db,config,zero,discord,undefined,scope)).data.content,/Fresh scene/);
+  s=JSON.parse((await db.query('SELECT state FROM pc_rp_scenes'))[0].state);
+  assert.deepEqual(s.history,[]);assert.equal(paths.length,1);
+  const denied=await readSceneHistory(db,discord,{member:{permissions:'0'},channel_id:thread},10,'pc!');
+  assert.equal(paths.length,1);assert.match(denied.note,/Read Message History/);
+  await command('roleplay-cancel');
+  discord.call=async()=>{throw new Error('no history');};
+  assert.match((await handleInteraction(db,config,ctx(host,{name:'roleplay-start',options},2,{member:actor}),discord,undefined,scope)).data.content,/context: 0/);
+  assert.equal((await db.query('SELECT 1 FROM pc_rp_scenes')).length,0);
+});
+
+test('native tags and parent defaults feed player identity, join broadcasts the order and handoffs ping only the next writer',async t=>{
+  const {db,start,command,run,event}=await setup(t);
+  const a=randomUUID(),b=randomUUID();
+  for(const [id,who,name] of [[a,host,'Mira'],[b,guest,'Renn']])await db.query('INSERT INTO pc_characters VALUES($1,$2,1,$3)',[id,who,JSON.stringify({name,characterType:'OC'})]);
+  await db.query('INSERT INTO pc_post_tags(owner_id,tag,character_id,tag_key) VALUES($1,$2,$3,$2)',[host,'m-',a]);
+  await db.query('INSERT INTO pc_post_defaults VALUES($1,$2,$3)',[guest,channel,b]);
+  const first=await start();
+  const notices:any[]=[];
+  const deliver=()=>deliverTurnNotice(db,async(ch,p)=>{assert.equal(ch,thread);notices.push(p);});
+  await deliver();assert.deepEqual(notices[0].allowed_mentions,{parse:[],users:[host]});
+  const panel=await run(event(first,'join',guest));assert.match(panel.data.content,new RegExp(host+'[\\s\\S]*'+guest+'[\\s\\S]*King Azurik'));assert.deepEqual(panel.data.allowed_mentions,{parse:[]});
+  assert.equal(panel.data.components[0].components.some((p:any)=>p.label==='Write turn'),false);
+  const postAs=(author:string,id:string,content:string)=>captureWriterPost(db,{guild,channel:thread,parent:channel,author,id,roles:[],content},'Account name');
+  assert.equal(await postAs(guest,'early','I turn toward the gate.'),undefined);
+  assert.equal(await postAs(host,'first','m-The gate is open.'),'added');
+  assert.equal(await postAs(host,'aside','m-// OOC aside'),undefined);
+  assert.equal(await postAs(host,'second','m-I wait for Renn.'),'added');
+  assert.equal((await db.query('SELECT * FROM pc_rp_clocks')).length,0);
+  await command('finish-turn');
+  await deliver(); assert.deepEqual(notices.at(-1).allowed_mentions,{parse:[],users:[guest]});
+  assert.equal(await postAs(guest,'third','I listen for the signal.'),'added');
+  await command('finish-turn',guest);
+  const joining=await run(event(first,'join',stranger));
+  assert.match(joining.data.content,/next round/);
+  await deliverScene(db,async (s,move)=>{
+    assert.deepEqual(s.posts.map(p=>[p.name,p.text]),[['Mira','The gate is open.'],['Mira','I wait for Renn.'],['Renn','I listen for the signal.']]);
+    assert.match(move.text,/Mira/);return post;
+  });
+  while(await deliver()){}
+  assert.deepEqual(notices.at(-1).allowed_mentions,{parse:[],users:[host]});
+  const status=await command('roleplay-status');assert.match(status.data.content,new RegExp(stranger));assert.match(status.data.content,/Round 2/);
+});
+
+test('silent turns expire once, a quiet round pauses, and a real reply or a restart preserves the correct deadline',async t=>{
+  const {db,start,run,event,command}=await setup(t),first=await start();
+  const due=()=>db.query('SELECT due_at FROM pc_rp_clocks').then(rows=>Number(rows[0]?.due_at||0));
+  const hostDeadline=await due();await run(event(first,'join',guest));assert.equal(await due(),hostDeadline);
+  assert.equal(await expireTurn(db,hostDeadline-1),false);
+  assert.equal(await captureTurn(db,thread,host,'ooc',async()=>({name:'Mira',text:'(( just chatting ))'})),undefined);
+  const double=await Promise.all([expireTurn(db,hostDeadline),expireTurn(db,hostDeadline)]);
+  assert.equal(double.filter(Boolean).length,1);const guestDeadline=await due();assert.equal(guestDeadline,hostDeadline+turnWindow);
+  await restoreTurnClocks(db,guestDeadline-50);assert.equal(await due(),guestDeadline);
+  const delivered:any[]=[];while(await deliverTurnNotice(db,async(_,p)=>{delivered.push(p);})){}
+  assert.match(delivered.at(-1).content,/skipped after two hours/);assert.deepEqual(delivered.at(-1).allowed_mentions.users,[guest]);
+  assert.equal(await expireTurn(db,guestDeadline),true);
+  assert.match((await command('roleplay-status')).data.content,/Paused/);
+  assert.equal(await deliverScene(db,async()=>{throw Error('empty round');}),false);
+  assert.equal(await due(),0);
+  await captureTurn(db,thread,guest,'return',async()=>({name:'Renn',text:'I follow the signal.'}),guestDeadline+1);
+  assert.equal(await due(),0);assert.equal(await expireTurn(db,guestDeadline+turnWindow*4),false);
+  const s=JSON.parse((await db.query('SELECT state FROM pc_rp_scenes'))[0].state);assert.equal(s.paused,false);assert.equal(s.cast[0].id,guest);
+  assert.equal(s.posts[0].name,'Renn');
+  await command('roleplay-cancel');assert.equal(await deliverTurnNotice(db,async()=>{throw Error('cancelled');}),false);
+});
+
+test('guided replies follow new subject matter and actual per-writer length, and fetch the latest form art on transition',async t=>{
+  const {db,start}=await setup(t);await start('open');
+  const sheet=await loadNpc(db.query,azurikId),s=JSON.parse((await db.query('SELECT state FROM pc_rp_scenes'))[0].state);
+  s.history=[{name:'Renn',text:'A distress signal breaks up halfway through.'}];
+  s.posts=[{writer:host,name:'Rin',source:'1',text:'What do you think, Azurik?'}];
+  const short=guided(s,sheet);assert.match(short.text,/signal/);assert.ok(short.text.split(/\s+/).length>=60);
+  s.posts[0].text='A merchant wants to trade with us at the market. '.repeat(26);
+  const long=guided(s,sheet);assert.match(long.text,/bargain|terms/);assert.ok(long.text.split(/\s+/).length>short.text.split(/\s+/).length+50);
+  s.posts[0].text='a '.repeat(100);s.posts.push({...s.posts[0],source:'2',text:'b '.repeat(100)},{writer:guest,name:'Renn',source:'3',text:'c '.repeat(100)});assert.equal(replyLength(s),150);
+  s.posts=[{writer:host,name:'Rin',source:'4',text:'Show me your Super Saiyan transformation.'}];
+  const first=await narrate(db,s,sheet);assert.match(first.artwork||'',/pinimg.com.*gif$/);
+  await db.query('INSERT INTO pc_codex VALUES($1,1,$2,$3,$4)',['races/saiyan/paths/0/forms/1',JSON.stringify({art:'https://images.example/owner-edit.gif'}),host,Date.now()]);
+  const changed=await narrate(db,s,sheet);assert.equal(changed.artwork,'https://images.example/owner-edit.gif');assert.equal(changed.portrait,changed.artwork);
+  s.form=changed.form;s.posts[0].text='I wait.';const staying=await narrate(db,s,sheet);assert.equal(staying.artwork,undefined);assert.equal(staying.portrait,changed.portrait);
+  s.posts[0].text='Please stand down.';const base=await narrate(db,s,sheet);assert.equal(base.form,'');assert.equal(base.portrait,sheet.portrait);
+});
+
+test('PostgreSQL workers claim each timer and mention once and cascade a cancelled scene', {skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
+  const url=new URL(process.env.PHOENIX_TEST_DATABASE_URL!),database=await openPostgres(url.href);
+  const schema='scene_test_'+randomUUID().replaceAll('-','');
+  await database.query('CREATE SCHEMA '+schema);
+  url.searchParams.set('options','-c search_path='+schema);const db=await openPostgres(url.href);
+  t.after(async()=>{await db.close();await database.query('DROP SCHEMA '+schema+' CASCADE');await database.close();});
+  await initialize(db,guild);
+  const s:any={id:randomUUID(),npc:azurikId,title:'Azurik',channel:thread,cast:[{id:host,name:'Rin'},{id:guest,name:'Mira'}],round:1,turn:0,form:'',posts:[],past:[]};
+  const now=Date.now();
+  await db.transaction(async q=>{
+    await q('INSERT INTO pc_rp_scenes(channel_id,scene_id,state) VALUES($1,$2,$3)',[thread,s.id,JSON.stringify(s)]);
+    await setClock(q,s,now);await queueNotice(q,s,'Round 1');await q('UPDATE pc_rp_scenes SET state=$1',[JSON.stringify(s)]);
+  });
+  const sends:any[]=[];
+  const send=async(_:string,p:any)=>{sends.push(p);};
+  await Promise.all([deliverTurnNotice(db,send),deliverTurnNotice(db,send)]);assert.equal(sends.length,1);assert.deepEqual(sends[0].allowed_mentions.users,[host]);
+  await Promise.all([expireTurn(db,now+turnWindow),expireTurn(db,now+turnWindow)]);
+  const saved=await db.transaction(q=>lockedScene(q,db,thread));assert.equal(JSON.parse(saved.state).turn,1);
+  await Promise.all([deliverTurnNotice(db,send),deliverTurnNotice(db,send)]);assert.equal(sends.length,2);assert.deepEqual(sends[1].allowed_mentions.users,[guest]);
+  await db.query('DELETE FROM pc_rp_scenes WHERE scene_id=$1',[s.id]);assert.deepEqual(await db.query('SELECT * FROM pc_rp_clocks'),[]);
 });
