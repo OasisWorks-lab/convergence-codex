@@ -19,7 +19,33 @@ export function accountAvatar(user:Member['user']){
 export class DiscordFailure extends Error {
   status: number;
   retryMs: number;
-  constructor(status: number, retryMs=0) { super('Discord HTTP ' + status); this.status=status; this.retryMs=retryMs; }
+  code: number;
+  constructor(status:number, retryMs=0, code=0) {
+    super('Discord HTTP '+status+(code?' (code '+code+')':''));
+    this.status=status;
+    this.retryMs=retryMs;
+    this.code=code;
+  }
+}
+
+export class CommandRegistrationError extends Error {
+  retryMs:number;
+  constructor(operation:string, cause:unknown) {
+    const detail=cause instanceof DiscordFailure ? cause.message :
+      cause instanceof Error && cause.name==='TimeoutError' ? 'request timed out' : 'Discord request failed';
+    super(operation+' · '+detail);
+    this.retryMs=cause instanceof DiscordFailure ? cause.retryMs : 0;
+  }
+}
+
+// Discord adds IDs, localizations and default flags to the returned command definitions.
+function commandShape(command:any) {
+  const options=(command.options||[]).map((o:any)=>({
+    name:o.name, type:o.type, description:o.description,
+    required:o.required??false, autocomplete:o.autocomplete??false, max_length:o.max_length??null,
+    choices:(o.choices||[]).map((c:any)=>[c.name,c.value])
+  }));
+  return JSON.stringify([command.name,command.type,command.description||'',options]);
 }
 
 export class Discord {
@@ -34,8 +60,10 @@ export class Discord {
     if (init.body && !headers.has('content-type')) headers.set('content-type','application/json');
     const response=await this.fetcher('https://discord.com/api/v10' + path, { ...init, headers, signal:AbortSignal.timeout(8500) });
     if (!response.ok) {
-      const info=response.status === 429 ? await response.json().catch(()=>({})) : {};
-      throw new DiscordFailure(response.status, Math.ceil(Number(info.retry_after || 0) * 1000));
+      const info=await response.json().catch(()=>null);
+      const seconds=Number(info?.retry_after ?? response.headers.get('retry-after') ?? 0);
+      const retryMs=Number.isFinite(seconds) && seconds>0 ? Math.ceil(seconds*1000) : 0;
+      throw new DiscordFailure(response.status,retryMs,Number.isInteger(info?.code)?info.code:0);
     }
     return response.status === 204 ? null : response.json();
   }
@@ -87,7 +115,34 @@ export class Discord {
       {name:'character',description:'Your character name, posting tag or sheet ID',type:3,required:true,autocomplete:true},
       {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
     specs.push({name:'revert-form',type:1,description:'Return to base or an earlier attained form.',options:[{name:'character',type:3,description:'Your approved character',required:true,autocomplete:true},{name:'form',type:3,description:'Base or an earlier attained form',required:false,autocomplete:true}]});
-    for(const spec of [...specs,...npcCommands()])await this.call(path,{method:'POST',body:JSON.stringify(spec)});
+    const required=[...npcCommands(),...specs];
+    let operation='Listing Convergence commands';
+    try {
+      const current=await this.call(path);
+      let changed=false;
+      for(const spec of required) {
+        const registered=current.find((c:any)=>c.name===spec.name && c.type===spec.type);
+        if(registered && commandShape(registered)===commandShape(spec))continue;
+        operation='Registering '+spec.name;
+        if(registered) {
+          const {type,...fields}=spec;
+          await this.call(path+'/'+registered.id,{method:'PATCH',body:JSON.stringify(fields)});
+        } else {
+          await this.call(path,{method:'POST',body:JSON.stringify(spec)});
+        }
+        changed=true;
+      }
+      if(changed) {
+        operation='Verifying Convergence commands';
+        const confirmed=await this.call(path);
+        if(!required.every(spec=>confirmed.some((c:any)=>commandShape(c)===commandShape(spec)))) {
+          throw new CommandRegistrationError('Waiting for the guild command list to reflect the update',undefined);
+        }
+      }
+    } catch(cause) {
+      if(cause instanceof CommandRegistrationError)throw cause;
+      throw new CommandRegistrationError(operation,cause);
+    }
   }
   async guildChannel(id:string) {
     const channel=await this.call('/channels/'+id);

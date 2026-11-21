@@ -129,3 +129,26 @@ test('adopts an existing owner NPC without duplicating the sheet, losing their g
   assert.deepEqual(JSON.parse(sheet.attainedForms),[{id:'original',name:'Mastered Super Saiyan',portrait:'',multiplier:'85'}]);
   assert.equal((await db.query('SELECT revision FROM pc_characters'))[0].revision,4);
 });
+test('guild command registration resumes after throttling, updates changed definitions and verifies the live list',async()=>{
+  const installed:any[]=[{id:'old',type:1,name:'roleplay-status',description:'Old wording'},
+    {id:'other',type:1,name:'unrelated',description:'Keep me.'},{id:'sheet',type:3,name:'Character sheet',description:'',options:[]}];
+  const writes:string[]=[];
+  let throttle=true;
+  const discord=new Discord(config,async(url,init)=>{
+    const path=new URL(String(url)).pathname;
+    if(!init?.method || init.method==='GET')return Response.json(installed);
+    const data=JSON.parse(String(init.body));
+    if(data.name==='roleplay-cancel' && throttle){throttle=false;return Response.json({retry_after:1.25,code:20028},{status:429});}
+    writes.push(init.method+' '+data.name);
+    if(init.method==='PATCH')Object.assign(installed.find(d=>d.id===path.split('/').at(-1)),data);
+    else installed.push({...data,id:String(installed.length+1)});
+    return Response.json(data);
+  });
+  await assert.rejects(discord.registerCommands(),(e:any)=>/roleplay-cancel.*429.*20028/.test(e.message)&&e.retryMs===1250);
+  await discord.registerCommands();const after=[...writes];await discord.registerCommands();
+  assert.deepEqual(writes,after);
+  assert.equal(writes.filter(s=>s==='POST roleplay-start').length,1);
+  assert.deepEqual(writes.filter(s=>s.includes('roleplay-status')),['PATCH roleplay-status']);
+  assert.equal(writes.some(s=>/unrelated|Character sheet/.test(s)),false);
+  assert.deepEqual(installed.filter(s=>s.name.startsWith('roleplay-')).map(s=>s.name).sort(),['roleplay-cancel','roleplay-start','roleplay-status']);
+});
