@@ -1,5 +1,5 @@
 import {forumType,writableType} from './forum-threads.ts';
-import {captureTurn} from './npc-scenes.ts';
+import {captureTurn,sceneCommand} from './npc-scenes.ts';
 import type { Query } from './db.ts';
 import {captureNative} from './native.ts';
 import {activeForm,characterCommand} from './characters.ts';
@@ -83,6 +83,13 @@ async function resolveWriter(q:Query,source:IncomingPost){
   const character=JSON.parse(sheet.sheet),form=activeForm(character,sheet.form_key);
   return {sheet,character,form,content};
 }
+export function captureWriterPost(db:Store,source:IncomingPost,displayName:string,createdAt=Date.now()){
+  return captureTurn(db,source.channel,source.author,source.id,async q=>{
+    const speaker=await resolveWriter(q,source);
+    const name=speaker?.form?speaker.character.name+' ('+speaker.form.name+')':speaker?.character?.name||displayName;
+    return {text:speaker?.content||'',name};
+  },createdAt);
+}
 export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean,settings?:Settings){
   if(source.guild!==config.guild || !source.content.trim() || source.content.length>2000)return;
   const value=settings||(await readSettings(db)).value;
@@ -110,12 +117,17 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
       : interaction.isButton()?{custom_id:interaction.customId}
       : interaction.isModalSubmit()&&interaction.customId.startsWith('npc:')?{custom_id:interaction.customId,components:[{components:[{custom_id:'post',value:interaction.fields.getTextInputValue('post')}]}]}:null;
     if(!data||!interaction.inGuild()||interaction.guildId!==config.guild ||
-      !(('name' in data && ['roleplay-start','roleplay-status','roleplay-cancel'].includes(data.name!))||('custom_id' in data && data.custom_id?.startsWith('npc:'))))return;
+      !(('name' in data && sceneCommand(data.name!))||('custom_id' in data && data.custom_id?.startsWith('npc:'))))return;
     const member=interaction.member,roles=Array.isArray(member.roles)?member.roles:[...member.roles.cache.keys()];
     const channel=interaction.channel;
     const body={id:interaction.id,type:interaction.type,application_id:interaction.applicationId,guild_id:interaction.guildId,channel_id:interaction.channelId,
       channel:{type:channel?.type,parent_id:channel&&'parentId'in channel?channel.parentId:null},member:{user:interaction.user,roles,nick:'nickname' in member?member.nickname:member.nick,permissions:String(interaction.memberPermissions?.bitfield||0n)},data};
     try{
+      if(interaction.isChatInputCommand()&&interaction.commandName==='roleplay-start'){
+        await interaction.deferReply({flags:64});
+        const result=await handleInteraction(db,config,body,discord,undefined,scope);
+        await interaction.editReply({content:result.data.content,allowedMentions:{parse:[]}});return;
+      }
       const result=await handleInteraction(db,config,body,discord,undefined,scope);
       await client.rest.post('/interactions/'+interaction.id+'/'+interaction.token+'/callback',{auth:false,body:result});
     }catch{console.warn('Discord could not acknowledge the NPC interaction.');}
@@ -167,22 +179,18 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
         const command=/^(help|transform|revert-form)(?:\s+([\s\S]*))?$/i.exec(message.content.slice(prefix.length).trim());
         if(command){
           const [name,form]=(command[2]||'').split('|').map(x=>x.trim()),action=command[1].toLowerCase();
-          const response=action==='help'?'Start NPC scenes with /roleplay-start. Use /transform or /revert-form, or type '+prefix+'transform Character | Form. To submit a template in its review channel, start with '+prefix+'submit and the submission type.':(await characterCommand(db,config.guild,config.dashboard,{guild_id:message.guildId,member:{user:{id:message.author.id},roles},data:{name:action,options:[{name:'character',value:name},...(form?[{name:'form',value:form}]:[])]}})).data.content;
+          const response=action==='help'?'Start NPC scenes with /roleplay-start. Post as your character and type /finish-turn to pass. Use /transform or /revert-form, or type '+prefix+'transform Character | Form. To submit a template in its review channel, start with '+prefix+'submit and the submission type.':(await characterCommand(db,config.guild,config.dashboard,{guild_id:message.guildId,member:{user:{id:message.author.id},roles},data:{name:action,options:[{name:'character',value:name},...(form?[{name:'form',value:form}]:[])]}})).data.content;
           await message.reply({content:response,allowedMentions:{parse:[],repliedUser:false}});return;
         }
       }
     }catch{console.warn('Discord submission or character command could not be processed.');return;}
     if((message.type===MessageType.Default||message.type===MessageType.Reply) && scope.eligible(settings,message.channel)
-      && (!settings.playerRole||roles.includes(settings.playerRole)||message.author.id===config.owner)
-      && !settings.commandPrefixes.split(/\s+/).filter(Boolean).some(p=>message.content.startsWith(p))){
+      && (!settings.playerRole||roles.includes(settings.playerRole)||message.author.id===config.owner)){
       try{
         const source={id:message.id,channel:message.channelId,parent:thread?.parentId||undefined,guild:message.guildId,author:message.author.id,roles,content:message.content};
-        const captured=await captureTurn(db,source.channel,source.author,source.id,async q=>{
-          const speaker=await resolveWriter(q,source);
-          return {text:speaker?.content||'',name:speaker?.character?.name||message.member!.displayName};
-        });
-        if(captured==='full')await message.reply({content:'This scene turn is full. Choose Finish turn to continue.',allowedMentions:{parse:[],repliedUser:false}});
-      }catch{console.warn('NPC scene could not record a turn. Writers can use Write turn.');}
+        const captured=await captureWriterPost(db,source,message.member.displayName,message.createdTimestamp);
+        if(captured==='full')await message.reply({content:'This scene turn is full. Type /finish-turn to continue.',allowedMentions:{parse:[],repliedUser:false}});
+      }catch{console.warn('NPC scene could not record the in-character post.');}
     }
     if(message.type!==MessageType.Default||message.attachments.size||message.stickers.size||message.poll||message.reference||!message.deletable)return;
     const channel=message.channel;

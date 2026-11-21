@@ -16,6 +16,7 @@ import { accountAvatar, Discord, DiscordFailure, CommandRegistrationError, deliv
 import {nicknameJob,announcement} from './bot-tools.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
 import { aiOptions } from './npc-voice.ts';
+import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -111,7 +112,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         res.end(method==='HEAD'?undefined:Buffer.from(image.bytes));return;
       }
       if(method==='GET' && path==='/health/roleplay'){
-        json(res,200,{feature:'npc-scenes-v1',gateway:scope.online(),commandsRegistered:scope.npcCommandsReady,dialogue:aiOptions()?'guided-and-ai':'guided'});return;
+        json(res,200,{feature:'npc-scenes-v2',gateway:scope.online(),commandsRegistered:scope.npcCommandsReady,dialogue:aiOptions()?'guided-and-ai':'guided'});return;
       }
       if (method==='GET' && path==='/health') {json(res,200,{ok:true});return;}
       if(method==='GET' && uiOrigin!==config.service && ['/','/phoenixcore','/phoenixcore/','/phoenixcore/index.html'].includes(path)){
@@ -173,8 +174,8 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         requireThat(checkSignature(raw,String(req.headers['x-signature-ed25519']??''),String(req.headers['x-signature-timestamp']??''),config.publicKey),401,'Invalid Discord signature.');
         const action=parse(raw);
         const deferred=(work:()=>Promise<string>)=>setImmediate(async()=>{
-          let content;try{content=await work();wake();}catch{content='PhoenixCore could not catalog this post. Open the original message and try again.';}
-          try{await discord.call('/webhooks/'+config.clientId+'/'+encodeURIComponent(action.token)+'/messages/@original',{method:'PATCH',body:JSON.stringify({content,components:[],allowed_mentions:{parse:[]}})});}catch{console.warn('Discord could not display the catalog result.');}
+          let content;try{content=await work();wake();}catch{content=action.data?.name==='roleplay-start'?'PhoenixCore could not open this scene. Try /roleplay-start again.':'PhoenixCore could not catalog this post. Open the original message and try again.';}
+          try{await discord.call('/webhooks/'+config.clientId+'/'+encodeURIComponent(action.token)+'/messages/@original',{method:'PATCH',body:JSON.stringify({content,components:[],allowed_mentions:{parse:[]}})});}catch{console.warn('Discord could not display the interaction result.');}
         });
         json(res,200,await handleInteraction(db,config,action,discord,deferred,scope));if(action.type===3)wake();return;
       }
@@ -280,6 +281,7 @@ async function start() {
   const db=process.env.DATABASE_URL ? await openPostgres(process.env.DATABASE_URL) : openSqlite(process.env.SQLITE_FILE||resolve(homedir(),'.phoenixcore','convergence.sqlite'));
   await initialize(db,config.guild);
   await seedAzurik(db,config.owner);
+  await restoreTurnClocks(db);
   const discord=new Discord(config);
   const scope=new RoleplayScope(config.guild);
   const server=application(db,config,discord,scope,()=>{void tick();});
@@ -308,14 +310,28 @@ async function start() {
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}
   }
-  let deliveringNpc=false;
+  const eligibleNpcChannel=async(channel:any)=>{
+    const {value}=await readSettings(db);
+    return scope.interactionEligible(value,{guild_id:config.guild,channel_id:channel.id,channel});
+  };
+  let deliveringNpc=false,checkingTurns=false;
+  const turnClock=setInterval(async()=>{
+    if(checkingTurns||stopping)return;
+    checkingTurns=true;
+    try{
+      for(let i=0;i<8;i++)if(!await expireTurn(db))break;
+      for(let i=0;i<8;i++)if(!await deliverTurnNotice(db,async(id,payload)=>{
+        const channel=await discord.guildChannel(id);
+        if(!await eligibleNpcChannel(channel))throw new Error('Outside current RP scope');
+        return discord.call('/channels/'+id+'/messages',{method:'POST',body:JSON.stringify(payload)});
+      }))break;
+    }catch{console.warn('NPC turn announcements will retry.');}
+    finally{checkingTurns=false;}
+  },1500);
   const npcClock=setInterval(async()=>{
     if(deliveringNpc||stopping)return;
     deliveringNpc=true;
-    try{for(let i=0;i<4;i++)if(!await deliverScene(db,(s,move,retry)=>sendNpcPost(discord,s,move,retry,async channel=>{
-        const {value}=await readSettings(db);
-        return scope.interactionEligible(value,{guild_id:config.guild,channel_id:channel.id,channel});
-      })))break;}
+    try{for(let i=0;i<4;i++)if(!await deliverScene(db,(s,move,retry)=>sendNpcPost(discord,s,move,retry,eligibleNpcChannel)))break;}
     catch{console.warn('NPC scene delivery will retry.');}
     finally{deliveringNpc=false;}
   },1500);
@@ -336,7 +352,7 @@ async function start() {
         try {
           await discord.registerCommands();
           scope.npcCommandsReady=true;
-          console.log('Verified /roleplay-start, /roleplay-status, /roleplay-cancel and character commands in Convergence.');
+          console.log('Verified /roleplay-start, /finish-turn, /roleplay-status, /roleplay-cancel and character commands in Convergence.');
         } catch(error) {
           const retryMs=error instanceof CommandRegistrationError && error.retryMs ? error.retryMs+500 : 15000;
           console.warn('Guild command registration: '+(error instanceof CommandRegistrationError?error.message:'unavailable')+'; retry in '+Math.ceil(retryMs/1000)+'s.');
@@ -347,7 +363,7 @@ async function start() {
     }
     void tick();
   });
-  const stop=()=>{stopping=true;clearTimeout(retry);if(stopPosting)void stopPosting();clearInterval(npcClock);clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
+  const stop=()=>{stopping=true;clearTimeout(retry);if(stopPosting)void stopPosting();clearInterval(npcClock);clearInterval(turnClock);clearInterval(notify);clearInterval(cleanup);server.close(()=>{void db.close();});};
   process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 export function main() {

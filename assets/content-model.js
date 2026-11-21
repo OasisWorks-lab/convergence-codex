@@ -15,6 +15,9 @@
     return '#'+[0,8,4].map(channel).join('');
   }
   function prepare(data){
+    const saiyan=data.races?.find(r=>r.slug==='saiyan');
+    const superSaiyan=saiyan?.paths.flatMap(path=>path.forms).find(form=>form.messageId==='1417233895648137360');
+    if(superSaiyan?.art==='../assets/brand.png')superSaiyan.art='https://i.pinimg.com/originals/b0/34/05/b03405cd172508e1410ef4dfbe4fb678.gif';
     for(const [name,hue,sat,light] of presets){
       const id=name.toLowerCase();
       if(data.themes.some(t=>t.id===id))continue;

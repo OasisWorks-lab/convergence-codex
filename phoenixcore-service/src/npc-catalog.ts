@@ -1,5 +1,5 @@
 import type { Query, Store } from './db.ts';
-import { publishedFormText } from './codex.ts';
+import { formArtwork,publishedForm } from './codex.ts';
 import forms from '../../phoenixcore/templates.js';
 
 export const azurikId = 'f4aa99d3-4a75-40c7-8737-adb4b7e31300';
@@ -58,7 +58,7 @@ export async function ruleSheet(q:Query,id:string,sheet:any) {
   const list=forms.readForms(sheet.attainedForms);
   const form=list.find((f:any)=>f.id===(sheet.npcMasteryId||mastery));
   if(!form)return sheet;
-  const html=await publishedFormText(q,ruleKey);
+  const html=(await publishedForm(q,ruleKey)).html||'';
   const plain=html.normalize('NFKC').replace(/<[^>]+>/g,' ').replace(/&times;|&#215;/gi,'×');
   const section=plain.split(/multipliers?/i).at(-1) || '';
   const factor=/\bGrade\s*4\s*[:–—-]?\s*(?:[x×]\s*)?([0-9]{1,8}(?:\.[0-9]{1,4})?)\s*(?:[x×]|times)/i;
@@ -77,4 +77,9 @@ export async function loadNpc(q:Query,id:string) {
 export function formStats(sheet:any, key:string) {
   const form=forms.readForms(sheet.attainedForms).find((f:any)=>f.id===key);
   return {form,pl:form && form.id===(sheet.npcMasteryId||mastery) && !form.multiplier ? null : forms.effectiveSheet(sheet,form).bpl,portrait:form?.portrait||sheet.portrait};
+}
+
+export function npcFormArt(q:Query,id:string,sheet:any,formId:string){
+  const mastered=isAzurik(id,sheet)&&formId===(sheet.npcMasteryId||mastery);
+  return formArtwork(q,formId,mastered?ruleKey:undefined);
 }

@@ -141,7 +141,7 @@ if(page==='races'){
 }
 function formCard(f,index,kind='standard',formId=''){
  const compact=(kind==='compact' || kind==='sparking');
- return `<button class="form-card ${compact?'form-card-compact':''}" type="button" data-form="${E(formId)}" aria-label="Read ${E(f.title)}"><div class="form-card-heading"><strong>${E(cut(f.title,80))}</strong><small>${String(index+1).padStart(2,'0')}</small></div><div class="form-card-image ${isCustom(f.art)?'has-custom-art':''}"><img src="${E(art(f.art))}" loading="lazy" alt="Illustrative placeholder for ${E(f.title)}"></div><div class="form-card-bottom"><span>Archived record</span><span>View form ↗</span></div></button>`;
+ return `<button class="form-card ${compact?'form-card-compact':''}" type="button" data-form="${E(formId)}" aria-label="Read ${E(f.title)}"><div class="form-card-heading"><strong>${E(cut(f.title,80))}</strong><small>${String(index+1).padStart(2,'0')}</small></div><div class="form-card-image ${isCustom(f.art)?'has-custom-art':''}"><img src="${E(art(f.art))}" loading="lazy" alt="${E(f.title)} artwork"></div><div class="form-card-bottom"><span>Archived record</span><span>View form ↗</span></div></button>`;
 }
 function attachRaceForms(container,openForm){
  container.querySelectorAll('[data-form]').forEach(b=>b.addEventListener('click',()=>{const [pi,fi]=b.dataset.form.split('-').map(Number);openForm(pi,fi);}));

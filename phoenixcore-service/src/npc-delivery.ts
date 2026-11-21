@@ -2,7 +2,8 @@ import { createHash,randomUUID } from 'node:crypto';
 import type { Store } from './db.ts';
 import type { Discord } from './discord.ts';
 import { loadNpc } from './npc-catalog.ts';
-import { displayPL,lockedScene } from './npc-scenes.ts';
+import {displayPL} from './npc-scenes.ts';
+import {lockedScene,includeWaiting,order,queueNotice,setClock} from './npc-turns.ts';
 import { narrate, type Scene,type Speech } from './npc-voice.ts';
 
 export async function sendNpcPost(discord:Discord,s:Scene,move:Speech,retry:boolean,eligible?:(channel:any)=>Promise<boolean>) {
@@ -23,10 +24,19 @@ export async function sendNpcPost(discord:Discord,s:Scene,move:Speech,retry:bool
     if(found)return String(found.id);
   }
   const portrait=move.portrait?new URL(move.portrait,discord.settings.dashboard).href:undefined;
-  const embed={author:{name:move.name,...(portrait?{icon_url:portrait}:{})},description:move.text.slice(0,1900),color:0xc76639,
-    fields:[{name:'Power Level',value:displayPL(move.pl),inline:true},{name:'Next turn',value:'Round '+(s.round+1)+' · <@'+s.cast[0].id+'>',inline:true}],
-    footer:{text:tag},...(portrait?{thumbnail:{url:portrait}}:{})};
-  const payload={embeds:[embed],allowed_mentions:{parse:[]}};
+  const artwork=move.artwork?new URL(move.artwork,discord.settings.dashboard).href:undefined;
+  // Discord accepts 2,000 characters of ordinary message text. Keep longer narration in the same post.
+  const text=move.text;
+  let cut=text.length;
+  if(cut>2000){
+    const split=text.slice(0,2000).search(/\s+\S*$/);
+    cut=split>=Math.max(1000,text.length-4096)?split:2000;
+  }
+  const rest=text.slice(cut).trimStart();
+  const embed={author:{name:move.name,...(portrait?{icon_url:portrait}:{})},color:0xc76639,
+    ...(rest?{description:rest}:{}),fields:[{name:'Power Level',value:displayPL(move.pl),inline:true}],
+    footer:{text:tag},...(artwork?{image:{url:artwork}}:{})};
+  const payload={content:text.slice(0,cut).trimEnd(),embeds:[embed],allowed_mentions:{parse:[]}};
   if(hook?.token){
     try{
       const posted=await discord.call('/webhooks/'+hook.id+'/'+encodeURIComponent(hook.token)+'?wait=true'+(thread?'&thread_id='+s.channel:''),{method:'POST',body:JSON.stringify({...payload,username:move.name.slice(0,80),avatar_url:portrait})});return String(posted.id);
@@ -61,8 +71,14 @@ export async function deliverScene(db:Store,send:(s:Scene,move:Speech,retry:bool
       if(live?.lease_token!==lease)return;
       await q('INSERT INTO pc_npc_posts(post_id,channel_id,character_id,form_key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[postId,s.channel,s.npc,move.form]);
       if(!sheet){await q('DELETE FROM pc_rp_scenes WHERE scene_id=$1',[s.id]);return;}
-      s.past.push({posts:s.cast.map(p=>({name:s.posts.find(m=>m.writer===p.id)?.name||p.name,text:s.posts.filter(m=>m.writer===p.id).map(m=>m.text).join('\n').slice(0,700)})).filter(p=>p.text),reply:move.text});
+      const liveScene:Scene=JSON.parse(live.state);
+      s.waiting=liveScene.waiting;
+      const speakers=new Map<string,string>();
+      for(const part of s.posts)speakers.set(part.name,(speakers.get(part.name)||'')+'\n'+part.text);
+      s.past.push({posts:[...speakers].map(([name,text])=>({name,text:text.trim().slice(-1200)})),reply:move.text});
       s.past=s.past.slice(-4);s.posts=[];s.turn=0;s.round++;s.form=move.form;s.title=sheet.name;
+      includeWaiting(s);await setClock(q,s,Date.now());
+      await queueNotice(q,s,'Round '+s.round+'.\n'+order(s));
       await q('UPDATE pc_rp_scenes SET state=$1,ready_at=0,lease_token=NULL,lease_until=0,speech=NULL,attempts=0,delivery_note=NULL WHERE scene_id=$2',[JSON.stringify(s),s.id]);
     });
   }catch(e:any){
