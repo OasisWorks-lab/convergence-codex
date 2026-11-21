@@ -117,3 +117,15 @@ test('AI dialogue is opt-in, bounded by its daily server budget, and falls back 
   await db.query('DELETE FROM pc_npc_ai_usage');
   assert.equal((await narrate(db,scene,sheet,async()=>{throw Error('offline');})).source,'Guided');
 });
+
+test('adopts an existing owner NPC without duplicating the sheet, losing their gear or replacing their form ID',async t=>{
+  const db=openSqlite(':memory:');t.after(()=>db.close());await initialize(db,guild);
+  const id=randomUUID(),existing={name:'King Azurik',characterType:'NPC',bio:'Personal history.',wallet:'42',gear:['Royal seal'],bpl:'5000000',attainedForms:JSON.stringify([{id:'original',name:'Mastered Super Saiyan',portrait:''}])};
+  await db.query('INSERT INTO pc_characters VALUES($1,$2,3,$3)',[id,host,JSON.stringify(existing)]);
+  await seedAzurik(db,host);await seedAzurik(db,host);
+  const choices=await npcChoices(db.query);assert.deepEqual(choices,[{name:'King Azurik',value:id}]);
+  const sheet=await loadNpc(db.query,id);
+  assert.equal(sheet.bpl,'10000000');assert.equal(sheet.wallet,'42');assert.deepEqual(sheet.gear,['Royal seal']);assert.equal(sheet.bio,existing.bio);
+  assert.deepEqual(JSON.parse(sheet.attainedForms),[{id:'original',name:'Mastered Super Saiyan',portrait:'',multiplier:'85'}]);
+  assert.equal((await db.query('SELECT revision FROM pc_characters'))[0].revision,4);
+});

@@ -1,4 +1,4 @@
-import { azurikId, formStats } from './npc-catalog.ts';
+import { isAzurik, formStats } from './npc-catalog.ts';
 import type { Store } from './db.ts';
 import forms from '../../phoenixcore/templates.js';
 
@@ -16,8 +16,8 @@ export function aiOptions(env=process.env) {
   if(!env.PHOENIX_NPC_OPENAI_KEY || !env.PHOENIX_NPC_AI_MODEL || !Number.isInteger(cap) || cap<1 || cap>10000)return null;
   return {key:env.PHOENIX_NPC_OPENAI_KEY,model:env.PHOENIX_NPC_AI_MODEL,cap};
 }
-export function openingLine(id:string,mode:string,name:string) {
-  if(id===azurikId)return mode==='spar'
+export function openingLine(king:boolean,mode:string,name:string) {
+  if(king)return mode==='spar'
     ? '*Azurik lays his mantle on the rail and steps onto the practice floor, his hands open.* “Before you show me how you strike, tell me what you want to learn.”'
     : '*The king turns from the window overlooking Sadala. He draws an empty chair a little nearer.* “You crossed some distance to stand here. What would you have me hear?”';
   return mode==='spar'?'*'+name+' takes a place on the practice floor and waits for the first move.*':'*'+name+' gives the visitors room to speak.*';
@@ -54,7 +54,7 @@ function excerpt(text:string) {
 export function guided(scene:Scene,sheet:any):Speech {
   const current=scene.posts.map(p=>p.text).join('\n');
   const last=scene.posts.at(-1);
-  const isKing=scene.npc===azurikId;
+  const isKing=isAzurik(scene.npc,sheet);
   const known=forms.readForms(sheet.attainedForms);
   let key=known.some((f:any)=>f.id===scene.form)?scene.form:'';
   let line='';

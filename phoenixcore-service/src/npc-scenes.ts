@@ -3,7 +3,7 @@ import type { Query, Store } from './db.ts';
 import type { Config } from './discord.ts';
 import type { RoleplayScope } from './scope.ts';
 import { actorFor, readSettings } from './domain.ts';
-import { formStats, loadNpc, npcChoices } from './npc-catalog.ts';
+import { formStats, isAzurik, loadNpc, npcChoices } from './npc-catalog.ts';
 import { aiOptions, openingLine, type Scene } from './npc-voice.ts';
 
 export const npcCommands=()=>[
@@ -36,12 +36,12 @@ function signedAdmin(body:any,config:Config) {
   return body.member?.user?.id===config.owner || (/^\d+$/.test(bits)&&(BigInt(bits)&8n)!==0n);
 }
 const select=(body:any,name:string)=>body.data.options?.find((o:any)=>o.name===name)?.value;
-function sceneOptions(s:Scene,portrait:string,config:Config) {
-  const embed:any={title:s.title,description:openingLine(s.npc,s.mode,s.title),color:0xc76639,
+function sceneOptions(s:Scene,sheet:any,config:Config) {
+  const embed:any={title:s.title,description:openingLine(isAzurik(s.npc,sheet),s.mode,s.title),color:0xc76639,
     fields:[{name:'Turn order',value:order(s)},{name:'Your turn',value:'Post in character and click Finish turn, or use Write turn. Other writers can join before the NPC responds.'}]};
   if(s.opening)embed.fields.push({name:'Scene premise',value:s.opening});
   if(s.ai)embed.fields.push({name:'AI dialogue',value:'Joining sends your scene contributions and recent turns to OpenAI for an NPC reply.'});
-  if(portrait)embed.thumbnail={url:new URL(portrait,config.dashboard).href};
+  if(sheet.portrait)embed.thumbnail={url:new URL(sheet.portrait,config.dashboard).href};
   return {embeds:[embed],components:controls(s)};
 }
 function append(s:Scene,id:string,text:string,source:string,name:string){
@@ -104,7 +104,7 @@ export async function sceneInteraction(db:Store,config:Config,body:any,scope?:Ro
         const s:Scene={id:randomUUID(),channel,host:actor,npc:id,title:sheet.name,mode:select(body,'scene')==='spar'?'spar':'audience',ai,
           cast:[{id:actor,name:body.member.nick||body.member.user.global_name||body.member.user.username||'Writer'}],round:1,turn:0,form:'',opening:String(select(body,'opening')||'').slice(0,500),posts:[],past:[]};
         const saved=await q('INSERT INTO pc_rp_scenes(channel_id,scene_id,state) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING scene_id',[channel,s.id,JSON.stringify(s)]);
-        return saved.length?reply('Round 1 · '+(s.mode==='spar'?'Training spar':'Audience'),false,sceneOptions(s,sheet.portrait,config)):reply('Another writer just started a scene here. Use /roleplay-status.');
+        return saved.length?reply('Round 1 · '+(s.mode==='spar'?'Training spar':'Audience'),false,sceneOptions(s,sheet,config)):reply('Another writer just started a scene here. Use /roleplay-status.');
       }
       if(!row)return reply('There is no active NPC scene here. Use /roleplay-start.');
       const s:Scene=JSON.parse(row.state),action=component?.[3];

@@ -5,6 +5,7 @@ import forms from '../../phoenixcore/templates.js';
 export const azurikId = 'f4aa99d3-4a75-40c7-8737-adb4b7e31300';
 const mastery = 'azurik-super-saiyan-grade-4';
 const ruleKey = 'races/saiyan/paths/0/forms/1';
+export const isAzurik=(id:string,sheet:any)=>id===azurikId || sheet?.npcIdentity==='king-azurik';
 export const azurikSheet = {
   name:'King Azurik', alias:'Azurik', characterType:'NPC', lineage:'Saiyan', className:'C-Type Saiyan',
   age:'107', gender:'Male', height:'7′5″', weight:'426 lbs', alignment:'Lawful Good',
@@ -22,8 +23,23 @@ export async function seedAzurik(db:Store, owner:string) {
   await db.transaction(async q=>{
     const inserted=await q("INSERT INTO pc_migrations(name) VALUES('npc-azurik-reboot-v1') ON CONFLICT DO NOTHING RETURNING name");
     if(!inserted.length)return;
-    const own=await q('SELECT sheet FROM pc_characters WHERE owner_id=$1',[owner]);
-    if(own.some(r=>{const s=JSON.parse(r.sheet);return s.characterType==='NPC' && s.name.toLowerCase()===azurikSheet.name.toLowerCase();}))return;
+    const owned=await q('SELECT id,sheet FROM pc_characters WHERE owner_id=$1 ORDER BY id'+(db.dialect==='postgres'?' FOR UPDATE':''),[owner]);
+    const existing=owned.find(row=>{
+      const sheet=JSON.parse(row.sheet);
+      return sheet.characterType==='NPC' && sheet.name.trim().toLowerCase()===azurikSheet.name.toLowerCase();
+    });
+    if(existing){
+      const original=JSON.parse(existing.sheet);
+      const sheet={...azurikSheet,...original,npcIdentity:'king-azurik',bpl:azurikSheet.bpl};
+      if(!sheet.portrait)sheet.portrait=azurikSheet.portrait;
+      const attained=forms.readForms(original.attainedForms);
+      let grade=attained.find((form:any)=>form.id===mastery || /^mastered super saiyan(?: \(grade 4\))?$/i.test(form.name));
+      if(!grade){grade=forms.readForms(azurikSheet.attainedForms)[0];attained.push(grade);}
+      sheet.npcMasteryId=grade.id;
+      sheet.attainedForms=JSON.stringify(attained);
+      await q('UPDATE pc_characters SET sheet=$1,revision=revision+1 WHERE id=$2',[JSON.stringify(sheet),existing.id]);
+      return;
+    }
     await q('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3) ON CONFLICT DO NOTHING',[azurikId,owner,JSON.stringify(azurikSheet)]);
   });
 }
@@ -38,9 +54,9 @@ export async function npcChoices(q:Query, search='') {
 }
 
 export async function ruleSheet(q:Query,id:string,sheet:any) {
-  if(id!==azurikId || !sheet.attainedForms)return sheet;
+  if(!isAzurik(id,sheet) || !sheet.attainedForms)return sheet;
   const list=forms.readForms(sheet.attainedForms);
-  const form=list.find((f:any)=>f.id===mastery);
+  const form=list.find((f:any)=>f.id===(sheet.npcMasteryId||mastery));
   if(!form)return sheet;
   const html=await publishedFormText(q,ruleKey);
   const plain=html.normalize('NFKC').replace(/<[^>]+>/g,' ').replace(/&times;|&#215;/gi,'×');
@@ -60,5 +76,5 @@ export async function loadNpc(q:Query,id:string) {
 
 export function formStats(sheet:any, key:string) {
   const form=forms.readForms(sheet.attainedForms).find((f:any)=>f.id===key);
-  return {form,pl:form?.id===mastery && !form.multiplier ? null : forms.effectiveSheet(sheet,form).bpl,portrait:form?.portrait||sheet.portrait};
+  return {form,pl:form && form.id===(sheet.npcMasteryId||mastery) && !form.multiplier ? null : forms.effectiveSheet(sheet,form).bpl,portrait:form?.portrait||sheet.portrait};
 }
