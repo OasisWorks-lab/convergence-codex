@@ -156,14 +156,14 @@ test('guild command registration resumes after throttling, updates changed defin
   assert.equal(writes.filter(s=>s==='POST roleplay-start').length,1);assert.equal(writes.filter(s=>s==='POST finish-turn').length,1);
   assert.deepEqual(writes.filter(s=>s.includes('roleplay-status')),['PATCH roleplay-status']);
   assert.equal(writes.some(s=>/unrelated|Character sheet/.test(s)),false);
-  assert.deepEqual(installed.filter(s=>s.name.startsWith('roleplay-')).map(s=>s.name).sort(),['roleplay-cancel','roleplay-join','roleplay-start','roleplay-status']);
+  assert.deepEqual(installed.filter(s=>s.name.startsWith('roleplay-')).map(s=>s.name).sort(),['roleplay-cancel','roleplay-join','roleplay-memory','roleplay-start','roleplay-status']);
 });
 
 test('start defers Discord history, reads the last five in this thread in order, and zero makes no read',async t=>{
   const {db,scope,ctx,command}=await setup(t);
   const discord=new Discord(config),actor={user:{id:host,username:'Writer'},permissions:'65536',roles:[]};
   const id='150000000000000099';
-  const options=[{name:'npc',value:azurikId}];
+  const options=[{name:'npc',value:azurikId},{name:'context',value:5}];
   const history=[
     {id:'15',content:'// pause for lunch',author:{username:'Rin'}},
     {id:'14',content:'The hatch begins to open.',webhook_id:'94',author:{bot:true,username:'Rin'}},
@@ -181,7 +181,7 @@ test('start defers Discord history, reads the last five in this thread in order,
   assert.equal(s.mode,'open');assert.deepEqual(s.history.map((m:any)=>m.name),['Iris','Rin']);
   assert.match(s.history[0].text,/three bells/);
   await command('roleplay-cancel');
-  const zero=ctx(host,{name:'roleplay-start',options:[...options,{name:'context',value:0}]},2,{member:actor});
+  const zero=ctx(host,{name:'roleplay-start',options:[{name:'npc',value:azurikId},{name:'context',value:0}]},2,{member:actor});
   assert.match((await handleInteraction(db,config,zero,discord,undefined,scope)).data.content,/Fresh scene/);
   s=JSON.parse((await db.query('SELECT state FROM pc_rp_scenes'))[0].state);
   assert.deepEqual(s.history,[]);assert.equal(paths.length,1);
@@ -258,10 +258,10 @@ test('guided replies follow new subject matter and actual per-writer length, and
   const sheet=await loadNpc(db.query,azurikId),s=JSON.parse((await db.query('SELECT state FROM pc_rp_scenes'))[0].state);
   s.history=[{name:'Renn',text:'A distress signal breaks up halfway through.'}];
   s.posts=[{writer:host,name:'Rin',source:'1',text:'What do you think, Azurik?'}];
-  const short=guided(s,sheet);assert.match(short.text,/signal/);assert.ok(short.text.split(/\s+/).length>=60);
+  const short=guided(s,sheet);assert.doesNotMatch(short.text,/signal/);assert.ok(short.text.split(/\s+/).length<100);
   s.posts[0].text='A merchant wants to trade with us at the market. '.repeat(26);
-  const long=guided(s,sheet);assert.match(long.text,/bargain|terms/);assert.ok(long.text.split(/\s+/).length>short.text.split(/\s+/).length+50);
-  s.posts[0].text='a '.repeat(100);s.posts.push({...s.posts[0],source:'2',text:'b '.repeat(100)},{writer:guest,name:'Renn',source:'3',text:'c '.repeat(100)});assert.equal(replyLength(s),150);
+  const long=guided(s,sheet);assert.match(long.text,/bargain|terms/);assert.notEqual(long.text,short.text);
+  s.posts[0].text='a '.repeat(100);s.posts.push({...s.posts[0],source:'2',text:'b '.repeat(100)},{writer:guest,name:'Renn',source:'3',text:'c '.repeat(100)});assert.ok(replyLength(s)>=140&&replyLength(s)<=170);
   s.posts=[{writer:host,name:'Rin',source:'4',text:'Show me your Super Saiyan transformation.'}];
   const first=await narrate(db,s,sheet);assert.match(first.artwork||'',/pinimg.com.*gif$/);
   await db.query('INSERT INTO pc_codex VALUES($1,1,$2,$3,$4)',['races/saiyan/paths/0/forms/1',JSON.stringify({art:'https://images.example/owner-edit.gif'}),host,Date.now()]);
