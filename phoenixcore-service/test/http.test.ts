@@ -322,7 +322,7 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   const banRequest={action:'ban',memberId:ids.writer,receipt:randomUUID(),minutes:45,reason:'Explicit test ban'};
   const postedBan=await post('/api/moderation',banRequest,owner);
   assert.equal(postedBan.status,200);
-  const caseId=(await postedBan.json()).result.caseId;
+  const manualBanCaseId=(await postedBan.json()).result.caseId;
   assert.equal(issuedBans.has(ids.writer),true);
   assert.equal((await post('/api/moderation',banRequest,owner)).status,200);
   assert.equal((await db.query("SELECT COUNT(*) AS n FROM pc_mod_cases WHERE kind='ban'"))[0].n,1);
