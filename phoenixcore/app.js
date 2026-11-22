@@ -258,7 +258,7 @@ function formList(raw){
   }
   function editor(kind='create',id='',intake=null){
     if(!(state.actor.isPlayer||intake&&state.actor.isJudge) || !Object.hasOwn(forms.forms,kind))return missing();
-    const targeted=kind==='edit'||kind==='training', mine=state.characters.filter(c=>c.ownerId===(intake?.authorId||state.actor.id));
+    const targeted=kind==='edit'||kind==='training', mine=state.characters.filter(c=>c.ownerId===(intake?.authorId||state.actor.id)&&c.sheet.characterType!=='NPC');
     const c=targeted?mine.find(c=>c.id===id):null;
     if(targeted&&id&&!c)return missing();
     const d={...(intake?.native.input.fields||{}),...(intake?.native.input.details||{}),...(intake?{reason:intake.reason}:{}),...(drafts.get(intake?'intake:'+intake.id+':'+id:draftKey(kind,id,c?.version||0))||{})};
@@ -477,7 +477,7 @@ function formList(raw){
   }
   function posting(c){
     const prefs=state.posting;if(!prefs)return '';
-    const own=state.characters.filter(c=>c.ownerId===state.actor.id);
+    const own=state.characters.filter(c=>c.ownerId===state.actor.id&&c.sheet.characterType!=='NPC');
     const selected=prefs.channels.includes(preferenceChannel)?preferenceChannel:prefs.channels[0];
     return '<section class="panel dossier"><h2>Posting preferences</h2><form class="tag-form actions" data-id="'+h(c.id)+'">'+field('tag',c.sheet.name+'’s tag',c.tag,{max:forms.tagLimit,hint:forms.tagHint})+'<button class="primary">Save tag</button></form>'+
       '<h3>Channel defaults</h3><p>Forum defaults apply to its posts. Choose a thread to set an exception. Start a post with <code>//</code> to speak as yourself.</p>'+
