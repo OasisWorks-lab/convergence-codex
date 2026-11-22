@@ -480,7 +480,11 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         const input=parse(await rawBody(req,12000));
         requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Choose a shop operation.');
         let result:any;
-        if(input.action==='create-shop')result=await createShop(db,actor,input);
+        if(input.action==='create-shop'){
+          requireThat(Boolean(input.ownerNpcId)||(typeof input.ownerName==='string'&&!!input.ownerName.trim()),
+            400,'Select an approved NPC or Custom Entry with a name.');
+          result=await createShop(db,actor,input);
+        }
         else if(input.action==='create-item')result=await createShopItem(db,actor,input);
         else if(input.action==='status')result=await setShopOpen(db,actor,String(input.shopId||''),Number(input.revision),input.open);
         else if(input.action==='stock')result=await setShopStock(db,actor,String(input.shopId||''),String(input.itemId||''),
