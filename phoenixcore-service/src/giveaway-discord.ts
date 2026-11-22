@@ -103,7 +103,7 @@ export async function giveawayInteraction(db:Store,config:Config,body:any,discor
     if(action==='claim'){
       const member=await discord.call('/guilds/'+config.guild+'/members/'+me);
       requireThat(member?.user?.id===me,403,'Confirm your current Convergence membership before claiming.');
-      const result=await claimGiveaway(db,id,me,value('character')?String(value('character')):undefined);
+      const result=await claimGiveaway(db,id,me,value('character')?String(value('character')):undefined,member);
       return out(result.replayed?'Claim already recorded.':
         result.pending?'Manual prize requested. Staff must confirm delivery.':'Zeni prize deposited into your chosen approved character bank.');
     }
@@ -121,7 +121,9 @@ export async function giveawayInteraction(db:Store,config:Config,body:any,discor
       return out(r.exhausted?'No additional eligible entrants. The slot is exhausted.':'Reroll selected a new, previously unselected member for slot '+r.slot+'.');
     }
     if(action==='manual-winner'){
-      const r=await manualGiveawayWinner(db,id,staff!,String(value('member')||''));
+      const selected=String(value('member')||'');
+      const member=await discord.call('/guilds/'+config.guild+'/members/'+selected);
+      const r=await manualGiveawayWinner(db,id,staff!,selected,member);
       return out('**MANUAL (NOT RANDOM)** winner <@'+r.winner+'> was added to this giveaway.');
     }
     if(action==='confirm'){
