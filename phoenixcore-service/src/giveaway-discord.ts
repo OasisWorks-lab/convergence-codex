@@ -6,7 +6,7 @@ import {communityEnabled} from './community.ts';
 import {liveSupportActor} from './support-auth.ts';
 import {staffIdentity} from './staff.ts';
 import {createGiveaway,giveawayChannels,setGiveawayChannels,giveawayPublic,listGiveaways,giveawayEntry,
-  concludeGiveaway,rerollGiveawaySlot,claimGiveaway,confirmManualPrize,manualGiveawayWinner,updateGiveawayStatus} from './giveaway.ts';
+  concludeGiveaway,rerollGiveawaySlot,claimGiveaway,confirmManualPrize,manualGiveawayWinner,updateGiveawayStatus,editGiveaway,extendGiveaway} from './giveaway.ts';
 
 const text=(name:string,description:string,required=true,max_length?:number)=>({type:3,name,description,required,...(max_length?{max_length}:{})});
 const integer=(name:string,description:string,min:number,max:number,required=true)=>({type:4,name,description,min_value:min,max_value:max,required});
@@ -27,6 +27,13 @@ export const giveawayCommands=()=>[
       text('amount-or-prize','Zeni amount or a description of the manual prize',true,240),
       text('description','Optional public details',false,1100),
       integer('start-in-minutes','Optional delayed start, 0 = now',0,10080,false)]),
+    option('edit','Staff: change the title or description of an open giveaway.',[id,
+      integer('version','Expected giveaway revision (from /giveaway view)',1,1000000000),
+      text('title','New title (leave blank to keep existing)',false,120),
+      text('description','New description (leave blank to keep existing)',false,1600)]),
+    option('extend','Staff: extend an open giveaway without changing its draw.',[id,
+      integer('version','Expected giveaway revision (from /giveaway view)',1,1000000000),
+      integer('minutes','Additional entry time in minutes',1,525600)]),
     option('list','Show current and recent giveaways.'),
     option('view','Show a giveaway and its winners.',[id]),
     option('join','Enter one currently active giveaway.',[id]),
@@ -50,7 +57,7 @@ export async function giveawayInteraction(db:Store,config:Config,body:any,discor
   const options=body.data?.options?.[0]?.options||[],value=(key:string)=>opt(options,key),id=String(value('id')||'');
   try{
     if(!await communityEnabled(db,'giveaways'))return out('Giveaways are disabled by the Owner.');
-    const management=['channel-add','channel-remove','create','pause','resume','end','cancel','reroll','manual-winner','confirm'];
+    const management=['channel-add','channel-remove','create','edit','extend','pause','resume','end','cancel','reroll','manual-winner','confirm'];
     const staff=management.includes(action)?await liveSupportActor(db,discord,config,me):null;
     if(staff)requireThat(staff.isHelper,403,'Only Owner, Admin and Helper may manage giveaways.');
     if(action==='channel-add'||action==='channel-remove'){
@@ -81,6 +88,17 @@ export async function giveawayInteraction(db:Store,config:Config,body:any,discor
       return out('Giveaway '+(response.created?'created':'already registered')+' in <#'+body.channel_id+'>.\nID: '+response.id+
         '\nPhoenixCore will post one public entry embed. Use /giveaway view to check its status.');
     }
+    if(action==='edit'){
+      const changes:{title?:string;description?:string}={};
+      if(value('title')!==undefined)changes.title=String(value('title'));
+      if(value('description')!==undefined)changes.description=String(value('description'));
+      const updated=await editGiveaway(db,id,staff!,Number(value('version')),changes);
+      return out(updated.changed?'Giveaway details updated. Revision '+updated.version+'.':'No giveaway details changed.');
+    }
+    if(action==='extend'){
+      const updated=await extendGiveaway(db,id,staff!,Number(value('version')),Number(value('minutes')));
+      return out('Giveaway extended. Entries now close <t:'+Math.floor(updated.endsMs/1000)+':F>. Revision '+updated.version+'.');
+    }
     if(action==='list'){
       const all=await listGiveaways(db,15);
       return out(all.length?all.map(g=>g.id+' · '+g.title+' · '+g.status+' · '+g.entries+' entrant(s)').join('\n'):'No giveaways yet.');
@@ -89,7 +107,7 @@ export async function giveawayInteraction(db:Store,config:Config,body:any,discor
       const g=await giveawayPublic(db,id);
       const current=g.winners.filter(w=>w.status!=='expired');
       return out('**'+g.title+'** · '+g.status+'\nGiveaway: '+g.id+'\nPrize: '+(g.prizeKind==='zeni'?g.zeniAmount+' Zeni (character bank)':g.prizeText)+
-        '\nEntries: '+g.entries+' · Unique winners: '+g.winnerCount+
+        '\nRevision: '+g.version+'\nEntries: '+g.entries+' · Unique winners: '+g.winnerCount+
         '\nEnds: <t:'+Math.floor(g.endsMs/1000)+':F>\nCurrent winners:\n'+
         (current.length?current.map(w=>'<@'+w.user_id+'> · '+w.status).join('\n'):'Awaiting drawing.'));
     }
