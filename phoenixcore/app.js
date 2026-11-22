@@ -721,6 +721,23 @@ function formList(raw){
     }catch(e){tell(e.message,true);}
     finally{shopsLoading=false;}
   }
+
+  function shopkeeperControls(data,selected='',customName=''){
+    const current=String(selected||''),custom=current==='custom';
+    const npcs=(data.npcOptions||[]);
+    return '<label class="field"><span>Shopkeeper · approved NPC or Custom Entry *</span>'+
+      '<select name="shopkeeperChoice" data-shopkeeper-choice required>'+
+      '<option value=""'+(!current?' selected':'')+'>Choose a shopkeeper…</option>'+
+      npcs.map(n=>'<option value="'+h(n.id)+'"'+(current===n.id?' selected':'')+'>'+h(n.name)+'</option>').join('')+
+      '<option value="custom"'+(custom?' selected':'')+'>Custom Entry — enter a new name</option>'+
+      '</select><small>NPC choices come from current approved NPC records. A custom name does not create an NPC.</small></label>'+
+      '<label class="field" data-shopkeeper-custom'+(custom?'':' hidden')+'><span>Custom shopkeeper name *</span>'+
+      '<input name="ownerName" maxlength="100" value="'+h(custom?customName:'')+'"'+(custom?' required':'')+'>'+
+      '</label>';
+  }
+  const shopkeeperSelection=fields=>fields.shopkeeperChoice==='custom'?
+    {ownerNpcId:null,ownerName:fields.ownerName,shopkeeperMode:'custom'}:
+    {ownerNpcId:fields.shopkeeperChoice};
   function shopPage(){
     if(demo)return title('Shops & Inventory','Staff-approved merchandise and character-owned possessions')+
       '<section class="panel">Live shops and purchases require Discord sign-in. Practice mode never spends Zeni.</section>';
@@ -741,14 +758,23 @@ function formList(raw){
       if(!shop)return title('Shop not found','The shop may have been removed.');
       const lines=shop.stock.map(stock=>{
         const item=itemMap.get(stock.itemId);
-        return item?'<div class="stat-row"><span><b>'+h(item.name)+'</b> · '+h(item.kind)+
+        return item?'<div class="stat-row shop-stock-row"><span><b>'+h(item.name)+'</b> · '+h(item.kind)+
           '<small class="muted">'+h(item.description)+'</small></span>'+
-          '<span>'+money(stock.price)+' · '+h(stock.remaining===null?'Unlimited':stock.remaining+' available')+'</span></div>':'';
+          '<span>'+money(stock.price)+' · '+h(stock.remaining===null?'Unlimited':stock.remaining+' available')+'</span>'+
+          (data.staff?'<button type="button" data-shop-action="unlist" data-shop-id="'+h(shop.id)+'"'+
+            ' data-shop-revision="'+h(shop.revision)+'" data-shop-item="'+h(item.id)+'">Remove from shop</button>':'')+
+          '</div>':'';
       }).join('');
       const admin=data.staff?'<section class="panel dossier"><h2>Staff controls</h2>'+
         '<p>Shop revision '+h(shop.revision)+' · Only approved Helpers or Owner can save changes.</p>'+
         '<div class="actions"><button type="button" data-shop-action="status" data-shop-id="'+h(shop.id)+'" data-shop-revision="'+h(shop.revision)+'" data-shop-open="'+(shop.status!=='open')+'">'+
         (shop.status==='open'?'Close shop':'Open shop')+'</button></div>'+
+        '<form id="shop-keeper-form" class="form" data-id="'+h(shop.id)+'" data-revision="'+h(shop.revision)+'">'+
+        '<h3>Shopkeeper</h3>'+
+        shopkeeperControls(data,shop.ownerNpcId&&(data.npcOptions||[]).some(n=>n.id===shop.ownerNpcId)?
+          shop.ownerNpcId:'custom',shop.ownerNpcId?'':shop.ownerName)+
+        (shop.ownerNpcId&&!shop.npcAvailable?'<p class="muted">Previously linked NPC is unavailable. Select a current NPC or Custom Entry.</p>':'')+
+        '<button class="primary">Save shopkeeper</button></form>'+
         '<form id="shop-stock-form" class="form" data-id="'+h(shop.id)+'" data-revision="'+h(shop.revision)+'">'+
         '<h3>Add stock or update price</h3><label class="field"><span>Registered item</span><select name="itemId" required>'+
         data.items.map(item=>'<option value="'+h(item.id)+'">'+h(item.name)+'</option>').join('')+'</select></label>'+
@@ -762,6 +788,7 @@ function formList(raw){
       return breadcrumbs([link('shops','Shops & Inventory'),h(shop.name)])+title(shop.name,shop.description)+
         '<section class="panel dossier"><p><b>'+h(shop.status.toUpperCase())+'</b> · '+h(shop.kind==='general'?'Available in eligible RP channels':'Restricted to configured RP locations')+
         ' · Shopkeeper: '+h(shop.ownerName||'Unlisted')+'</p>'+
+        (shop.ownerPortrait?artwork(shop.ownerPortrait,shop.ownerName+' shopkeeper portrait'):'')+
         '<p>Purchases must be made through /shop in an eligible in-character Discord RP channel. The dashboard cannot bypass location rules.</p>'+
         (shop.kind==='location'?'<p>Location channel IDs: '+h(shop.channels.join(', ')||'Not configured')+'</p>':'')+
         (lines||'<p>No merchandise listed yet.</p>')+'</section>'+admin+ownInventory;
@@ -769,7 +796,7 @@ function formList(raw){
     const create=data.staff?'<section class="panel dossier"><h2>Staff: create a shop</h2>'+
       '<form id="shop-create-form" class="form">'+field('name','Shop name','',{required:true,max:100})+
       field('description','Description','',{area:true,wide:true,max:1200})+
-      field('ownerName','Shopkeeper display name','',{max:100})+
+      shopkeeperControls(data)+
       '<label class="field"><span>Location type</span><select name="kind">'+
       '<option value="general">General Store (all eligible RP channels)</option>'+
       '<option value="location">Restricted shop (specific channels/threads)</option></select></label>'+
@@ -989,12 +1016,18 @@ function formList(raw){
     }
     const shopButton=e.target.closest('[data-shop-action]');
     if(shopButton){
-      if(!confirm('Change this shop open/closed status?'))return;
+      if(!confirm(shopButton.dataset.shopAction==='unlist'?
+        'Remove this item from the shop? Character inventories and purchase history stay intact.':
+        'Change this shop open/closed status?'))return;
       shopButton.disabled=true;
       try{
-        await call('/api/economy/shops','POST',{action:'status',shopId:shopButton.dataset.shopId,
-          revision:Number(shopButton.dataset.shopRevision),open:shopButton.dataset.shopOpen==='true'});
-        shopsData=null;await shopsRefresh();tell('Shop status saved.');
+        const params=shopButton.dataset.shopAction==='unlist'?
+          {action:'unlist',shopId:shopButton.dataset.shopId,
+            revision:Number(shopButton.dataset.shopRevision),itemId:shopButton.dataset.shopItem}:
+          {action:'status',shopId:shopButton.dataset.shopId,
+            revision:Number(shopButton.dataset.shopRevision),open:shopButton.dataset.shopOpen==='true'};
+        await call('/api/economy/shops','POST',params);
+        shopsData=null;await shopsRefresh();tell('Shop updated.');
       }catch(error){tell(error.message,true);}
       finally{shopButton.disabled=false;}
       return;
@@ -1206,9 +1239,19 @@ function formList(raw){
     }catch(error){tell(error.message,true);}
     finally{if(button)button.disabled=false;}
   });
+  document.addEventListener('change',e=>{
+    const picker=e.target.closest('select[data-shopkeeper-choice]');
+    if(!picker)return;
+    const wrapper=picker.form?.querySelector('[data-shopkeeper-custom]'),input=wrapper?.querySelector('input');
+    if(!wrapper||!input)return;
+    const isCustom=picker.value==='custom';
+    wrapper.hidden=!isCustom;
+    input.required=isCustom;
+    if(!isCustom)input.value='';
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;
-    if(!['shop-create-form','shop-item-form','shop-stock-form','shop-locations-form','shop-inventory-form'].includes(f.id))return;
+    if(!['shop-create-form','shop-keeper-form','shop-item-form','shop-stock-form','shop-locations-form','shop-inventory-form'].includes(f.id))return;
     e.preventDefault();
     const fields=Object.fromEntries(new FormData(f));
     const button=f.querySelector('button.primary');if(button?.disabled)return;
@@ -1220,7 +1263,9 @@ function formList(raw){
       }
       let payload;
       if(f.id==='shop-create-form')payload={action:'create-shop',name:fields.name,description:fields.description,
-        ownerName:fields.ownerName,kind:fields.kind};
+        kind:fields.kind,...shopkeeperSelection(fields)};
+      else if(f.id==='shop-keeper-form')payload={action:'shopkeeper',shopId:f.dataset.id,
+        revision:Number(f.dataset.revision),...shopkeeperSelection(fields)};
       else if(f.id==='shop-item-form')payload={action:'create-item',name:fields.name,description:fields.description,
         kind:fields.kind,basePrice:fields.basePrice};
       else if(f.id==='shop-stock-form')payload={action:'stock',shopId:f.dataset.id,revision:Number(f.dataset.revision),

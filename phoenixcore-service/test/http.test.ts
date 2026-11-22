@@ -178,6 +178,39 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal(shopCatalog.shops.find((row:any)=>row.id===shopId).stock[0].price,'125');
   assert.equal(shopCatalog.shops.find((row:any)=>row.id===shopId).channels[0],prizeChannel);
   assert.equal((await get('/api/economy/inventory/'+randomUUID(),{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+
+  const merchantNpcId=randomUUID();
+  await db.query('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3)',
+    [merchantNpcId,ids.owner,JSON.stringify({name:'Approved Merchant',characterType:'NPC',wallet:'0'})]);
+  const npcShop=await post(shopPath,{action:'create-shop',name:'Market of Trials',kind:'general',
+    ownerNpcId:merchantNpcId},judge);
+  assert.equal(npcShop.status,200);
+  const npcShopId=(await npcShop.json()).result.id;
+  const npcCatalog=await (await get(shopPath,{headers:{authorization:'Bearer '+judge,origin}})).json();
+  assert.ok(npcCatalog.npcOptions.some((x:any)=>x.id===merchantNpcId&&x.name==='Approved Merchant'));
+  assert.equal(npcCatalog.shops.find((x:any)=>x.id===npcShopId).ownerNpcId,merchantNpcId);
+  const rejectedName=await post(shopPath,{action:'create-shop',name:'Unnamed Merchant',kind:'general',
+    shopkeeperMode:'custom',ownerName:''},judge);
+  assert.equal(rejectedName.status,400);
+  assert.equal((await post(shopPath,{action:'shopkeeper',shopId,revision:4,
+    ownerNpcId:merchantNpcId},writer)).status,403);
+  const switched=await post(shopPath,{action:'shopkeeper',shopId,revision:4,ownerNpcId:merchantNpcId},judge);
+  assert.equal(switched.status,200);
+  assert.equal((await switched.json()).result.ownerName,'Approved Merchant');
+  assert.equal((await post(shopPath,{action:'shopkeeper',shopId,revision:4,ownerName:'Stale',
+    shopkeeperMode:'custom'},judge)).status,409);
+  const renamedShop=await post(shopPath,{action:'shopkeeper',shopId,revision:5,
+    ownerNpcId:null,ownerName:'Custom World Merchant',shopkeeperMode:'custom'},owner);
+  assert.equal(renamedShop.status,200);
+  assert.equal((await renamedShop.json()).result.ownerNpcId,null);
+  const unlisted=await post(shopPath,{action:'unlist',shopId,itemId,revision:6},judge);
+  assert.equal(unlisted.status,200);
+  const finalShop=(await (await get(shopPath,{headers:{authorization:'Bearer '+writer,origin}})).json())
+    .shops.find((x:any)=>x.id===shopId);
+  assert.equal(finalShop.ownerName,'Custom World Merchant');
+  assert.equal(finalShop.stock.length,0);
+  await db.query('DELETE FROM pc_characters WHERE id=$1',[merchantNpcId]);
+
   const roleUrl='/api/community/roles';
   assert.equal((await get(roleUrl)).status,401);
   const denied=await post(roleUrl,{action:'create',channelId:prizeChannel,title:'Panel',style:'buttons'},judge);

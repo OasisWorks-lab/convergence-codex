@@ -199,6 +199,10 @@ export async function initialize(db: Store, guildId: string) {
     else if(!(await q('PRAGMA table_info(pc_post_tags)')).some(column=>column.name==='tag_key')) await q('ALTER TABLE pc_post_tags ADD COLUMN tag_key TEXT');
     await q('UPDATE pc_post_tags SET tag_key=tag WHERE tag_key IS NULL');
     await q('CREATE UNIQUE INDEX IF NOT EXISTS pc_tag_per_writer ON pc_post_tags(owner_id,tag_key)');
+    if(db.dialect==='postgres') await q('ALTER TABLE pc_shops ADD COLUMN IF NOT EXISTS owner_npc_id TEXT');
+    else if(!(await q('PRAGMA table_info(pc_shops)')).some(column=>column.name==='owner_npc_id'))
+      await q('ALTER TABLE pc_shops ADD COLUMN owner_npc_id TEXT');
+
     // Pending requests delivered by an earlier DM-only installation still need a server review card.
     await q(`UPDATE pc_requests SET notified=0,notify_after=0 WHERE notified=1 AND status IN ('pending','awaiting_judge')
       AND NOT EXISTS (SELECT 1 FROM pc_review_posts p WHERE p.request_id=pc_requests.id AND p.message_id IS NOT NULL)`);

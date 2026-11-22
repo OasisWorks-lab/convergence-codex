@@ -15,7 +15,7 @@ import { accountAvatar, Discord, DiscordFailure, CommandRegistrationError, deliv
 
 import {nicknameJob,announcement} from './bot-tools.ts';
 import {bankAction,visibleAccounts,statement} from './economy.ts';
-import {listShopCatalog,characterInventory,createShop,createShopItem,setShopOpen,setShopStock,setShopLocations} from './shop.ts';
+import {listShopCatalog,characterInventory,createShop,createShopItem,setShopOpen,setShopStock,setShopLocations,setShopkeeper,unlistShopItem} from './shop.ts';
 import {listRolePanels,createRolePanel,addRoleOption,removeRoleOption,publishRolePanel,verifyAssignableRole,deliverRolePanel} from './role-panels.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
 import { aiOptions } from './npc-voice.ts';
@@ -480,11 +480,19 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         const input=parse(await rawBody(req,12000));
         requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Choose a shop operation.');
         let result:any;
-        if(input.action==='create-shop')result=await createShop(db,actor,input);
+        if(input.action==='create-shop'){
+          requireThat(Boolean(input.ownerNpcId)||(typeof input.ownerName==='string'&&!!input.ownerName.trim()),
+            400,'Select an approved NPC or Custom Entry with a name.');
+          result=await createShop(db,actor,input);
+        }
         else if(input.action==='create-item')result=await createShopItem(db,actor,input);
         else if(input.action==='status')result=await setShopOpen(db,actor,String(input.shopId||''),Number(input.revision),input.open);
         else if(input.action==='stock')result=await setShopStock(db,actor,String(input.shopId||''),String(input.itemId||''),
           Number(input.revision),input.price,input.remaining);
+        else if(input.action==='shopkeeper')result=await setShopkeeper(db,actor,String(input.shopId||''),
+          Number(input.revision),input);
+        else if(input.action==='unlist')result=await unlistShopItem(db,actor,String(input.shopId||''),
+          String(input.itemId||''),Number(input.revision));
         else if(input.action==='locations'){
           requireThat(Array.isArray(input.channels),400,'Choose RP channels.');
           for(const id of input.channels){

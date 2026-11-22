@@ -274,9 +274,14 @@ with sync_playwright() as p:
                         "id":"e21c01cb-3f65-4b16-9178-c9d247de983e","name":"Guardian Potion",
                         "description":"<img src=x onerror=window.unsafeShop=true>",
                         "kind":"consumable","basePrice":"100","revision":1}],
+                        "npcOptions":[
+                            {"id":"f4aa99d3-4a75-40c7-8737-adb4b7e31300","name":"King Azurik","portrait":""},
+                            {"id":"f21c01cb-3f65-4b16-9178-c9d247de983f","name":"Master Orrin","portrait":""}],
                         "shops":[{"id":"f21c01cb-3f65-4b16-9178-c9d247de983e",
                         "name":"Portal Store","description":"A traveling merchant.",
-                        "ownerName":"The Keeper","kind":"general","status":"open","revision":3,"channels":[],
+                        "ownerName":"King Azurik","ownerNpcId":"f4aa99d3-4a75-40c7-8737-adb4b7e31300",
+                        "npcAvailable":True,"ownerPortrait":"","kind":"general",
+                        "status":"open","revision":3,"channels":[],
                         "stock":[{"itemId":"e21c01cb-3f65-4b16-9178-c9d247de983e","price":"125","remaining":7}]}]})
                 else:
                     assert owner, "Only approved staff should save shop definitions."
@@ -461,8 +466,25 @@ with sync_playwright() as p:
     screenshot(owner_dashboard,"role-panels-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#shops")
     expect(owner_dashboard.get_by_role("heading",name="Staff: create a shop")).to_be_visible()
+    create_keeper=owner_dashboard.locator('#shop-create-form select[name="shopkeeperChoice"]')
+    expect(create_keeper.locator('option')).to_have_count(4)
+    expect(create_keeper.locator('option[value="f4aa99d3-4a75-40c7-8737-adb4b7e31300"]')).to_have_text("King Azurik")
+    expect(create_keeper.locator('option[value="f21c01cb-3f65-4b16-9178-c9d247de983f"]')).to_have_text("Master Orrin")
+    expect(create_keeper.locator('option[value="custom"]')).to_have_text("Custom Entry — enter a new name")
+    expect(owner_dashboard.locator('#shop-create-form input[name="ownerName"]')).to_be_hidden()
+    create_keeper.select_option("custom")
+    expect(owner_dashboard.locator('#shop-create-form input[name="ownerName"]')).to_be_visible()
+    owner_dashboard.locator('#shop-create-form input[name="ownerName"]').fill("A Custom Merchant")
+    create_keeper.select_option("f4aa99d3-4a75-40c7-8737-adb4b7e31300")
+    expect(owner_dashboard.locator('#shop-create-form input[name="ownerName"]')).to_be_hidden()
     owner_dashboard.get_by_role("link",name="Portal Store",exact=False).click()
     expect(owner_dashboard.get_by_role("heading",name="Staff controls")).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Shopkeeper",exact=True)).to_be_visible()
+    expect(owner_dashboard.locator('#shop-keeper-form select[name="shopkeeperChoice"]')).to_have_value("f4aa99d3-4a75-40c7-8737-adb4b7e31300")
+    expect(owner_dashboard.get_by_role("button",name="Remove from shop")).to_be_visible()
+    owner_dashboard.locator('#shop-keeper-form select[name="shopkeeperChoice"]').select_option("custom")
+    owner_dashboard.locator('#shop-keeper-form input[name="ownerName"]').fill("The Wandering Shopkeeper")
+    expect(owner_dashboard.locator('#shop-keeper-form input[name="ownerName"]')).to_be_visible()
     expect(owner_dashboard.get_by_role("heading",name="Add stock or update price")).to_be_visible()
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"shop-owner-mobile.png")
