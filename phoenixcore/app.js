@@ -805,7 +805,7 @@ function formList(raw){
     if(match){
       const panel=data.panels.find(p=>p.id===match[1]);
       if(!panel)return title('Role panel unavailable','This panel is hidden or no longer exists.');
-      const options=panel.options.map(o=>'<div class="stat-row"><span><b>'+h(o.label)+'</b>'+
+      const options=panel.options.map(o=>'<div class="stat-row role-panel-option"><span><b>'+h(o.label)+'</b>'+
         '<small class="muted">'+h(o.roleId)+' · '+h(o.recordedSelections)+' recorded selections</small></span>'+
         (data.owner?'<button type="button" data-rolepanel-action="remove" data-rolepanel-id="'+h(panel.id)+
           '" data-rolepanel-version="'+h(panel.revision)+'" data-rolepanel-role="'+h(o.roleId)+'">Remove option</button>':'')+
