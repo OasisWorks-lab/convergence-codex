@@ -213,7 +213,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         json(res,200,await announcement(db,discord,actor,parse(await rawBody(req))));return;
       }
       if(path==='/api/community'&&(method==='GET'||method==='POST')){
-        const roleRows=actor.isOwner?[]:await discord.call('/guilds/'+config.guild+'/roles');
+        const roleRows=actor.isOwner||actor.isJudge?[]:await discord.call('/guilds/'+config.guild+'/roles').catch(()=>[]);
         const isAdmin=!actor.isOwner&&roleRows.some((r:any)=>member.roles.includes(r.id)&&/^\d+$/.test(String(r.permissions))&&(BigInt(r.permissions)&8n)!==0n);
         const who=communityActor(actor.id,member.roles,isAdmin?'8':'0',config.owner,settings.value.judgeRole);
         const flags=Object.fromEntries(await Promise.all(communityModules.map(async m=>[m,await communityEnabled(db,m)])));
