@@ -15,6 +15,7 @@ import { accountAvatar, Discord, DiscordFailure, CommandRegistrationError, deliv
 
 import {nicknameJob,announcement} from './bot-tools.ts';
 import {bankAction,visibleAccounts,statement} from './economy.ts';
+import {listShopCatalog,characterInventory,createShop,createShopItem,setShopOpen,setShopStock,setShopLocations} from './shop.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
 import { aiOptions } from './npc-voice.ts';
 import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
@@ -441,6 +442,36 @@ export function application(db:Store, config:Config, discord=new Discord(config)
           }else await q('DELETE FROM pc_character_favorites WHERE user_id=$1 AND character_id=$2',[actor.id,input.characterId]);
         });
         json(res,200,{ok:true});return;
+      }
+      if(path==='/api/economy/shops'&&['GET','POST'].includes(String(method))){
+        if(method==='GET'){
+          const catalog=await listShopCatalog(db);
+          json(res,200,{...catalog,staff:actor.isJudge,owner:actor.isOwner});
+          return;
+        }
+        requireThat(actor.isJudge,403,'Only the Convergence Owner and configured Helpers manage shops.');
+        const input=parse(await rawBody(req,12000));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Choose a shop operation.');
+        let result:any;
+        if(input.action==='create-shop')result=await createShop(db,actor,input);
+        else if(input.action==='create-item')result=await createShopItem(db,actor,input);
+        else if(input.action==='status')result=await setShopOpen(db,actor,String(input.shopId||''),Number(input.revision),input.open);
+        else if(input.action==='stock')result=await setShopStock(db,actor,String(input.shopId||''),String(input.itemId||''),
+          Number(input.revision),input.price,input.remaining);
+        else if(input.action==='locations'){
+          requireThat(Array.isArray(input.channels),400,'Choose RP channels.');
+          for(const id of input.channels){
+            requireThat(typeof id==='string'&&discordId.test(id),400,'Invalid Discord channel.');
+            const c=await discord.guildChannel(id);
+            requireThat(c.guild_id===config.guild,403,'Shop location must be inside Convergence.');
+          }
+          result=await setShopLocations(db,actor,String(input.shopId||''),Number(input.revision),input.channels);
+        }else throw new Problem(400,'Unknown shop action.');
+        json(res,200,{ok:true,result});return;
+      }
+      const itemInventory=/^\/api\/economy\/inventory\/([0-9a-f-]{36})$/.exec(path);
+      if(method==='GET'&&itemInventory){
+        json(res,200,await characterInventory(db,actor,itemInventory[1]));return;
       }
       if(method==='POST'&&path==='/api/economy/bank'){
         const result=await bankAction(db,actor,parse(await rawBody(req)));
