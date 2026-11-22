@@ -37,6 +37,7 @@ import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,s
 import {searchSupportCases,listSupportTemplates,saveSupportTemplate,archiveSupportTemplate,supportTemplateHistory,previewSupportTemplate,supportCaseFeedback,submitSupportFeedback,supportInsights} from './support-workspace.ts';
 import {staffIdentity,requireModerator,verifyModerationTarget,hasNativeAdmin} from './staff.ts';
 import {queueSanction,executeQueuedSanction,moderationWorkspace,reconcileUnconfirmedSanctions} from './moderation-actions.ts';
+import {automodPolicy,setAutomodPolicy,automodPolicyHistory,automodIncidents,previewAutomod,cleanupAutomodObservations} from './automod.ts';
 import {recordCase,caseEvents,removeWarning,proxyEvidence} from './moderation.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
@@ -540,6 +541,33 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         }else throw new Problem(400,'Unknown role panel action.');
         json(res,200,{ok:true,result});wake();return;
       }
+
+      if(path==='/api/automod'&&['GET','POST'].includes(String(method))){
+        const currentRoles=actor.isOwner?[]:await discord.call('/guilds/'+config.guild+'/roles');
+        requireThat(actor.isOwner||Array.isArray(currentRoles),503,'Unable to verify Convergence staff roles.');
+        const nativeAdmin=!actor.isOwner&&currentRoles.some((role:any)=>member.roles.includes(role.id)&&hasNativeAdmin(role.permissions));
+        const who=staffIdentity(actor.id,member.roles,nativeAdmin?'8':'0',config,settings.value.judgeRole);
+        requireModerator(who);
+        if(method==='GET'){
+          const [policy,incidents]=await Promise.all([automodPolicy(db),
+            automodIncidents(db,who,Number(url.searchParams.get('page')||1))]);
+          json(res,200,{owner:who.isOwner,policy,incidents,
+            ...(who.isOwner?{history:await automodPolicyHistory(db,who)}:{})});
+          return;
+        }
+        requireThat(who.isOwner,403,'Only the Convergence Owner can change or simulate automod.');
+        const input=parse(await rawBody(req,10000));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Choose a valid automod action.');
+        let result:any;
+        if(input.action==='configure')result=await setAutomodPolicy(db,who,Number(input.revision),input.policy);
+        else if(input.action==='preview'){
+          result=await previewAutomod(db,who,{
+            id:'000000000000000001',guildId:config.guild,channelId:String(input.channelId||''),
+            userId:String(input.userId||who.id),roles:[],content:String(input.content||'')
+          });
+        }else throw new Problem(400,'Unknown automod action.');
+        json(res,200,{ok:true,result});return;
+      }
       if((path==='/api/moderation'||/^\/api\/moderation\/case\/[\da-f-]{36}$/.test(path))&&['GET','POST'].includes(String(method))){
         requireThat(await communityEnabled(db,'moderation'),403,'Convergence moderation is disabled.');
         const roleRows=actor.isOwner?[]:await discord.call('/guilds/'+config.guild+'/roles');
@@ -759,7 +787,8 @@ async function start() {
   const cleanup=setInterval(async()=>{
     try {await db.query('DELETE FROM pc_rp_receipts WHERE created_ms<$1',[Date.now()-86400000]);
       await db.query('DELETE FROM pc_images WHERE attached=0 AND created_ms<$1',[Date.now()-86400000]);
-      for(const table of ['pc_sessions','pc_auth_state','pc_exchanges']) await db.query('DELETE FROM '+table+' WHERE expires<=$1',[Date.now()]);}
+      for(const table of ['pc_sessions','pc_auth_state','pc_exchanges']) await db.query('DELETE FROM '+table+' WHERE expires<=$1',[Date.now()]);
+      await cleanupAutomodObservations(db);}
     catch {console.error('Expired login cleanup will retry.');}
   },3600000);
   const port=Number(process.env.PORT || process.env.SERVER_PORT || 4100);
