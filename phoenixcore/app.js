@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false,moderationData=null,moderationLoading=false,moderationMember='',moderationPageNumber=1,moderationCase=null,automodData=null,automodLoading=false,automodPageNumber=1,automodPreview=null;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false,moderationData=null,moderationLoading=false,moderationMember='',moderationPageNumber=1,moderationCase=null,automodData=null,automodLoading=false,automodPageNumber=1,automodPreview=null,pollsData=null,pollDetailData=null,pollAuditData=null,pollsLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|moderation|automod|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|polls|poll-[\da-f-]{36}|moderation|automod|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['shops','Shops & Inventory'],['roles','Role Panels'],...(state?.canModerate||state?.actor.isOwner?[['moderation','Moderation'],['automod','AutoMod']]:[])]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['polls','Polls'],['shops','Shops & Inventory'],['roles','Role Panels'],...(state?.canModerate||state?.actor.isOwner?[['moderation','Moderation'],['automod','AutoMod']]:[])]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -1174,6 +1174,109 @@ function formList(raw){
       ' of '+h(data.incidents.pages)+'</span><button type="button" data-automod-page="1"'+
       (data.incidents.page>=data.incidents.pages?' disabled':'')+'>Next</button></div></section>';
   }
+
+  async function pollsRefresh(){
+    if(pollsLoading||demo||!session)return;
+    pollsLoading=true;
+    try{
+      pollsData=await call('/api/polls');
+      const selected=/^poll-([a-f0-9-]{36})$/.exec(route());
+      pollDetailData=selected?await call('/api/polls/'+selected[1]):null;
+      if(route()==='polls'||route().startsWith('poll-'))render();
+    }catch(error){tell(error.message,true);}
+    finally{pollsLoading=false;}
+  }
+  function pollEditor(p){
+    const creating=!p,mode=p?.mode||'single',minutes=p?
+      Math.max(1,Math.ceil((p.endsMs-Date.now())/60000)):1440;
+    const checked=(key,name,initial)=>'<label class="field"><span><input name="'+key+
+      '" type="checkbox"'+(initial?' checked':'')+'> '+h(name)+'</span></label>';
+    return '<section class="panel dossier"><h2>'+h(creating?'Create a new poll draft':'Edit unpublished poll')+'</h2>'+
+      '<form id="poll-editor" class="form" data-id="'+h(p?.id||'')+
+      '" data-revision="'+h(p?.revision||0)+'">'+
+      field('question','Poll question',p?.question||'',{required:true,max:200,wide:true})+
+      field('description','Description',p?.description||'',{area:true,wide:true,max:1000})+
+      field('choices','Poll choices (one option per line, 2–10)',(p?.choices||[]).join('\n'),
+        {area:true,wide:true,max:1200,required:true})+
+      '<label class="field"><span>Voting type</span><select name="mode">'+
+      '<option value="single"'+(mode==='single'?' selected':'')+'>Choose one answer</option>'+
+      '<option value="multiple"'+(mode==='multiple'?' selected':'')+'>Choose several answers</option>'+
+      '</select></label>'+
+      field('channelId','Destination Convergence channel ID',p?.channelId||'',
+        {required:true,max:20})+
+      field('minutes','Time until close (minutes, 1–43200)',String(minutes),
+        {required:true,max:5,numeric:true})+
+      checked('anonymous','Keep voter identities anonymous',p?.anonymous||false)+
+      checked('allowChange','Allow participants to change their votes',p?.allowChange??true)+
+      checked('resultsEarly','Show totals before the poll closes',p?.resultsEarly??true)+
+      field('color','Discord embed color (0–16777215)',String(p?.color??5793266),
+        {required:true,max:8,numeric:true})+
+      field('imageUrl','Optional HTTPS banner URL',p?.imageUrl||'',{max:500})+
+      field('requiredRoles','Required role IDs (optional, one per line)',
+        (p?.requiredRoles||[]).join('\n'),{area:true,wide:true,max:500})+
+      field('excludedRoles','Excluded role IDs (optional, one per line)',
+        (p?.excludedRoles||[]).join('\n'),{area:true,wide:true,max:500})+
+      '<button class="primary">'+h(creating?'Save draft poll':'Save draft changes')+
+      '</button></form><p class="muted">Only the configured Owner can create and publish polls. Drafts do not appear in Discord until published.</p></section>';
+  }
+  function pollPage(){
+    if(demo)return title('Polls','Try live Convergence polls after signing in.')+
+      '<section class="panel"><p>Practice mode does not submit live ballots or publish Discord polls.</p></section>';
+    if(!pollsData){void pollsRefresh();return title('Polls','Loading saved Convergence polls…');}
+    const item=/^poll-([a-f0-9-]{36})$/.exec(route()),data=pollsData,owner=data.owner;
+    if(!item){
+      const cards=data.polls.map(p=>'<a class="request-row" href="#poll-'+h(p.id)+'">'+
+        '<span class="summary"><b>'+h(p.question)+'</b><small class="muted">'+
+        h(p.mode==='multiple'?'Multiple choice':'Single choice')+' · '+h(p.voters)+
+        ' ballot(s) · '+h(new Date(p.endsMs).toLocaleString())+'</small></span>'+
+        '<span class="pill">'+h(p.status)+'</span></a>').join('');
+      return title('Polls','Public voting and transparent, durable community decisions.')+
+        (!data.moduleEnabled?'<section class="panel">The Owner has disabled poll voting.</section>':'')+
+        '<section class="stack"><h2>Saved community polls</h2>'+
+        (cards||'<p>No published polls yet.</p>')+'</section>'+
+        (owner?pollEditor(null):'');
+    }
+    if(!pollDetailData||pollDetailData.poll.id!==item[1]){
+      void pollsRefresh();return title('Polls','Loading poll details…');
+    }
+    const p=pollDetailData.poll,counts=p.counts,active=p.status==='active';
+    const choices=p.choices.map((name,i)=>'<div class="stat-row"><span>'+
+      h((i+1)+'. '+name)+'</span><strong>'+
+      h(counts?counts[i]+' vote(s)':'Hidden until closed')+'</strong></div>').join('');
+    const ballot=(active&&data.moduleEnabled&&p.messageId?
+      '<section class="panel dossier"><h2>Cast your vote</h2>'+
+      '<p>'+h(p.anonymous?'Anonymous ballot: only aggregate results are displayed.':
+        'Individual ballots remain private; only aggregate results are public.')+
+      (p.allowChange?' You may revise your ballot.':' Your first submitted ballot is final.')+'</p>'+
+      '<form id="poll-vote-form" data-id="'+h(p.id)+'" class="form">'+
+      '<label class="field"><span>Your answer(s)</span><select name="selection"'+
+      (p.mode==='multiple'?' multiple size="'+Math.min(8,p.choices.length)+'"':'')+
+      ' required>'+p.choices.map((name,i)=>'<option value="'+h(i)+'">'+h(name)+'</option>').join('')+
+      '</select></label><button class="primary">Submit ballot</button></form></section>':
+      active?'<section class="panel">The public poll is being prepared or voting is disabled. Check its Discord message.</section>':'');
+    const options=owner?'<section class="panel dossier"><h2>Owner controls</h2>'+
+      '<p>Status: '+h(p.status)+' · Revision '+h(p.revision)+
+      ' · Channel '+h(p.channelId)+(p.messageId?' · Message '+h(p.messageId):'')+'</p>'+
+      (p.lastError?'<p class="error">Discord delivery: '+h(p.lastError)+'</p>':'')+
+      '<div class="actions">'+(p.status==='draft'?
+        '<button type="button" data-poll-action="publish" data-poll-id="'+h(p.id)+
+        '" data-revision="'+h(p.revision)+'">Publish in Discord</button>':'')+
+      (active?'<button type="button" data-poll-action="close" data-poll-id="'+h(p.id)+
+        '" data-revision="'+h(p.revision)+'">Close poll now</button>':'')+
+      (['active','draft'].includes(p.status)?
+        '<button type="button" data-poll-action="cancel" data-poll-id="'+h(p.id)+
+        '" data-revision="'+h(p.revision)+'">Cancel poll</button>':'')+
+      '<button type="button" data-poll-audit="'+h(p.id)+'">View poll audit</button></div>'+
+      (pollAuditData?.id===p.id?'<div class="stack">'+pollAuditData.events.map(x=>
+        '<p>'+h(x.event)+' · '+h(x.actor_id)+' · '+
+        h(new Date(Number(x.created_ms)).toLocaleString())+'</p>').join('')+'</div>':'')+
+      '</section>'+(p.status==='draft'?pollEditor(p):''):'';
+    return breadcrumbs([link('polls','Polls'),h(p.question)])+
+      title(p.question,p.description)+
+      '<section class="panel dossier"><p><b>'+h(p.status)+'</b> · '+h(p.voters)+
+      ' ballot(s) · Ends '+h(new Date(p.endsMs).toLocaleString())+'</p>'+
+      choices+'</section>'+ballot+options;
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
@@ -1183,6 +1286,7 @@ function formList(raw){
     else if(r==='community')view.innerHTML=community();
     else if(r==='support'||/^support-[\da-f-]{36}$/i.test(r))view.innerHTML=supportPage();
     else if(r==='giveaways'||/^giveaway-[\da-f-]{36}$/i.test(r))view.innerHTML=giveawayPage();
+    else if(r==='polls'||/^poll-[\da-f-]{36}$/i.test(r))view.innerHTML=pollPage();
     else if(r==='shops'||/^shop-[\da-f-]{36}$/i.test(r))view.innerHTML=shopPage();
     else if(r==='roles'||/^roles-[\da-f-]{36}$/i.test(r))view.innerHTML=rolePanelPage();
     else if(r==='moderation')view.innerHTML=moderationPage();
@@ -1305,6 +1409,28 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const pollAction=e.target.closest('[data-poll-action]');
+    if(pollAction){
+      const action=pollAction.dataset.pollAction;
+      if(!confirm('Confirm Owner action: '+action+' this Convergence poll?'))return;
+      pollAction.disabled=true;
+      try{
+        await call('/api/polls','POST',{action,pollId:pollAction.dataset.pollId,
+          revision:Number(pollAction.dataset.revision)});
+        pollsData=null;pollDetailData=null;pollAuditData=null;
+        await pollsRefresh();tell('Poll updated. Discord publication is processed automatically.');
+      }catch(error){tell(error.message,true);}
+      finally{pollAction.disabled=false;}
+      return;
+    }
+    const pollAudit=e.target.closest('[data-poll-audit]');
+    if(pollAudit){
+      try{
+        pollAuditData={id:pollAudit.dataset.pollAudit,...await call('/api/polls/'+
+          pollAudit.dataset.pollAudit+'/audit')};render();
+      }catch(error){tell(error.message,true);}
+      return;
+    }
     const roleButton=e.target.closest('[data-rolepanel-action]');
     if(roleButton){
       if(!confirm('Apply this role panel change?'))return;
@@ -1589,6 +1715,42 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;if(!['poll-editor','poll-vote-form'].includes(f.id))return;
+    e.preventDefault();
+    const button=f.querySelector('button.primary');
+    if(button?.disabled)return;if(button)button.disabled=true;
+    if(!f.dataset.receipt)f.dataset.receipt=crypto.randomUUID();
+    try{
+      let result;
+      if(f.id==='poll-vote-form'){
+        const chosen=[...f.elements.selection.selectedOptions].map(o=>o.value);
+        result=await call('/api/polls','POST',{action:'vote',pollId:f.dataset.id,
+          selections:chosen,receipt:f.dataset.receipt});
+        tell(result.result?.changed?'Your vote was recorded.':'Your ballot is already saved.');
+      }else{
+        const v=Object.fromEntries(new FormData(f)),roles=key=>
+          String(v[key]||'').split(/[\\s,]+/).filter(Boolean);
+        const minutes=Number(v.minutes),mode=String(v.mode);
+        if(!Number.isSafeInteger(minutes)||minutes<1||minutes>43200){
+          throw Error('Choose a duration from 1 to 43,200 minutes.');
+        }
+        const poll={receipt:f.dataset.receipt,question:String(v.question),description:String(v.description),
+          choices:String(v.choices).split(/\\r?\\n/).map(x=>x.trim()).filter(Boolean),
+          mode,anonymous:v.anonymous==='on',allowChange:v.allowChange==='on',
+          resultsEarly:v.resultsEarly==='on',channelId:String(v.channelId),
+          endsMs:Date.now()+minutes*60000,color:Number(v.color),imageUrl:String(v.imageUrl||''),
+          requiredRoles:roles('requiredRoles'),excludedRoles:roles('excludedRoles')};
+        result=await call('/api/polls','POST',{action:f.dataset.id?'edit':'create',
+          pollId:f.dataset.id||undefined,revision:Number(f.dataset.revision||0),poll});
+        if(!f.dataset.id&&result.result?.id)location.hash='poll-'+result.result.id;
+        tell('Poll draft saved. Publish it when you are ready.');
+      }
+      delete f.dataset.receipt;pollsData=null;pollDetailData=null;pollAuditData=null;
+      await pollsRefresh();
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;if(!['automod-policy-form','automod-preview-form'].includes(f.id))return;
     e.preventDefault();
