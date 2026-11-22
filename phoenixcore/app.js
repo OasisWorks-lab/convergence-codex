@@ -1016,12 +1016,18 @@ function formList(raw){
     }
     const shopButton=e.target.closest('[data-shop-action]');
     if(shopButton){
-      if(!confirm('Change this shop open/closed status?'))return;
+      if(!confirm(shopButton.dataset.shopAction==='unlist'?
+        'Remove this item from the shop? Character inventories and purchase history stay intact.':
+        'Change this shop open/closed status?'))return;
       shopButton.disabled=true;
       try{
-        await call('/api/economy/shops','POST',{action:'status',shopId:shopButton.dataset.shopId,
-          revision:Number(shopButton.dataset.shopRevision),open:shopButton.dataset.shopOpen==='true'});
-        shopsData=null;await shopsRefresh();tell('Shop status saved.');
+        const params=shopButton.dataset.shopAction==='unlist'?
+          {action:'unlist',shopId:shopButton.dataset.shopId,
+            revision:Number(shopButton.dataset.shopRevision),itemId:shopButton.dataset.shopItem}:
+          {action:'status',shopId:shopButton.dataset.shopId,
+            revision:Number(shopButton.dataset.shopRevision),open:shopButton.dataset.shopOpen==='true'};
+        await call('/api/economy/shops','POST',params);
+        shopsData=null;await shopsRefresh();tell('Shop updated.');
       }catch(error){tell(error.message,true);}
       finally{shopButton.disabled=false;}
       return;
