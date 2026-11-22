@@ -151,10 +151,12 @@ export async function supportInsights(db:Store,actor:StaffIdentity,now=Date.now(
   for(const e of events)if(ids.has(e.case_id)&&!first.has(e.case_id))first.set(e.case_id,Number(e.occurred_ms));
   const waiting=active.filter(c=>c.status==='Waiting for Staff');
   const avg=(values:number[])=>values.length?Math.round(values.reduce((a,b)=>a+b,0)/values.length):null;
-  const firstReplyHours=avg(cases.filter(c=>first.has(c.id))
-    .map(c=>Math.max(0,(first.get(c.id)!-Number(c.created_ms))/3600000)*100))/100;
-  const resolveHours=avg(resolved.filter(c=>c.closed_ms!==null)
-    .map(c=>Math.max(0,(Number(c.closed_ms)-Number(c.created_ms))/3600000)*100))/100;
+  const firstReplyHundredths=avg(cases.filter(c=>first.has(c.id))
+    .map(c=>Math.max(0,(first.get(c.id)!-Number(c.created_ms))/3600000)*100));
+  const resolveHundredths=avg(resolved.filter(c=>c.closed_ms!==null)
+    .map(c=>Math.max(0,(Number(c.closed_ms)-Number(c.created_ms))/3600000)*100));
+  const firstReplyHours=firstReplyHundredths===null?null:firstReplyHundredths/100;
+  const resolveHours=resolveHundredths===null?null:resolveHundredths/100;
   const feedback=await db.query('SELECT case_id,rating FROM pc_support_feedback');
   const ratings=feedback.filter(f=>ids.has(f.case_id)).map(f=>Number(f.rating));
   const grouped=new Map<string,{total:number;active:number;resolved:number}>();
