@@ -305,11 +305,12 @@ with sync_playwright() as p:
                     route.fulfill(json={"owner":owner,"enabled":True,"panels":[{
                         "id":"a31c01cb-3f65-4b16-9178-c9d247de983e",
                         "channelId":"1573908218260885614","title":"Member Badges",
-                        "description":"Choose a role to display your interests.","style":"buttons",
-                        "color":11000000,"active":True,"revision":3,"messageId":"920000000000000030",
+                        "description":"Choose a role to display your interests.","style":"reactions",
+                        "color":11000000,"imageUrl":"https://example.com/banner.png",
+                        "active":True,"revision":3,"messageId":"920000000000000030",
                         "options":[{"roleId":"920000000000000006",
                           "label":"<img src=x onerror=window.roleInjection=true>",
-                          "recordedSelections":4,"position":0}]}]})
+                          "emoji":"🔥","recordedSelections":4,"position":0}]}]})
                 else:
                     assert owner, "Role panel administration should be owner-only."
                     route.fulfill(json={"ok":True,"result":{"id":"a31c01cb-3f65-4b16-9178-c9d247de983e"}})
@@ -392,8 +393,12 @@ with sync_playwright() as p:
                     "channelId":"1573908218260885614","winners":[]}]})
             elif url.path=="/api/community":
                 if route.request.method=="GET":
-                    route.fulfill(json={"staff":False,"owner":False,"modules":{"tags":True,"suggestions":True},
-                        "tags":[{"name":"visitor-guide","body":"Welcome to Convergence.","revision":2}],
+                    route.fulfill(json={"staff":owner,"owner":owner,"modules":{"tags":True,"suggestions":True},
+                        "tags":[{"name":"visitor-guide","body":"Welcome to Convergence.","revision":2,
+                            "title":"Convergence Visitor Guide","color":15000000,
+                            "imageUrl":"https://example.org/guide.png",
+                            "presentationRevision":1,
+                            "buttons":[{"label":"Read Codex","url":"https://example.org/codex"}]}],
                         "suggestions":[{"id":"b21c01cb-3f65-4b16-9178-c9d247de983e","title":"More RP arenas","body":"We could use another practice arena.","status":"Under Review","staff_response":"On the roadmap.","upvotes":2,"downvotes":0}],"proposals":[]})
                 else: route.fulfill(json={"ok":True})
             elif url.path=="/api/state":
@@ -475,7 +480,9 @@ with sync_playwright() as p:
     expect(again.get_by_role("button",name="Sign out")).to_be_visible()
     again.goto("https://codex.test/phoenixcore/index.html#community")
     expect(again.get_by_role("heading",name="Community",exact=True)).to_be_visible()
-    expect(again.get_by_role("heading",name="visitor-guide",exact=True)).to_be_visible()
+    expect(again.get_by_role("heading",name="Convergence Visitor Guide",exact=True)).to_be_visible()
+    expect(again.get_by_role("link",name="Read Codex")).to_have_attribute("href","https://example.org/codex")
+    assert again.locator("#community-rich-tag-form").count()==0
     expect(again.get_by_role("heading",name="More RP arenas",exact=True)).to_be_visible()
     again.goto("https://codex.test/phoenixcore/index.html#support")
     expect(again.get_by_role("heading",name="Support Center",exact=True)).to_be_visible()
@@ -532,8 +539,18 @@ with sync_playwright() as p:
     owner_dashboard.get_by_role("link",name="Member Badges",exact=False).click()
     expect(owner_dashboard.get_by_role("heading",name="Owner controls")).to_be_visible()
     expect(owner_dashboard.get_by_text("4 recorded selections",exact=False)).to_be_visible()
+    expect(owner_dashboard.locator('#rolepanel-style-form')).to_have_count(1)
+    expect(owner_dashboard.locator('#rolepanel-emoji-form')).to_have_count(1)
+    expect(owner_dashboard.get_by_text("🔥",exact=False)).to_be_visible()
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"role-panels-owner-mobile.png")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#community")
+    expect(owner_dashboard.get_by_role("heading",name="Styled informational tags")).to_be_visible()
+    owner_dashboard.locator('#rich-tag-picker').select_option("visitor-guide")
+    expect(owner_dashboard.locator('#community-rich-tag-form')).to_have_count(1)
+    expect(owner_dashboard.locator('#community-rich-tag-form input[name="title"]')).to_have_value("Convergence Visitor Guide")
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"community-rich-tags-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#support")
     expect(owner_dashboard.get_by_role("heading",name="Support operations")).to_be_visible()
     expect(owner_dashboard.get_by_role("heading",name="Search accessible cases")).to_be_visible()
