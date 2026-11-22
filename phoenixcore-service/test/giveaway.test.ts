@@ -43,7 +43,7 @@ test('only configured channels accept giveaways, with owner-only destination cha
   assert.equal(g.status,'active');assert.equal(g.prizeKind,'zeni');
   assert.equal(g.winnerCount,2);
   assert.equal(g.winners.length,0);
-  assert.equal((await db.query('SELECT id FROM pc_giveaway_posts')).length,1);
+  assert.equal((await db.query('SELECT giveaway_id FROM pc_giveaway_posts')).length,1);
 });
 
 test('entry represents a Discord account, never a character; withdraw/rejoin remains possible',async t=>{
