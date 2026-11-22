@@ -971,7 +971,7 @@ function formList(raw){
       const panel=data.panels.find(p=>p.id===match[1]);
       if(!panel)return title('Role panel unavailable','This panel is hidden or no longer exists.');
       const options=panel.options.map(o=>'<div class="stat-row role-panel-option"><span><b>'+h(o.label)+'</b>'+
-        '<small class="muted">'+h(o.roleId)+' · '+h(o.recordedSelections)+' recorded selections</small></span>'+
+        '<small class="muted">'+h(o.roleId)+' · '+h(o.recordedSelections)+' recorded selections'+(o.emoji?' · '+h(o.emoji):'')+'</small></span>'+
         (data.owner?'<button type="button" data-rolepanel-action="remove" data-rolepanel-id="'+h(panel.id)+
           '" data-rolepanel-version="'+h(panel.revision)+'" data-rolepanel-role="'+h(o.roleId)+'">Remove option</button>':'')+
         '</div>').join('');
@@ -983,11 +983,26 @@ function formList(raw){
         '<form id="rolepanel-add-form" class="form" data-id="'+h(panel.id)+'" data-revision="'+h(panel.revision)+'">'+
         '<h3>Add a safe Discord role</h3>'+field('roleId','Discord role ID','',{required:true,max:20})+
         field('label','Role label','',{required:true,max:80})+
-        '<button class="primary">Add role option</button></form></section>':'';
+        '<button class="primary">Add role option</button></form>'+
+        '<form id="rolepanel-style-form" class="form" data-id="'+h(panel.id)+'" data-revision="'+h(panel.revision)+'">'+
+        '<h3>Appearance</h3>'+field('title','Panel title',panel.title,{required:true,max:120})+
+        field('description','Panel description',panel.description,{area:true,wide:true,max:1500})+
+        field('color','Discord embed color (0–16777215)',String(panel.color),{required:true,max:8,numeric:true})+
+        field('imageUrl','Optional HTTPS banner image',panel.imageUrl||'',{max:600})+
+        '<button class="primary">Save panel appearance</button></form>'+
+        (panel.style==='reactions'?'<form id="rolepanel-emoji-form" class="form" data-id="'+h(panel.id)+
+          '" data-revision="'+h(panel.revision)+'">'+
+          '<h3>Reaction role emoji</h3>'+
+          '<label class="field"><span>Selected role</span><select name="roleId" required>'+
+          panel.options.map(o=>'<option value="'+h(o.roleId)+'">'+h(o.label)+'</option>').join('')+
+          '</select></label>'+
+          field('emoji','Unicode emoji (e.g. 🔥)','',{required:true,max:32})+
+          '<button class="primary">Save emoji mapping</button></form>':'')+
+        '</section>':'';
       return breadcrumbs([link('roles','Role Panels'),h(panel.title)])+
         title(panel.title,panel.description)+
         '<section class="panel dossier"><p><b>'+h(panel.active?'Published':'Draft / inactive')+
-        '</b> · '+h(panel.style==='buttons'?'Button panel':'Select-menu panel')+'</p>'+
+        '</b> · '+h(panel.style==='buttons'?'Button panel':panel.style==='reactions'?'Reaction-role panel':'Select-menu panel')+'</p>'+
         '<p>Discord channel: '+h(panel.channelId)+(panel.messageId?' · Message: '+h(panel.messageId):' · Not posted yet')+'</p>'+
         (options||'<p>No role options configured yet.</p>')+'</section>'+owner;
     }
@@ -1002,7 +1017,10 @@ function formList(raw){
       field('channelId','Destination Discord channel ID','',{required:true,max:20})+
       '<label class="field"><span>Selection style</span><select name="style">'+
       '<option value="buttons">Buttons (up to five roles)</option>'+
-      '<option value="select">Select menu (up to 25 roles)</option></select></label>'+
+      '<option value="select">Select menu (up to 25 roles)</option>'+
+      '<option value="reactions">Emoji reactions (up to 20 roles)</option></select></label>'+
+      field('color','Color (integer)','11037650',{required:true,max:8,numeric:true})+
+      field('imageUrl','Optional HTTPS image URL','',{max:600})+
       '<button class="primary">Create unpublished panel</button></form></section>':'';
     return title('Role Panels','Select community roles from approved Discord buttons or menus. Only the Owner can configure panels.')+
       (!data.enabled?'<section class="panel"><p>Role panel interactions are disabled by the Owner.</p></section>':'')+
@@ -1381,7 +1399,7 @@ function formList(raw){
   }
   document.addEventListener('submit',async e=>{
     const f=e.target;
-    if(!['rolepanel-create-form','rolepanel-add-form'].includes(f.id))return;
+    if(!['rolepanel-create-form','rolepanel-add-form','rolepanel-style-form','rolepanel-emoji-form'].includes(f.id))return;
     e.preventDefault();
     const fields=Object.fromEntries(new FormData(f));
     const button=f.querySelector('button.primary');
@@ -1389,7 +1407,12 @@ function formList(raw){
     if(button)button.disabled=true;
     try{
       const payload=f.id==='rolepanel-create-form'?{action:'create',
-        channelId:fields.channelId,title:fields.title,description:fields.description,style:fields.style}:
+        channelId:fields.channelId,title:fields.title,description:fields.description,style:fields.style,
+        color:Number(fields.color),imageUrl:fields.imageUrl}:
+        f.id==='rolepanel-style-form'?{action:'style',panelId:f.dataset.id,revision:Number(f.dataset.revision),
+          title:fields.title,description:fields.description,color:Number(fields.color),imageUrl:fields.imageUrl}:
+        f.id==='rolepanel-emoji-form'?{action:'emoji',panelId:f.dataset.id,revision:Number(f.dataset.revision),
+          roleId:fields.roleId,emoji:fields.emoji}:
         {action:'add',panelId:f.dataset.id,revision:Number(f.dataset.revision),
           roleId:fields.roleId,label:fields.label};
       const response=await call('/api/community/roles','POST',payload);
