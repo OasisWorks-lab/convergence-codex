@@ -20,7 +20,6 @@ import { aiOptions } from './npc-voice.ts';
 import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
 import {deliverScenePanel} from './npc-panel.ts';
 import {freeProviderStatus} from './npc-ai-router.ts';
-import {aiOptions} from './npc-ai.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
