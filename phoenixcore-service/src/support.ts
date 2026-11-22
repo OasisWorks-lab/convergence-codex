@@ -92,8 +92,9 @@ export async function supportHistory(db:Store,actor:StaffIdentity,id:string){
   const events=await db.query('SELECT * FROM pc_support_events WHERE case_id=$1 ORDER BY occurred_ms,id',[id]);
   return {case:publicCase(c,actor),events:events.filter(e=>viewer==='staff'||e.visibility==='member')
     .map(e=>({id:e.id,type:e.event_type,text:e.body,createdMs:Number(e.occurred_ms),
-      authorId:viewer==='member'&&e.event_type.startsWith('staff')?
-        (e.event_type==='staff-signed-reply'?e.actor_id:null):e.actor_id,
+      authorId:viewer==='staff'&&Number(c.anonymous)&&!actor.isAdmin&&e.actor_id===c.requester_id?null:
+        viewer==='member'&&e.event_type.startsWith('staff')?
+          (e.event_type==='staff-signed-reply'?e.actor_id:null):e.actor_id,
       visibility:e.visibility}))};
 }
 export async function addSupportMessage(db:Store,actor:StaffIdentity,caseId:string,receiptId:string,text:string,mode:'member'|'staff-reply'|'staff-signed-reply'|'staff-note',now=Date.now()){
@@ -134,6 +135,7 @@ export async function transitionSupport(db:Store,actor:StaffIdentity,caseId:stri
     }else if(action==='transfer'){
       requireThat(!['Closed','Resolved'].includes(status),409,'Reopen the case before transferring.');
       requireThat(discordId.test(newAssignee||''),400,'Select an eligible verified staff member.');
+      requireThat(!Number(c.sensitive)||newAssignee===actor.id,403,'Sensitive cases cannot be transferred outside Owner-only access.');
       assigned=newAssignee;status='Claimed';
     }else if(action==='sensitive'){
       requireThat(actor.isOwner,403,'Only the Owner can restrict case visibility.');
