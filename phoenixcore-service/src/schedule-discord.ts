@@ -14,7 +14,7 @@ export const scheduleCommands=()=>[{
   options:[
     sub('admin-create','Owner: save a new announcement or human bump reminder draft.',[
       str('name','Schedule name',true,100),
-      str('message','Scheduled message; leave blank only for bump reminders',true,1800),
+      str('message','Message; optional for DISBOARD bump reminders',false,1800),
       {type:7,name:'channel',description:'Where the reminder or announcement will be posted',required:true},
       integer('delay','Minutes before the first delivery',true,1,525600),
       integer('interval','Minutes between deliveries; 0 for once',true,0,43200),
