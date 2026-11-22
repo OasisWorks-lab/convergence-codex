@@ -377,10 +377,10 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal(voteHttp.status,200);
   assert.equal((await voteHttp.json()).result.changed,true);
   assert.equal((await post('/api/polls',{action:'vote',pollId,selections:['0'],receipt:receiptVote},writer)).status,200);
-  const hidden=(await (await get('/api/polls/'+pollId,{headers:{authorization:'Bearer '+extra,origin}})).json()).poll;
-  assert.equal(hidden.counts,null);
-  assert.equal(hidden.voters,1);
-  assert.equal(JSON.stringify(hidden).includes(ids.writer),false);
+  const hiddenPoll=(await (await get('/api/polls/'+pollId,{headers:{authorization:'Bearer '+extra,origin}})).json()).poll;
+  assert.equal(hiddenPoll.counts,null);
+  assert.equal(hiddenPoll.voters,1);
+  assert.equal(JSON.stringify(hiddenPoll).includes(ids.writer),false);
   assert.equal((await post('/api/polls',{action:'close',pollId,revision:3},writer)).status,403);
   assert.equal((await post('/api/polls',{action:'close',pollId,revision:3},owner)).status,200);
   const closedPoll=(await (await get('/api/polls/'+pollId,{headers:{authorization:'Bearer '+extra,origin}})).json()).poll;
