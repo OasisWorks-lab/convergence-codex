@@ -26,7 +26,6 @@ test('societal grants are one-time, owner-approved, independent and durable thro
   assert.equal((await visibleAccounts(db,rival)).length,0);
   await initialize(db,guild);
   assert.equal((await db.query("SELECT COUNT(*) AS count FROM pc_economy_transactions WHERE kind='starting_funds'"))[0].count,2);
-  assert.equal((await db.query('SELECT wallet FROM (SELECT 1 AS wallet)')).length,1);
   assert.equal((await statement(db,player,low)).length,1);
   await assert.rejects(statement(db,rival,low),{status:403});
   const initial=await decide(db,owner,owner,low,true,[]);
