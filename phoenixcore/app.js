@@ -1239,9 +1239,19 @@ function formList(raw){
     }catch(error){tell(error.message,true);}
     finally{if(button)button.disabled=false;}
   });
+  document.addEventListener('change',e=>{
+    const picker=e.target.closest('select[data-shopkeeper-choice]');
+    if(!picker)return;
+    const wrapper=picker.form?.querySelector('[data-shopkeeper-custom]'),input=wrapper?.querySelector('input');
+    if(!wrapper||!input)return;
+    const isCustom=picker.value==='custom';
+    wrapper.hidden=!isCustom;
+    input.required=isCustom;
+    if(!isCustom)input.value='';
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;
-    if(!['shop-create-form','shop-item-form','shop-stock-form','shop-locations-form','shop-inventory-form'].includes(f.id))return;
+    if(!['shop-create-form','shop-keeper-form','shop-item-form','shop-stock-form','shop-locations-form','shop-inventory-form'].includes(f.id))return;
     e.preventDefault();
     const fields=Object.fromEntries(new FormData(f));
     const button=f.querySelector('button.primary');if(button?.disabled)return;
@@ -1253,7 +1263,9 @@ function formList(raw){
       }
       let payload;
       if(f.id==='shop-create-form')payload={action:'create-shop',name:fields.name,description:fields.description,
-        ownerName:fields.ownerName,kind:fields.kind};
+        kind:fields.kind,...shopkeeperSelection(fields)};
+      else if(f.id==='shop-keeper-form')payload={action:'shopkeeper',shopId:f.dataset.id,
+        revision:Number(f.dataset.revision),...shopkeeperSelection(fields)};
       else if(f.id==='shop-item-form')payload={action:'create-item',name:fields.name,description:fields.description,
         kind:fields.kind,basePrice:fields.basePrice};
       else if(f.id==='shop-stock-form')payload={action:'stock',shopId:f.dataset.id,revision:Number(f.dataset.revision),
