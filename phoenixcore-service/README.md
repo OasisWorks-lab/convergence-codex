@@ -273,3 +273,35 @@ Give PhoenixCore View Channel, Send Messages and Embed Links permissions in that
 **Owner suggestion removal:** Community now has Remove suggestion and Restore suggestion actions. Removed suggestions disappear from ordinary website listings, cannot be voted on, and are deleted from their canonical Discord channel after the delivery worker runs. The audit trail and votes remain privately stored; restoring a suggestion makes it visible and republishes it in the central channel. This is reversible archival, not permanent data erasure.
 
 New additive tables: pc_suggestion_posts and pc_suggestion_removals. No pre-existing RP, economy, or character records are replaced.
+
+## Owner/Admin moderation records and durable reminders — phase 1
+
+PhoenixCore now has the **private moderation-case foundation** approved in the Dyno handoff. This release deliberately starts with non-punitive records: it does **not** implement automatic bans, timeouts, kicks, anti-nuke, spam detection, or the unresolved five-warning sanction.
+
+### Staff authority and attribution
+
+- **Owner and native Discord Administrators** can use the private moderation commands. **Helpers cannot** use general moderation merely because they can review character requests or support tickets.
+- The server verifies the actor's **current** native Administrator role and the role positions of the actor, bot, and target immediately before writing a warning, adding a note, or deactivating a warning. No one can target themselves, the Owner, the bot, or other bot accounts. A target above the bot role is rejected.
+- A warning with an optional `proxy-post` checks `pc_posts` for the original writer, both original and proxied message IDs, channel and character ID. The selected **Discord user** must match the recorded original author. The webhook or character is never treated as the responsible account.
+- All records and reasons remain private to Owner/Admin. Raw source-message mappings are used only as evidence and do not grant the bot an unrestricted Discord history search.
+
+### Moderation slash commands
+
+- `/mod warn member:[user] reason:[optional] proxy-post:[optional message ID]` creates one durable warning per signed interaction, plus a private DM attempt.
+- `/mod note member:[user] note:[private text]` records an internal note without sending it to the member.
+- `/mod warnings member:[user]` counts active warnings; `/mod history member:[user]` lists recent private cases; `/mod case case:[UUID]` displays events and linked evidence.
+- `/mod remove-warning case:[UUID]` deactivates a warning, preserving its original record and a separate irreversible audit event. Warnings **never expire automatically**.
+- The **fifth active warning** records a **staff-review-needed event only**. No punishment is selected or carried out. Existing warnings still count, and an owner/admin can deactivate them.
+
+### Shared scheduled jobs
+
+- `/remind me minutes:[1–10080] message:[text]` schedules a private Discord DM for yourself. `/remind list` shows pending reminders; `/remind cancel id:[reminder ID]` cancels a queued reminder. There are at most **20 pending reminders per member**. Recurring reminders and configurable channel announcements remain for a later phase.
+- Staff warning notices and personal reminders use the same additive, SQLite/PostgreSQL-backed queue. The worker claims jobs with leases, stores delivery attempts and statuses, retries transient Discord errors, and marks disabled DMs undeliverable without undoing the moderation case.
+- The bot uses a stable Discord message nonce for deduplication. The job database persists across restarts, but actual DM delivery still depends on Discord permissions and availability.
+- The Owner can enable or disable `moderation` and `reminders` independently through `/community-module set` or the **Community** dashboard switches, with existing revision/audit tracking. They are initially enabled; disable if a moderation team is not ready.
+
+### Data and rollout
+
+New tables: `pc_mod_cases`, `pc_mod_case_events`, `pc_core_jobs`; existing RP, character, economy, NPC and SupportCase data are not migrated or altered. Only the **Convergence** guild is in scope. No DISBOARD automation. Bot-Hosting.net needs a backup and restart to load this code, followed by verification that the PhoenixCore role is above targets intended for moderation and that the bot can DM members.
+
+**Not yet covered:** punitive Discord actions, escalation settings, private staff dashboard case search, full audit-log event collection, anti-nuke, automod, sanctions with expiry, SupportCase appeals, recurring reminders, scheduled bump announcements, module-specific staff delegation and diagnostic repair screens. Those remain in the seven-handoff roadmap rather than being represented as finished.
