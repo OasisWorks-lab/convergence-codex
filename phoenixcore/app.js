@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,inventoryData=null;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|shops|shop-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['shops','Shops & Inventory']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['shops','Shops & Inventory'],['roles','Role Panels']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -788,6 +788,61 @@ function formList(raw){
     return title('Shops & Inventory','Browse staff-managed merchandise. Purchases require your character to be present in the appropriate RP channel.')+
       ownInventory+'<section class="stack"><h2>Shops</h2>'+(cards||'<p>No shops configured yet.</p>')+'</section>'+create;
   }
+  async function rolePanelRefresh(){
+    if(rolePanelLoading||demo||!session)return;
+    rolePanelLoading=true;
+    try{
+      rolePanelData=await call('/api/community/roles');
+      if(route()==='roles'||/^roles-[\da-f-]{36}$/.test(route()))render();
+    }catch(error){tell(error.message,true);}
+    finally{rolePanelLoading=false;}
+  }
+  function rolePanelPage(){
+    if(demo)return title('Role Panels','Discord member self-service roles')+
+      '<section class="panel">Practice mode does not assign real Discord roles.</section>';
+    if(!rolePanelData){void rolePanelRefresh();return title('Role Panels','Loading configured role panels…');}
+    const data=rolePanelData,match=/^roles-([\da-f-]{36})$/.exec(route());
+    if(match){
+      const panel=data.panels.find(p=>p.id===match[1]);
+      if(!panel)return title('Role panel unavailable','This panel is hidden or no longer exists.');
+      const options=panel.options.map(o=>'<div class="stat-row"><span><b>'+h(o.label)+'</b>'+
+        '<small class="muted">'+h(o.roleId)+' · '+h(o.recordedSelections)+' recorded selections</small></span>'+
+        (data.owner?'<button type="button" data-rolepanel-action="remove" data-rolepanel-id="'+h(panel.id)+
+          '" data-rolepanel-version="'+h(panel.revision)+'" data-rolepanel-role="'+h(o.roleId)+'">Remove option</button>':'')+
+        '</div>').join('');
+      const owner=data.owner?'<section class="panel dossier"><h2>Owner controls</h2>'+
+        '<p>Revision '+h(panel.revision)+' · The Discord bot must outrank every selectable role. Staff and security permissions are prohibited.</p>'+
+        '<div class="actions"><button type="button" data-rolepanel-action="publish" data-rolepanel-id="'+h(panel.id)+
+          '" data-rolepanel-version="'+h(panel.revision)+'" data-rolepanel-active="'+(!panel.active)+'">'+
+        (panel.active?'Disable role choices':'Publish role choices')+'</button></div>'+
+        '<form id="rolepanel-add-form" class="form" data-id="'+h(panel.id)+'" data-revision="'+h(panel.revision)+'">'+
+        '<h3>Add a safe Discord role</h3>'+field('roleId','Discord role ID','',{required:true,max:20})+
+        field('label','Role label','',{required:true,max:80})+
+        '<button class="primary">Add role option</button></form></section>':'';
+      return breadcrumbs([link('roles','Role Panels'),h(panel.title)])+
+        title(panel.title,panel.description)+
+        '<section class="panel dossier"><p><b>'+h(panel.active?'Published':'Draft / inactive')+
+        '</b> · '+h(panel.style==='buttons'?'Button panel':'Select-menu panel')+'</p>'+
+        '<p>Discord channel: '+h(panel.channelId)+(panel.messageId?' · Message: '+h(panel.messageId):' · Not posted yet')+'</p>'+
+        (options||'<p>No role options configured yet.</p>')+'</section>'+owner;
+    }
+    const cards=data.panels.map(panel=>'<a class="request-row" href="#roles-'+h(panel.id)+'">'+
+      '<span class="summary"><b>'+h(panel.title)+'</b><small class="muted">'+
+      h(panel.options.length)+' selectable roles · '+h(panel.style)+'</small></span>'+
+      '<span class="pill">'+h(panel.active?'Published':'Draft')+'</span></a>').join('');
+    const owner=data.owner?'<section class="panel dossier"><h2>Create a role panel</h2>'+
+      '<form id="rolepanel-create-form" class="form">'+
+      field('title','Panel title','',{required:true,max:120})+
+      field('description','Description','',{area:true,wide:true,max:1500})+
+      field('channelId','Destination Discord channel ID','',{required:true,max:20})+
+      '<label class="field"><span>Selection style</span><select name="style">'+
+      '<option value="buttons">Buttons (up to five roles)</option>'+
+      '<option value="select">Select menu (up to 25 roles)</option></select></label>'+
+      '<button class="primary">Create unpublished panel</button></form></section>':'';
+    return title('Role Panels','Select community roles from approved Discord buttons or menus. Only the Owner can configure panels.')+
+      (!data.enabled?'<section class="panel"><p>Role panel interactions are disabled by the Owner.</p></section>':'')+
+      '<section class="stack"><h2>Configured role panels</h2>'+(cards||'<p>No role panels are published yet.</p>')+'</section>'+owner;
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
@@ -798,6 +853,7 @@ function formList(raw){
     else if(r==='support'||/^support-[\da-f-]{36}$/i.test(r))view.innerHTML=supportPage();
     else if(r==='giveaways'||/^giveaway-[\da-f-]{36}$/i.test(r))view.innerHTML=giveawayPage();
     else if(r==='shops'||/^shop-[\da-f-]{36}$/i.test(r))view.innerHTML=shopPage();
+    else if(r==='roles'||/^roles-[\da-f-]{36}$/i.test(r))view.innerHTML=rolePanelPage();
     else if(r==='requests'||r==='archived')view.innerHTML=requestList(r==='archived');
     else if(r==='settings')view.innerHTML=settings();
     else if(r==='new'||r.startsWith('new-'))view.innerHTML=editor(r==='new'?'create':r.slice(4));
@@ -916,6 +972,21 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const roleButton=e.target.closest('[data-rolepanel-action]');
+    if(roleButton){
+      if(!confirm('Apply this role panel change?'))return;
+      roleButton.disabled=true;
+      try{
+        const payload={action:roleButton.dataset.rolepanelAction,
+          panelId:roleButton.dataset.rolepanelId,revision:Number(roleButton.dataset.rolepanelVersion)};
+        if(payload.action==='publish')payload.active=roleButton.dataset.rolepanelActive==='true';
+        if(payload.action==='remove')payload.roleId=roleButton.dataset.rolepanelRole;
+        await call('/api/community/roles','POST',payload);
+        rolePanelData=null;await rolePanelRefresh();tell('Role panel updated.');
+      }catch(error){tell(error.message,true);}
+      finally{roleButton.disabled=false;}
+      return;
+    }
     const shopButton=e.target.closest('[data-shop-action]');
     if(shopButton){
       if(!confirm('Change this shop open/closed status?'))return;
@@ -1115,6 +1186,26 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(!['rolepanel-create-form','rolepanel-add-form'].includes(f.id))return;
+    e.preventDefault();
+    const fields=Object.fromEntries(new FormData(f));
+    const button=f.querySelector('button.primary');
+    if(button?.disabled)return;
+    if(button)button.disabled=true;
+    try{
+      const payload=f.id==='rolepanel-create-form'?{action:'create',
+        channelId:fields.channelId,title:fields.title,description:fields.description,style:fields.style}:
+        {action:'add',panelId:f.dataset.id,revision:Number(f.dataset.revision),
+          roleId:fields.roleId,label:fields.label};
+      const response=await call('/api/community/roles','POST',payload);
+      rolePanelData=null;
+      if(f.id==='rolepanel-create-form')location.hash='roles-'+response.result.id;
+      await rolePanelRefresh();tell('Role panel saved.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;
     if(!['shop-create-form','shop-item-form','shop-stock-form','shop-locations-form','shop-inventory-form'].includes(f.id))return;
