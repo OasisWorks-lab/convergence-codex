@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -570,6 +570,89 @@ function formList(raw){
       '<section class="stack"><h2>'+(staff?'Staff case queue':'Your cases')+'</h2>'+(cases||'<p>No cases to display.</p>')+'</section>'+
       '<section class="panel"><p>You can also use /support in Discord, or DM PhoenixCore to start Modmail. Staff replies require an explicit send action; notes remain internal.</p></section>';
   }
+  async function giveawayRefresh(){
+    if(giveawayLoading||demo||!session)return;
+    giveawayLoading=true;
+    try{
+      giveawayData=await call('/api/giveaways');
+      const selected=/^giveaway-([\da-f-]{36})$/i.exec(route());
+      giveawayDetail=selected?await call('/api/giveaways/'+selected[1]):null;
+      if(route()==='giveaways'||/^giveaway-/.test(route()))render();
+    }catch(e){tell(e.message,true);}
+    finally{giveawayLoading=false;}
+  }
+  function giveawayPage(){
+    if(demo)return title('Giveaways','Community celebrations, unique drawings and prizes')+
+      '<section class="panel"><p>Giveaway creation, entries and claims require a signed-in live account. Practice mode never awards Zeni or draws winners.</p></section>';
+    if(!giveawayData){void giveawayRefresh();return title('Giveaways','Convergence giveaway events.')+
+      '<section class="panel"><p>Loading current giveaways…</p></section>';}
+    const data=giveawayData,match=/^giveaway-([\da-f-]{36})$/i.exec(route()),
+      entered=new Set(data.enteredGiveawayIds||[]);
+    if(match){
+      if(!giveawayDetail||!giveawayDetail.giveaways?.length||giveawayDetail.giveaways[0].id!==match[1]){
+        void giveawayRefresh();return title('Giveaway','Loading current draw…')+'<section class="panel"><p>Checking giveaway status.</p></section>';
+      }
+      const g=giveawayDetail.giveaways[0],mine=(g.winners||[]).find(w=>w.user_id===state.actor.id),
+        prize=g.prizeKind==='zeni'?g.zeniAmount+' Zeni deposited to your chosen character bank':g.prizeText,
+        active=g.status==='active'&&g.endsMs>Date.now(),staff=data.staff;
+      const winners=(g.winners||[]).map(w=>'<div class="stat-row"><span>'+h(w.user_id)+' · Slot '+h(w.slot)+
+        ' · '+h(w.status.replaceAll('_',' '))+'</span><span>'+h(w.claimed_ms?'Claimed':'Deadline '+new Date(Number(w.claim_deadline_ms)).toLocaleString())+'</span></div>').join('');
+      const controls=active?'<div class="actions"><button type="button" data-giveaway-action="'+(entered.has(g.id)?'withdraw':'join')+
+        '" data-giveaway-id="'+h(g.id)+'">'+(entered.has(g.id)?'Withdraw entry':'Enter giveaway')+'</button></div>':'';
+      const characters=data.characters||[],claimForm=mine&&mine.status==='awaiting_claim'?
+        '<form class="panel form" id="giveaway-claim-form" data-id="'+h(g.id)+'"><h3>Claim your prize</h3>'+
+        (g.prizeKind==='zeni'?'<label class="field"><span>Approved winning character</span><select name="characterId" required>'+
+          '<option value="">Choose a character</option>'+characters.map(c=>'<option value="'+h(c.id)+'">'+h(c.name)+'</option>').join('')+
+          '</select></label>':'<p>Staff will confirm your manual prize after your claim.</p>')+
+        '<button class="primary">Claim prize</button></form>':'';
+      const staffActions=staff?'<section class="panel dossier"><h3>Staff controls</h3><div class="actions">'+
+        (g.status==='active'?'<button type="button" data-giveaway-action="pause" data-giveaway-id="'+h(g.id)+'">Pause</button>'+
+          '<button type="button" data-giveaway-action="end" data-giveaway-id="'+h(g.id)+'">End and draw now</button>':'')+
+        (g.status==='paused'?'<button type="button" data-giveaway-action="resume" data-giveaway-id="'+h(g.id)+'">Resume</button>':'')+
+        (['active','paused','scheduled'].includes(g.status)?'<button type="button" data-giveaway-action="cancel" data-giveaway-id="'+h(g.id)+'">Cancel</button>':'')+
+        (g.status==='ended'?'<button type="button" data-giveaway-action="reroll" data-giveaway-id="'+h(g.id)+'">Reroll unclaimed slot</button>':'')+
+        (data.owner&&g.status==='ended'?'<button type="button" data-giveaway-action="manual-winner" data-giveaway-id="'+h(g.id)+'">Select manual winner</button>':'')+
+        '</div></section>':'';
+      return breadcrumbs([link('giveaways','Giveaways'),h(g.title)])+
+        title(g.title,g.status+' · '+g.entries+' entrants · '+g.winnerCount+' winner position(s)')+
+        '<section class="panel dossier"><p class="prewrap">'+h(g.description)+'</p><p><b>Prize:</b> '+h(prize)+'</p>'+
+        '<p>Entries close <strong>'+h(new Date(g.endsMs).toLocaleString())+'</strong>. Winners have a per-giveaway claim deadline.</p>'+
+        '<p class="muted">Boosters receive 3 total draw tickets. Every human can win only once.</p></section>'+
+        controls+(winners?'<section class="panel"><h3>Draw results and claims</h3>'+winners+'</section>':'')+
+        claimForm+staffActions+
+        '<section class="panel"><p>Public giveaway messages and entry buttons appear in <a href="https://discord.com/channels/'+h(data.guild||'950522987646418964')+'/'+h(g.channelId)+'">the designated Discord channel</a>.</p></section>';
+    }
+    const cards=(data.giveaways||[]).map(g=>
+      '<a class="request-row" href="#giveaway-'+h(g.id)+'"><span class="summary"><b>'+h(g.title)+'</b>'+
+      '<small class="muted">'+h(g.prizeKind==='zeni'?g.zeniAmount+' Zeni bank prize':g.prizeText)+
+      ' · '+h(g.entries)+' member(s) entered</small></span><span class="pill">'+h(g.status)+'</span></a>').join('');
+    const allowed=data.channels||[];
+    const configure=data.owner?'<section class="panel dossier"><h2>Designated giveaway channels</h2>'+
+      '<form id="giveaway-channels-form" class="form">'+field('channels','Allowed channel IDs, separated by lines',
+        allowed.join('\n'),{wide:true,area:true,max:600,required:false})+
+      '<button class="primary">Save allowed channels</button></form></section>':'';
+    const creation=data.staff?'<section class="panel dossier"><h2>Staff giveaway creation</h2>'+
+      (allowed.length?'<form id="giveaway-create-form" class="form">'+
+        field('title','Giveaway title','',{required:true,max:120})+
+        field('description','Description','',{area:true,wide:true,max:1100})+
+        '<label class="field"><span>Designated destination</span><select name="channelId">'+
+        allowed.map(id=>'<option value="'+h(id)+'">'+h(id)+'</option>').join('')+'</select></label>'+
+        '<label class="field"><span>Prize type</span><select name="prizeKind"><option value="zeni">Zeni bank prize</option><option value="manual">Manual staff prize</option></select></label>'+
+        field('amountOrPrize','Zeni amount or manual prize description','',{required:true,max:240})+
+        field('durationMinutes','Entry duration in minutes','60',{required:true,max:7,numeric:true})+
+        field('claimMinutes','Claim deadline in minutes (required for each giveaway)','120',{required:true,max:7,numeric:true})+
+        field('winnerCount','Unique winners','1',{required:true,max:2,numeric:true})+
+        field('startInMinutes','Start delay (minutes, 0 = immediately)','0',{required:true,max:7,numeric:true})+
+        field('requiredRoles','Required role IDs (optional)','',{area:true,max:600})+
+        field('excludedRoles','Excluded role IDs (optional)','',{area:true,max:600})+
+        field('retentionDays','Archive retention in days','7',{required:true,max:3,numeric:true})+
+        '<button class="primary">Create giveaway</button></form>':
+        '<p>Ask the Owner to designate at least one channel before staff can create giveaways.</p>')+
+      '</section>':'';
+    return title('Giveaways','One entry per Discord member, fair draws and claim-time rewards.')+
+      configure+creation+'<section class="stack"><h2>Giveaway events</h2>'+
+      (cards||'<p>No giveaway events have been created yet.</p>')+'</section>';
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
@@ -578,6 +661,7 @@ function formList(raw){
     else if(r==='npcs')view.innerHTML=npcDirectory();
     else if(r==='community')view.innerHTML=community();
     else if(r==='support'||/^support-[\da-f-]{36}$/i.test(r))view.innerHTML=supportPage();
+    else if(r==='giveaways'||/^giveaway-[\da-f-]{36}$/i.test(r))view.innerHTML=giveawayPage();
     else if(r==='requests'||r==='archived')view.innerHTML=requestList(r==='archived');
     else if(r==='settings')view.innerHTML=settings();
     else if(r==='new'||r.startsWith('new-'))view.innerHTML=editor(r==='new'?'create':r.slice(4));
@@ -809,7 +893,7 @@ function formList(raw){
         if(demo)preview.archive(id,archived);else await call('/api/requests/'+id+'/archive','POST',{archived});
         await load();go(archived?'archived':'requests');tell(archived?'Request archived.':'Request restored.');return;
       }
-      if(action==='logout'){await call('/api/logout','POST',{});store.remove('session');drafts.clear();session='';state=null;communityData=null;supportData=null;supportDetail=null;location.replace(location.pathname+'#directory');location.reload();return;}
+      if(action==='logout'){await call('/api/logout','POST',{});store.remove('session');drafts.clear();session='';state=null;communityData=null;supportData=null;supportDetail=null;giveawayData=null;giveawayDetail=null;location.replace(location.pathname+'#directory');location.reload();return;}
       if(demo&&(action==='demo-approve'||action==='demo-decline')){preview.decision(route().slice(8),action==='demo-approve');await load();tell('Practice decision recorded.');}
     }catch(err){tell(err.message,true);}
   });
