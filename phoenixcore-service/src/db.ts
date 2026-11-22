@@ -147,6 +147,15 @@ const ddl = [
   'CREATE INDEX IF NOT EXISTS pc_support_feedback_created ON pc_support_feedback(created_ms)',
 
   'CREATE TABLE IF NOT EXISTS pc_core_jobs (id TEXT PRIMARY KEY,job_type TEXT NOT NULL,recipient_id TEXT NOT NULL,payload TEXT NOT NULL,due_ms BIGINT NOT NULL,status TEXT NOT NULL DEFAULT \'pending\',attempts INTEGER NOT NULL DEFAULT 0,lease TEXT,lease_until BIGINT NOT NULL DEFAULT 0,last_error TEXT,delivery_id TEXT,created_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_polls (id TEXT PRIMARY KEY,receipt_id TEXT NOT NULL UNIQUE,creator_id TEXT NOT NULL,question TEXT NOT NULL,description TEXT NOT NULL,choices TEXT NOT NULL,mode TEXT NOT NULL,anonymous INTEGER NOT NULL,allow_change INTEGER NOT NULL,results_early INTEGER NOT NULL,required_roles TEXT NOT NULL,excluded_roles TEXT NOT NULL,channel_id TEXT NOT NULL,ends_ms BIGINT NOT NULL,status TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL,closed_ms BIGINT)',
+  'CREATE INDEX IF NOT EXISTS pc_polls_due ON pc_polls(status,ends_ms)',
+  'CREATE TABLE IF NOT EXISTS pc_poll_votes (poll_id TEXT NOT NULL REFERENCES pc_polls(id) ON DELETE CASCADE,voter_id TEXT NOT NULL,selections TEXT NOT NULL,updated_ms BIGINT NOT NULL,PRIMARY KEY(poll_id,voter_id))',
+  'CREATE TABLE IF NOT EXISTS pc_poll_receipts (receipt_id TEXT PRIMARY KEY,poll_id TEXT NOT NULL REFERENCES pc_polls(id) ON DELETE CASCADE,voter_id TEXT NOT NULL,fingerprint TEXT NOT NULL,created_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_poll_events (id TEXT PRIMARY KEY,poll_id TEXT NOT NULL REFERENCES pc_polls(id) ON DELETE CASCADE,actor_id TEXT NOT NULL,event TEXT NOT NULL,detail TEXT NOT NULL,created_ms BIGINT NOT NULL)',
+  'CREATE INDEX IF NOT EXISTS pc_poll_events_recent ON pc_poll_events(poll_id,created_ms)',
+  'CREATE TABLE IF NOT EXISTS pc_poll_posts (poll_id TEXT PRIMARY KEY REFERENCES pc_polls(id) ON DELETE CASCADE,message_id TEXT,delivered_revision INTEGER NOT NULL DEFAULT 0,retry_ms BIGINT NOT NULL DEFAULT 0,lease TEXT,lease_until BIGINT NOT NULL DEFAULT 0,last_error TEXT)',
+  'CREATE INDEX IF NOT EXISTS pc_poll_posts_ready ON pc_poll_posts(retry_ms,lease_until)',
+
   'CREATE INDEX IF NOT EXISTS pc_core_jobs_due ON pc_core_jobs(status,due_ms,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_giveaway_config (slot INTEGER PRIMARY KEY,channels TEXT NOT NULL,revision INTEGER NOT NULL,actor_id TEXT NOT NULL,changed_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_giveaways (id TEXT PRIMARY KEY,receipt_id TEXT NOT NULL UNIQUE,title TEXT NOT NULL,description TEXT NOT NULL,creator_id TEXT NOT NULL,channel_id TEXT NOT NULL,status TEXT NOT NULL,prize_kind TEXT NOT NULL,prize_text TEXT NOT NULL,zeni_amount TEXT,required_roles TEXT NOT NULL,excluded_roles TEXT NOT NULL,winner_count INTEGER NOT NULL,starts_ms BIGINT NOT NULL,ends_ms BIGINT NOT NULL,claim_duration_ms BIGINT NOT NULL,retention_days INTEGER NOT NULL DEFAULT 7,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL,version INTEGER NOT NULL DEFAULT 1,drawn_ms BIGINT)',
