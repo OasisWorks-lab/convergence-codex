@@ -1,7 +1,8 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {requireThat,textValue,discordId} from './domain.ts';
 import type {Store} from './db.ts';
-import {DiscordFailure,type Discord} from './discord.ts';
+import {DiscordFailure,type Discord,type Config} from './discord.ts';
+import {expireModerationSanction} from './moderation-actions.ts';
 
 export const maxReminderMinutes=10080;
 export async function createReminder(db:Store,userId:string,receipt:string,minutes:number,message:string,now=Date.now()){
@@ -31,7 +32,7 @@ export async function cancelReminder(db:Store,userId:string,id:string){
     [id,userId,Date.now()]);
   return changed.length>0;
 }
-export async function deliverScheduledJob(db:Store,discord:Pick<Discord,'call'>,now=Date.now()):Promise<boolean>{
+export async function deliverScheduledJob(db:Store,discord:Pick<Discord,'call'>,now=Date.now(),config?:Config):Promise<boolean>{
   const token=randomUUID();
   const job=await db.transaction(async q=>{
     const [row]=await q("SELECT * FROM pc_core_jobs WHERE status='pending' AND due_ms<=$1 AND lease_until<=$1 ORDER BY due_ms,id LIMIT 1"+(db.dialect==='postgres'?' FOR UPDATE SKIP LOCKED':''),[now]);
@@ -42,12 +43,27 @@ export async function deliverScheduledJob(db:Store,discord:Pick<Discord,'call'>,
   if(!job)return false;
   try{
     const data=JSON.parse(job.payload);
+    if(job.job_type==='moderation-expiry'){
+      requireThat(config,503,'Moderation expiry requires the configured Convergence bot.');
+      await expireModerationSanction(db,discord,config,String(data.caseId||''),now);
+      await db.query("UPDATE pc_core_jobs SET status='delivered',lease=NULL,lease_until=0,last_error=NULL WHERE id=$1 AND lease=$2",
+        [job.id,token]);
+      return true;
+    }
     let content:string;
     if(job.job_type==='reminder')content='⏰ **Your PhoenixCore reminder**\n'+String(data.message||'').slice(0,500);
     else if(job.job_type==='moderation-notice')content=
       '**Convergence staff warning**\nCase: '+String(data.caseId||'').slice(0,50)+'\n'+
       'Reason: '+String(data.reason||'Unspecified').slice(0,900)+'\n'+
       'Warnings are reviewed by staff. This notice does not announce an automatic ban or other penalty.';
+    else if(job.job_type==='moderation-action-notice'){
+      const kind=String(data.action||'sanction'),until=Number(data.untilMs||0);
+      content='**Convergence moderation notice**\\nAction: '+kind+
+        '\\nCase: '+String(data.caseId||'').slice(0,60)+
+        '\\nReason: '+String(data.reason||'Unspecified').slice(0,850)+
+        (until?'\\nExpected end: <t:'+Math.floor(until/1000)+':F>':'')+
+        '\\nIf you wish to appeal, contact PhoenixCore Support through a private message.';
+    }
     else throw Error('Unsupported scheduled job type');
     const channel=await discord.call('/users/@me/channels',{method:'POST',body:JSON.stringify({recipient_id:job.recipient_id})});
     requireThat(/^\d{17,20}$/.test(String(channel?.id||'')),502,'Discord did not provide a usable DM channel.');
