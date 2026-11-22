@@ -36,7 +36,7 @@ import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
 import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,supportHistory,supportAnalytics,blockSupportMember} from './support.ts';
 import {searchSupportCases,listSupportTemplates,saveSupportTemplate,archiveSupportTemplate,supportTemplateHistory,previewSupportTemplate,supportCaseFeedback,submitSupportFeedback,supportInsights} from './support-workspace.ts';
 import {staffIdentity,requireModerator,verifyModerationTarget,hasNativeAdmin} from './staff.ts';
-import {queueSanction,executeQueuedSanction,moderationWorkspace} from './moderation-actions.ts';
+import {queueSanction,executeQueuedSanction,moderationWorkspace,reconcileUnconfirmedSanctions} from './moderation-actions.ts';
 import {recordCase,caseEvents,removeWarning,proxyEvidence} from './moderation.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
@@ -631,9 +631,6 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       if(method==='GET'&&statementMatch){
         json(res,200,{transactions:await statement(db,actor,statementMatch[1])});return;
       }
-      const moderationRoles=actor.isOwner?[]:await discord.call('/guilds/'+config.guild+'/roles').catch(()=>[]);
-      const canModerate=actor.isOwner||moderationRoles.some((role:any)=>
-        member.roles.includes(role.id)&&hasNativeAdmin(role.permissions));
       const roster=(await discord.members()).filter(m=>!settings.value.playerRole||m.roles.includes(settings.value.playerRole));
       const active=new Set(roster.map(m=>m.user.id));
       const completion=/^\/api\/requests\/([\da-f-]{36})\/complete$/.exec(path);
@@ -655,6 +652,9 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         json(res,200,{id:r.id,status:r.status});wake();return;
       }
       requireThat(method==='GET' && path==='/api/state',404,'Unknown route.');
+      const moderationRoles=actor.isOwner?[]:await discord.call('/guilds/'+config.guild+'/roles').catch(()=>[]);
+      const canModerate=actor.isOwner||moderationRoles.some((role:any)=>
+        member.roles.includes(role.id)&&hasNativeAdmin(role.permissions));
       const inventory=await scope.inventory(settings.value,actor);
       const [sheets,requests,designs,posting,threads,races,embeds,nick,pathEntries,favorites,accounts]=await Promise.all([
         db.query('SELECT c.*,t.tag,a.form_key FROM pc_characters c LEFT JOIN pc_active_forms a ON a.character_id=c.id LEFT JOIN pc_post_tags t ON c.id=t.character_id AND c.owner_id=t.owner_id ORDER BY c.id'),
@@ -686,6 +686,7 @@ async function start() {
   const config=configuration();
   const db=process.env.DATABASE_URL ? await openPostgres(process.env.DATABASE_URL) : openSqlite(process.env.SQLITE_FILE||resolve(homedir(),'.phoenixcore','convergence.sqlite'));
   await initialize(db,config.guild);
+  await reconcileUnconfirmedSanctions(db);
   await seedAzurik(db,config.owner);
   await restoreTurnClocks(db);
   const discord=new Discord(config);
