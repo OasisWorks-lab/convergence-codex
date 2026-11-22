@@ -112,15 +112,15 @@ export async function supportInteraction(db:Store,config:Config,body:any,discord
     if(action==='search'){
       const results=await searchSupportCases(db,who,{query:String(value('query')||''),
         kind:String(value('kind')||''),status:String(value('status')||''),pageSize:12});
-      return respond('**Accessible SupportCases · '+results.total+' match(es)**\\n'+
+      return respond('**Accessible SupportCases · '+results.total+' match(es)**\n'+
         (results.cases.length?results.cases.map(c=>c.id+' · '+c.kind+' · '+c.status+' · '+c.summary.slice(0,70))
-          .join('\\n'):'No matching cases.'));
+          .join('\n'):'No matching cases.'));
     }
     if(action==='template-list'){
       const templates=await listSupportTemplates(db,who);
-      return respond('**Saved replies (staff only)**\\n'+(templates.length?
+      return respond('**Saved replies (staff only)**\n'+(templates.length?
         templates.slice(0,20).map(t=>t.name+' · r'+t.revision+(t.active?'':' · archived')+
-          ' · '+t.id).join('\\n'):'No saved replies yet.'));
+          ' · '+t.id).join('\n'):'No saved replies yet.'));
     }
     if(action==='template-save'){
       const data={name:value('name'),body:value('body'),...(value('id')?{id:value('id')}:{}),
@@ -134,7 +134,7 @@ export async function supportInteraction(db:Store,config:Config,body:any,discord
     }
     if(action==='template-preview'){
       const body=await previewSupportTemplate(db,who,String(value('id')||''),caseId);
-      return respond('**Private saved reply preview — nothing sent**\\n'+body);
+      return respond('**Private saved reply preview — nothing sent**\n'+body);
     }
     if(action==='feedback'){
       const result=await submitSupportFeedback(db,who,caseId,
@@ -142,9 +142,12 @@ export async function supportInteraction(db:Store,config:Config,body:any,discord
       return respond('Your optional case feedback was recorded. Thank you.');
     }
     if(action==='stats'){
-      const stats=await supportAnalytics(db,who);
+      const [stats,insights]=await Promise.all([supportAnalytics(db,who),supportInsights(db,who)]);
       return respond('Support Center · '+stats.total+' cases · '+stats.open+' active · '+stats.resolved+' resolved/closed.\n'+
-        Object.entries(stats.byStatus).map(([key,n])=>key+': '+n).join(' · '));
+        Object.entries(stats.byStatus).map(([key,n])=>key+': '+n).join(' · ')+
+        '\nWaiting for staff: '+insights.awaitingStaff+' · Opened in last 7 days: '+insights.openedLast7Days+
+        ' · Average resolution: '+(insights.averageResolutionHours??'N/A')+' hours'+
+        ' · Satisfaction: '+(insights.feedback.average??'N/A')+'/5 ('+insights.feedback.responses+' responses)');
     }
     return respond('Unknown Support Center action.');
   }catch(error){
