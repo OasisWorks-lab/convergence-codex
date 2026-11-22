@@ -386,3 +386,17 @@ PhoenixCore's **Shops & Inventory** website tab and `/shop` Discord commands now
 
 **Known unfinished portions:** shop banners/images, theme editor, dynamic player-owned merchant permissions, Codex world/location ID mapping, multiple shop-location overrides, stock auto-restocking, item effects/durability/slot expansions, item trade and gift, buyback, marketplace, in-character interactive merchant dialogue, configurable discounts, multi-currency account ledgers and full analytics. These remain separate, owner-gated follow-up milestones. Shop stock and inventory migrations are additive; back up the DB before deployment and live-test with low-value fictitious Zeni. The website intentionally does not authorize a purchase using a manually entered channel, because the actual RP interaction context must come from Discord.
 
+
+
+## Self-assignable role panels — Owner-governed foundation
+
+The **Role Panels** website section and `/roles` command group let Convergence members choose ordinary Discord roles via a published button or select-menu panel, without an unsafe public role-grant command.
+
+- The Carl-bot handoff left panel-administrator authority **provisional**, so only the **configured Owner** may create, edit, publish, hide or configure role panels until the owner approves further delegation. Owners can use the dashboard or `/roles admin-*` commands. Each panel starts unpublished. The Owner-only `roles` community module switch disables interactions and refreshes public messages.
+- A panel can use **up to five buttons** or **up to 25 select-menu options**. Members can hold multiple independently selected roles. Choosing an already-held role removes it. No mutually exclusive groups or timed panels have been imposed.
+- Every self-service action revalidates the signed Convergence interaction, original panel message/channel, current Discord membership, current selectable-role configuration, bot role hierarchy, managed-role flags and elevated permission bits. The **Helper role cannot be self-assigned**. Protected or higher-ranked roles are always denied, including roles configured by mistake. The bot must have Discord's `Manage Roles` permission and a sufficiently high role position.
+- Every action gets an idempotent Discord-interaction receipt and an audit record. A duplicate interaction ID cannot flip a role twice. Dashboard statistics show **recorded current panel selections**, not a claim of authoritative live membership after unrelated manual role changes.
+- Published panels are posted or edited in place by a restart-safe worker. Owner edits and module switches refresh the canonical original Discord message; retries are supported. No new database or web app is introduced.
+
+**Still incomplete from the approved Carl-bot scope:** reaction-based role selection, safe sticky-role leave/rejoin restoration, expanded panel presentation (images/icons), panel reordering, advanced statistics and unified role/sticky/informational panel editor. The owner did **not** definitively authorize Owner-and-Admin panel creation, so this implementation does not silently grant Admin or Helper creation rights. If the RP gateway is not running, signed Discord slash/component interactions still work through the main interaction endpoint; live role assign/remove requires the bot's Discord permissions.
+
