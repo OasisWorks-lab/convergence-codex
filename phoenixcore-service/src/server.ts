@@ -666,7 +666,7 @@ async function start() {
       for(let i=0;i<8;i++) if(!await deliverNext(db,discord)) break;
       for(let i=0;i<4;i++) if(!await deliverCommunityNotice(db,discord)) break;
       for(let i=0;i<8;i++) if(!await deliverSuggestionPost(db,discord)) break;
-      for(let i=0;i<8;i++) if(!await deliverScheduledJob(db,discord)) break;
+      for(let i=0;i<8;i++) if(!await deliverScheduledJob(db,discord,Date.now(),config)) break;
       for(let i=0;i<8;i++) if(!await closeInactiveSupport(db)) break;
       for(let i=0;i<8;i++) if(!await deliverSupportOutbox(db,discord)) break;
       for(let i=0;i<5;i++) if(!await advanceGiveaways(db,discord,config)) break;
