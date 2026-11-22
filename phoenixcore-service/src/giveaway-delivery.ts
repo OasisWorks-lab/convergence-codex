@@ -89,5 +89,31 @@ export async function advanceGiveaways(db:Store,discord:Pick<Discord,'call'>,con
       userId=>discord.call('/guilds/'+config.guild+'/members/'+userId),now);
     return true;
   }
-  return false;
+  return pruneGiveawayHistory(db,discord,now);
+}
+
+export async function pruneGiveawayHistory(db:Store,discord:Pick<Discord,'call'>,now=Date.now()):Promise<boolean>{
+  const [candidate]=await db.query("SELECT g.id,g.updated_ms,g.drawn_ms,g.retention_days,p.message_id,p.channel_id FROM pc_giveaways g LEFT JOIN pc_giveaway_posts p ON p.giveaway_id=g.id WHERE g.status IN ('ended','cancelled') AND COALESCE(g.drawn_ms,g.updated_ms)+g.retention_days*86400000<=$1 AND NOT EXISTS (SELECT 1 FROM pc_giveaway_winners w WHERE w.giveaway_id=g.id AND w.status IN ('awaiting_claim','claim_pending')) ORDER BY COALESCE(g.drawn_ms,g.updated_ms) LIMIT 1",[now]);
+  if(!candidate)return false;
+  if(candidate.message_id){
+    try{
+      await discord.call('/channels/'+candidate.channel_id+'/messages/'+candidate.message_id,{method:'DELETE'});
+    }catch(error){
+      if(!(error instanceof DiscordFailure&&error.status===404))throw error;
+    }
+  }
+  await db.transaction(async q=>{
+    const [g]=await q('SELECT * FROM pc_giveaways WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[candidate.id]);
+    if(!g||!['ended','cancelled'].includes(g.status))return;
+    if(Number(g.drawn_ms||g.updated_ms)+Number(g.retention_days)*86400000>now)return;
+    const [remaining]=await q("SELECT COUNT(*) AS total FROM pc_giveaway_winners WHERE giveaway_id=$1 AND status IN ('awaiting_claim','claim_pending')",[candidate.id]);
+    if(Number(remaining.total)>0)return;
+    await q('DELETE FROM pc_giveaway_winners WHERE giveaway_id=$1',[candidate.id]);
+    await q('DELETE FROM pc_giveaway_draws WHERE giveaway_id=$1',[candidate.id]);
+    await q('DELETE FROM pc_giveaway_posts WHERE giveaway_id=$1',[candidate.id]);
+    await q('DELETE FROM pc_giveaway_entries WHERE giveaway_id=$1',[candidate.id]);
+    await q('DELETE FROM pc_giveaway_events WHERE giveaway_id=$1',[candidate.id]);
+    await q('DELETE FROM pc_giveaways WHERE id=$1',[candidate.id]);
+  });
+  return true;
 }
