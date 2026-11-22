@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { resolve, extname } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -24,6 +24,10 @@ import {communityActor,communityModules,communityEnabled,communitySetModule,save
 import {deliverCommunityNotice} from './community-delivery.ts';
 import {deliverSuggestionPost} from './community-posts.ts';
 import {deliverScheduledJob} from './jobs.ts';
+import {closeInactiveSupport,deliverSupportOutbox} from './support-delivery.ts';
+import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
+import {staffIdentity} from './staff.ts';
+import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,supportHistory,supportAnalytics,blockSupportMember} from './support.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -259,6 +263,50 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         }
         throw new Problem(400,'Unknown community action.');
       }
+      if((path==='/api/support'||/^\/api\/support\/[\da-f-]{36}$/.test(path))&&['GET','POST'].includes(String(method))){
+        requireThat(await communityEnabled(db,'support'),403,'The Support Center is currently disabled.');
+        const staff=await liveSupportActor(db,discord,config,actor.id).catch(error=>{
+          if(actor.isOwner)return staffIdentity(actor.id,member.roles,'0',config,settings.value.judgeRole);
+          throw error;
+        });
+        const match=/^\/api\/support\/([\da-f-]{36})$/.exec(path);
+        if(method==='GET'&&match){
+          json(res,200,await supportHistory(db,staff,match[1]));return;
+        }
+        if(method==='GET'){
+          const cases=await listSupportCases(db,staff);
+          const stats=staff.isHelper?await supportAnalytics(db,staff):undefined;
+          json(res,200,{cases,staff:staff.isHelper,owner:staff.isOwner,stats});return;
+        }
+        requireThat(!match,404,'Unknown Support Center action.');
+        const input=parse(await rawBody(req,12288));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input)&&typeof input.action==='string',400,'Select a Support Center action.');
+        let result:any;
+        if(input.action==='create'){
+          const onBehalf=!!input.requesterId&&input.requesterId!==actor.id;
+          requireThat(!onBehalf||staff.isHelper,403,'Only support staff may create cases for another member.');
+          requireThat(['ticket','report','appeal'].includes(input.kind),400,'Choose ticket, report or appeal for web intake.');
+          const assignee=await chooseSupportStaff(db,discord,config,settings.value.judgeRole,!!input.sensitive);
+          result=await createSupportCase(db,{receipt:String(input.receipt||randomUUID()),actorId:actor.id,requesterId:onBehalf?String(input.requesterId):actor.id,
+            kind:input.kind,message:input.message,anonymous:input.anonymous===true,sensitive:input.sensitive===true,
+            staffOpened:onBehalf,ownerAuthorized:staff.isOwner,assigneeId:assignee||undefined,
+            linkedModCaseId:input.linkedModCaseId||undefined});
+        }else if(['reply','send','note'].includes(input.action)){
+          const mode=input.action==='reply'?'member':input.action==='note'?'staff-note':
+            input.signed===true?'staff-signed-reply':'staff-reply';
+          result=await addSupportMessage(db,staff,String(input.caseId),String(input.receipt||randomUUID()),input.message,mode);
+        }else if(['claim','transfer','resolve','close','reopen','sensitive'].includes(input.action)){
+          if(input.action==='transfer'){
+            const recipient=await liveSupportActor(db,discord,config,String(input.assigneeId||''));
+            requireThat(recipient.isHelper,403,'Transfer recipient is not eligible support staff.');
+          }
+          result=await transitionSupport(db,staff,String(input.caseId),input.action,String(input.assigneeId||''),String(input.reason||''));
+        }else if(input.action==='block'){
+          await blockSupportMember(db,staff,String(input.userId),input.blocked===true,String(input.reason||''));
+          result={ok:true};
+        }else throw new Problem(400,'Unknown Support Center action.');
+        json(res,200,{ok:true,result});wake();return;
+      }
       const decision=/^\/api\/requests\/([\da-f-]{36})\/decision$/.exec(path);
       if(method==='POST'&&decision){
         const input=parse(await rawBody(req));requireThat(['approve','decline','uphold','veto'].includes(input?.action),400,'Choose a review action.');
@@ -385,6 +433,8 @@ async function start() {
       for(let i=0;i<4;i++) if(!await deliverCommunityNotice(db,discord)) break;
       for(let i=0;i<8;i++) if(!await deliverSuggestionPost(db,discord)) break;
       for(let i=0;i<8;i++) if(!await deliverScheduledJob(db,discord)) break;
+      for(let i=0;i<8;i++) if(!await closeInactiveSupport(db)) break;
+      for(let i=0;i<8;i++) if(!await deliverSupportOutbox(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}

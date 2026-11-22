@@ -305,3 +305,37 @@ PhoenixCore now has the **private moderation-case foundation** approved in the D
 New tables: `pc_mod_cases`, `pc_mod_case_events`, `pc_core_jobs`; existing RP, character, economy, NPC and SupportCase data are not migrated or altered. Only the **Convergence** guild is in scope. No DISBOARD automation. Bot-Hosting.net needs a backup and restart to load this code, followed by verification that the PhoenixCore role is above targets intended for moderation and that the bot can DM members.
 
 **Not yet covered:** punitive Discord actions, escalation settings, private staff dashboard case search, full audit-log event collection, anti-nuke, automod, sanctions with expiry, SupportCase appeals, recurring reminders, scheduled bump announcements, module-specific staff delegation and diagnostic repair screens. Those remain in the seven-handoff roadmap rather than being represented as finished.
+
+## Unified Support Center — private case foundation
+
+The Support Center is a **single authoritative case system**, separate from character submission approval. The first version has four kinds (`ticket`, `modmail`, `report`, `appeal`) sharing the same state, audit and staff authorization; ordinary members are not required to choose ticket categories or complete lengthy questionnaires.
+
+### Member entry and private messaging
+
+- `/support open`, `/support report`, `/support appeal`, `/support list`, `/support view` and `/support reply` work as ephemeral Discord interactions. Ordinary members can view/reply to their own cases only.
+- A Discord DM to PhoenixCore opens a Modmail SupportCase. A leading `Appeal:` starts a case suitable for a banned ex-member who can still DM the bot. If one Modmail case is open, a follow-up DM belongs to that case. If multiple are open, the bot **refuses to guess** which case and asks for `#CASE-UUID message`.
+- The website now includes an authenticated **Support Center** tab for generic ticket/report/appeal intake, private case queues, recorded conversation and authorized staff replies.
+- Discord attachment links from supported Discord CDN URLs can be logged with a DM, but durable file storage, edited/deleted message sync, all file types and access expiry handling are not yet production-complete. Do not claim permanent evidence storage from an expiring link.
+- Staff have `/support open-for` to start a case for someone else. Ordinary members cannot close or reopen their own cases.
+
+### Staff authorization and case states
+
+- Owner, native Discord Administrators and configured Helpers may handle ordinary cases. **Sensitive cases are restricted to the Owner as staff**, and cannot be assigned to ordinary Helpers. This is enforced in the service, not just by hiding controls.
+- Supported states: Open, Claimed, Waiting for Member, Waiting for Staff, Resolved and Closed. Auto-assignment uses a current, eligible support roster and least-open-case choice, falling back to Owner if Discord member data is temporarily unavailable. This policy is a configurable future refinement; do not treat it as an owner-selected permanent distribution policy.
+- `/support claim`, `/support transfer`, `/support resolve`, `/support close` and `/support reopen` mutate audited state. There are **no priority tiers**.
+- `/support note` is **strictly internal**. `/support send` explicitly sends a queued DM as **Convergence Staff**, optionally signed by the real staff member. Typing ordinary staff-thread text cannot silently send an outward reply because no automatic staff-thread forwarder exists.
+- Sensitive case details are redacted from other staff; anonymous report author identity is not exposed to ordinary Helpers. The Owner and native Discord Administrators may see reporters when authorized.
+- `/support block` can restrict ordinary intake for abusive accounts, without barring appeals through the approved appeal routes.
+
+### Idle closure, delivery and restart safety
+
+- Four hours after the last genuine case conversation, an active case closes automatically. Staff-only internal notes or automatic status changes do not reset that inactivity clock. Closing is delayed while an explicit staff DM reply remains pending; successful delivery or final failure allows later closure.
+- Private reply DMs are stored in a lease/retry queue with stable Discord nonces, delivered without accidental mass mentions. Disabled recipient DMs are recorded as undeliverable and do not roll back the staff case action.
+- New additive tables: `pc_support_cases`, `pc_support_events`, `pc_support_outbox`, `pc_support_idle`, `pc_support_blocks` and a reserved `pc_support_templates` table. Existing RP, economy, moderation, character and community data remain intact.
+- The Owner can toggle **support** independently from other modules using `/community-module` or the Community dashboard.
+
+### Deliberately unfinished portions
+
+This is the **foundation**, not the full 60-answer support specification. Private Discord ticket-channel/thread provisioning and customizable opening panels, staff-thread interaction surfaces, robust bidirectional attachment and edit/delete synchronization, owner-configured Modmail acknowledgments, support templates, staff alerts, participant invitations, analytics UI, surveys, and the reusable drag-and-drop visual editor remain future milestones. Transcript format, destination, default generation, retention, and member copies are expressly unresolved in the handoff; no retention policy was invented.
+
+Back up the Bot-Hosting database before restarting to apply a new release. Validate staff access, Owner-only cases, ordinary member isolation, a direct DM, and the new Support Center tab against a consenting test account before broad rollout.

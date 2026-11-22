@@ -9,6 +9,8 @@ import { assignTag } from './tags.ts';
 import { discordId, readSettings, requireThat, type Actor, type Settings } from './domain.ts';
 import type { Store } from './db.ts';
 import { Discord, handleInteraction, type Config } from './discord.ts';
+import {receiveSupportDm} from './support-dm.ts';
+import {communityEnabled} from './community.ts';
 
 const channelIds=(settings:Settings)=>settings.rpChannels.split(/\s+/).filter(Boolean);
 export async function preferences(db:Store,actor:Actor,settings:Settings,liveChannels?:string[]) {
@@ -107,8 +109,8 @@ export async function relay(db:Store,config:Config,source:IncomingPost,send:(pos
 }
 
 export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
-  const {Client,GatewayIntentBits,PermissionFlagsBits,MessageType}=await import('discord.js');
-  const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],rest:{retries:0}});
+  const {Client,GatewayIntentBits,PermissionFlagsBits,MessageType,Partials}=await import('discord.js');
+  const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.DirectMessages,GatewayIntentBits.MessageContent],partials:[Partials.Channel],rest:{retries:0}});
   const discord=new Discord(config);
   client.on('interactionCreate',async interaction=>{
     // Discord delivers interactions by HTTP or gateway, depending on the application setting.
@@ -167,6 +169,23 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
     return all.find((hook:any)=>hook.owner?.id===client.user?.id && hook.name==='PhoenixCore RP' && hook.token)
       || parent.createWebhook({name:'PhoenixCore RP',reason:'Convergence approved character posting'});
   }
+  client.on('messageCreate',async message=>{
+    if(message.inGuild()||message.author.bot||message.webhookId)return;
+    if(!message.content.trim()&&!message.attachments.size)return;
+    try{
+      if(!await communityEnabled(db,'support')){
+        await message.reply({content:'The Convergence Support Center is currently unavailable.',allowedMentions:{parse:[],repliedUser:false}});return;
+      }
+      const result=await receiveSupportDm(db,discord,config,{messageId:message.id,userId:message.author.id,text:message.content,
+        attachments:[...message.attachments.values()].map(a=>({name:a.name,url:a.url,size:a.size,contentType:a.contentType||undefined}))});
+      await message.reply({content:result.message,allowedMentions:{parse:[],repliedUser:false}});
+    }catch(error){
+      const text=error&&typeof error==='object'&&'status' in error&&'message' in error?
+        String(error.message):'Support could not record this DM. No message was forwarded; please try again.';
+      await message.reply({content:text.slice(0,1700),allowedMentions:{parse:[],repliedUser:false}})
+        .catch(()=>console.warn('Support DM acknowledgment unavailable.'));
+    }
+  });
   client.on('messageCreate',async message=>{
     if(!message.inGuild()||message.guildId!==config.guild||!message.member||message.author.bot||message.webhookId||!message.content||!message.guild.members.me)return;
     const roles=[...message.member.roles.cache.keys()],thread=message.channel.isThread()?message.channel:null;

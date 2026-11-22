@@ -207,6 +207,11 @@ with sync_playwright() as p:
     page.get_by_role("button",name="Practice approve").click()
     page.get_by_role("link",name="View approved sheet").click()
     expect(page.get_by_text("Awakening",exact=True)).to_be_visible()
+    page.get_by_role("link",name="Support Center",exact=True).click()
+    expect(page.get_by_role("heading",name="Support Center",exact=True)).to_be_visible()
+    expect(page.get_by_text("Practice mode does not create or transmit cases.")).to_be_visible()
+    page.get_by_role("link",name="Directory",exact=True).click()
+
     phone=browser.new_page(viewport={"width":375,"height":812},device_scale_factor=1)
     phone.goto(base)
     phone.locator("#players .person").first.wait_for()
@@ -235,6 +240,18 @@ with sync_playwright() as p:
                 patch=route.request.post_data_json
                 edits[patch["key"]]={"key":patch["key"],"revision":patch["revision"]+1,"fields":{**edits.get(patch["key"],{}).get("fields",{}),**patch["fields"]}}
                 route.fulfill(json=edits[patch["key"]])
+            elif url.path=="/api/support":
+                if route.request.method=="GET":
+                    route.fulfill(json={"staff":False,"owner":False,"stats":None,"cases":[{
+                        "id":"b21c01cb-3f65-4b16-9178-c9d247de983e","kind":"ticket","status":"Waiting for Staff",
+                        "summary":"A rules clarification","assignedId":None,"sensitive":False,"anonymous":False}]})
+                else: route.fulfill(json={"ok":True,"result":{"id":"b21c01cb-3f65-4b16-9178-c9d247de983e"}})
+            elif url.path=="/api/support/b21c01cb-3f65-4b16-9178-c9d247de983e":
+                route.fulfill(json={"case":{"id":"b21c01cb-3f65-4b16-9178-c9d247de983e",
+                    "kind":"ticket","status":"Waiting for Staff","summary":"A rules clarification",
+                    "isStaff":False,"sensitive":False,"assignedId":None},
+                    "events":[{"type":"opened","text":"Could you explain the guideline?",
+                               "createdMs":1700000000000,"authorId":"writer"}]})
             elif url.path=="/api/community":
                 if route.request.method=="GET":
                     route.fulfill(json={"staff":False,"owner":False,"modules":{"tags":True,"suggestions":True},
@@ -322,6 +339,12 @@ with sync_playwright() as p:
     expect(again.get_by_role("heading",name="Community",exact=True)).to_be_visible()
     expect(again.get_by_role("heading",name="visitor-guide",exact=True)).to_be_visible()
     expect(again.get_by_role("heading",name="More RP arenas",exact=True)).to_be_visible()
+    again.goto("https://codex.test/phoenixcore/index.html#support")
+    expect(again.get_by_role("heading",name="Support Center",exact=True)).to_be_visible()
+    expect(again.get_by_text("A rules clarification",exact=False)).to_be_visible()
+    again.get_by_role("link",name="A rules clarification",exact=False).click()
+    expect(again.get_by_role("heading",name="SupportCase",exact=False)).to_be_visible()
+    expect(again.get_by_text("Could you explain the guideline?")).to_be_visible()
     assert again.evaluate("sessionStorage.getItem('pc:/phoenixcore/:verifier')") is None
     assert not problems,problems
     browser.close()
