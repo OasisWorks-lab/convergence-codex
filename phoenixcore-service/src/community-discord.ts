@@ -2,6 +2,7 @@ import {Problem} from './domain.ts';
 import {readSettings} from './domain.ts';
 import type {Store} from './db.ts';
 import type {Config} from './discord.ts';
+import {tagDisplay,tagEmbed,richTagSave,richTagHistory,richTagRollback} from './rich-tags.ts';
 import {communityActor,communityEnabled,communityModules,communitySetModule,
   saveTag,getTag,listTags,tagAlias,tagHistory,tagRollback,proposeTag,pendingTagProposals,reviewTag,
   createSuggestion,getSuggestion,listSuggestions,voteSuggestion,reviewSuggestion,suggestionDisplay,suggestionPost,suggestionChannelId,
@@ -20,6 +21,18 @@ export const communityCommands=()=>[
     sub('alias','Staff: add a new name for an existing tag.',[nameOption,text('alias','New unique alias')]),
     sub('history','Staff: see earlier versions.',[nameOption]),
     sub('rollback','Staff: restore an earlier version.',[nameOption,{type:4,name:'revision',description:'Version to restore',required:true,min_value:1}]),
+    sub('style','Staff: add title, HTTPS image, color or link buttons to a tag.',[
+      nameOption,{type:4,name:'revision',description:'Current appearance revision (0 for new)',required:true,min_value:0},
+      text('title','Optional tag embed title',false,120),
+      {type:4,name:'color',description:'Embed color integer',required:false,min_value:0,max_value:16777215},
+      text('image','Optional HTTPS image URL',false,600),
+      text('link-label','Optional link button label',false,80),
+      text('link-url','Optional link button HTTPS URL',false,600)]),
+    sub('style-history','Staff: list historical appearance revisions.',[nameOption]),
+    sub('style-rollback','Staff: restore older appearance while keeping text unchanged.',[
+      nameOption,
+      {type:4,name:'revision',description:'Current appearance revision',required:true,min_value:1},
+      {type:4,name:'target',description:'Revision to restore',required:true,min_value:1}]),
     sub('proposals','Staff: list pending informational tag proposals.'),
     sub('review','Staff: approve or decline a tag proposal.',[idOption,{type:3,name:'decision',description:'Choose review outcome',required:true,choices:[{name:'Approve',value:'approve'},{name:'Decline',value:'decline'}]},text('note','Optional staff note',false,500)])
   ]},
@@ -97,8 +110,8 @@ export async function communityInteraction(db:Store,config:Config,body:any){
     if(['pc-tag-show','pc-tag-save','tag'].includes(group)){
       if(!await communityEnabled(db,'tags'))return response('Informational tags are disabled.');
       if(operation==='show'||group==='pc-tag-show'){
-        const r=await getTag(db,String(value('name')||''),{userId:actor.id,channelId:body.channel_id});
-        return response('**'+r.name+'**\n'+r.text,false);
+        const display=await tagDisplay(db,String(value('name')||''),{userId:actor.id,channelId:body.channel_id});
+        return {type:4,data:tagEmbed(display)};
       }
       if(operation==='search'){
         const r=await listTags(db,String(value('query')||''));
@@ -123,6 +136,24 @@ export async function communityInteraction(db:Store,config:Config,body:any){
       if(operation==='rollback'){
         const r=await tagRollback(db,actor,String(value('name')||''),Number(value('revision')));
         return response('Restored '+r.name+' as revision '+r.revision+'.');
+      }
+      if(operation==='style'){
+        const buttons=value('link-label')||value('link-url')?
+          [{label:String(value('link-label')||''),url:String(value('link-url')||'')}]:[];
+        const rich=await richTagSave(db,actor,String(value('name')||''),Number(value('revision')),
+          {title:value('title')||'',imageUrl:value('image')||'',color:value('color')??0x6a7bc5,buttons});
+        return response('Informational tag '+rich.name+' appearance saved, revision '+rich.presentationRevision+'.');
+      }
+      if(operation==='style-history'){
+        const versions=await richTagHistory(db,actor,String(value('name')||''));
+        return response(versions.length?versions.map(x=>'Appearance r'+x.presentationRevision+
+          ' · '+new Date(x.changedMs).toISOString().slice(0,10)+' by '+x.actorId).join('\n'):
+          'This tag has no saved rich appearance.');
+      }
+      if(operation==='style-rollback'){
+        const result=await richTagRollback(db,actor,String(value('name')||''),
+          Number(value('revision')),Number(value('target')));
+        return response('Tag appearance restored as revision '+result.presentationRevision+'.');
       }
       if(operation==='proposals'){
         const rows=await pendingTagProposals(db,actor);
