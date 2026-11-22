@@ -2,7 +2,8 @@ import { isAzurik, formStats, npcFormArt } from './npc-catalog.ts';
 import type { Store } from './db.ts';
 import {conversation,freshLine,repeatsOpening,turnIntent} from './npc-dialogue.ts';
 import {detail,replyLength,sceneBeat} from './npc-prose.ts';
-import {aiOptions,npcCompletion} from './npc-ai.ts';
+import {aiOptions} from './npc-ai.ts';
+import {routeNpcReply} from './npc-ai-router.ts';
 import {remembered} from './npc-memory.ts';
 export {aiOptions} from './npc-ai.ts';
 import type {Memory} from './npc-history.ts';
@@ -16,7 +17,7 @@ export type Scene = {
   history?:Memory[]; startedAt?:number; paused?:boolean; waiting?:Player[];
   cast:Player[]; turn:number; round:number; form:string; opening:string; posts:Entry[]; past:Exchange[];
 };
-export type Speech = {text:string; form:string; name:string; portrait:string; artwork?:string; pl:string|null; source:string};
+export type Speech = {text:string; form:string; name:string; portrait:string; artwork?:string; pl:string|null; source:string; provider?:string; model?:string};
 
 export function openingLine(king:boolean,mode:string,name:string,hasSetting=false) {
   if(mode==='open'||hasSetting)return name+' is in the scene. The first writer sets the action.';
@@ -148,9 +149,10 @@ export async function narrate(db:Store,scene:Scene,sheet:any,fetcher=fetch):Prom
     currentIntent:turnIntent(scene),previousForm:formStats(sheet,scene.form).form?.name||'Base',
     activeForm:formStats(sheet,decision.form).form?.name||'Base',currentPowerLevel:decision.pl};
   try{
-    const prose=await npcCompletion(options,instructions,input,target,fetcher);
-    if(prose&&prose.length<=5800&&!repeatsOpening(scene,prose)&&prose.split(/\s+/).length>=Math.min(8,Math.ceil(target/6)))
-      return {...decision,text:prose,source:'AI'};
-  }catch{/* The optional AI provider may be unavailable; this turn uses a brief, safe guided fallback. */}
+    const success=await routeNpcReply(db,instructions,input,target,
+      prose=>prose.length<=5800&&!repeatsOpening(scene,prose)&&prose.split(/\s+/).length>=Math.min(8,Math.ceil(target/6)),
+      fetcher);
+    if(success)return {...decision,text:success.text,source:'AI',provider:success.provider,model:success.model};
+  }catch{}
   return decision;
 }

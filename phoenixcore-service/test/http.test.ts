@@ -73,6 +73,12 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.deepEqual(await access(owner),{canEdit:false});
   assert.equal((await post('/api/codex',{...patch,revision:1},owner)).status,403);
   const start=await state(writer);assert.equal(start.players.length,4);assert.equal(start.settings,null);
+  assert.equal(start.npcAi,undefined);
+  const ownerState=await state(owner);
+  assert.ok(ownerState.npcAi);
+  assert.ok(Array.isArray(ownerState.npcAi.providers));
+  assert.equal(ownerState.npcAi.used,0);
+  assert.equal((await state(judge)).npcAi,undefined);
   const cfg={revision:1,value:{...defaultSettings,judgeRole:ids.role}};
   assert.equal((await post('/api/settings',cfg,judge)).status,403);
   assert.equal((await post('/api/settings',cfg,owner,'https://wrong.example')).status,403);

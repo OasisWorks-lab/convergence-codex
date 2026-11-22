@@ -419,6 +419,20 @@ function formList(raw){
     const key=(state.catalogue||[]).some(e=>e.id===race.id&&e.kind==='race')?'design-paths/'+race.id:'races/'+race.id;
     return '<form class="race-path-form form" data-key="'+h(key)+'" data-version="'+(state.pathRevisions?.[key]||0)+'">'+field('playablePaths','Selectable paths for '+race.name,race.paths.join('\n'),{wide:true,area:true,max:8000,hint:'One path per line. Saving an empty list removes all selectable paths for this race.'})+'<button class="primary">Save paths</button></form>';
   }
+  function npcAiCapacity(){
+    const ai=state.npcAi;
+    if(!ai)return '<section class="panel dossier"><h2>NPC AI capacity</h2><p class="muted">Provider usage appears here when connected to the live PhoenixCore service.</p></section>';
+    const providers=ai.providers||[];
+    return '<section class="panel dossier"><h2>NPC AI capacity</h2>'+
+      '<p><strong>'+h(ai.used)+' / '+h(ai.limit)+'</strong> shared NPC AI turns attempted today ('+h(ai.day)+' UTC).</p>'+
+      '<p class="muted">The figures below are PhoenixCore’s local safeguards, not guaranteed remaining provider quota. Account free-tier limits and token ceilings can be lower.</p>'+
+      (providers.length?'<div class="stack">'+providers.map(p=>
+        '<div class="stat-row"><div><strong>'+h(p.provider)+' · '+h(p.model)+'</strong><p class="muted">'+
+        h(p.dailyUsed)+'/'+h(p.dailyLimit)+' requests today · '+h(p.minuteUsed)+'/'+h(p.minuteLimit)+' this minute</p></div>'+
+        '<span class="pill">'+h(p.retryAt>Date.now()?'Cooling down':p.lastStatus)+'</span></div>').join('')+'</div>':
+        '<p>No AI providers configured in the host environment.</p>')+
+      '<p class="muted">Read-only. Provider keys and caps are managed privately in Bot-Hosting.net. Use /roleplay-ai-status for live Discord diagnostics.</p></section>';
+  }
   function settings(){
     if(!state.actor.isOwner||!state.settings)return missing();
     const s=state.settings.value;
@@ -437,7 +451,7 @@ function formList(raw){
       field('updatesForum','OC updates forum ID',s.updatesForum,{wide:true,max:20,required:true,hint:'Each player has one forum post for character updates and training.'})+
       '<label class="field wide"><span>Roleplay divider category</span><select name="rpDivider">'+dividerOptions(state.scope,s.rpDivider||'')+'</select><small>Includes channels in categories below this marker and their threads. Discord moves, new channels, and deletions update coverage automatically.</small></label>'+
       field('rpChannels','Roleplay channel IDs',s.rpChannels||'',{area:true,wide:true,max:2200,hint:'Used when no divider is selected. Enter one Discord channel or thread ID per line.'})+
-      field('currency','Currency display name',s.currency,{max:32,required:true})+'</div><div class="actions"><button class="primary">Save settings</button></div></form><section id="live-scope" class="panel dossier">'+scopePanel(state.scope,s.rpDivider)+'</section><section class="stack dossier"><h2>Discord embeds</h2>'+embedForm('guidelines')+embedForm('welcome')+'</section>'+
+      field('currency','Currency display name',s.currency,{max:32,required:true})+'</div><div class="actions"><button class="primary">Save settings</button></div></form><section id="live-scope" class="panel dossier">'+scopePanel(state.scope,s.rpDivider)+'</section>'+npcAiCapacity()+'<section class="stack dossier"><h2>Discord embeds</h2>'+embedForm('guidelines')+embedForm('welcome')+'</section>'+
       (state.canEditPaths?'<details class="panel dossier"><summary>Character paths by race</summary>'+currentRaces().map(r=>'<details><summary>'+h(r.name)+'</summary>'+editPaths(r)+'</details>').join('')+'</details>':'');
   }
   function render(){

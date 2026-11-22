@@ -9,8 +9,9 @@ import {defaultHistory,maxHistory,readSceneHistory,type Memory} from './npc-hist
 import {controls,currentSlot,currentWriter,slotHasPost,lockedScene,nextTurn,noMentions,order,resumeTurn,setClock,turnWindow} from './npc-turns.ts';
 import {createScenePanel,touchScenePanel} from './npc-panel.ts';
 import {remembered,clearPair,clearScene} from './npc-memory.ts';
+import {freeProviderStatus} from './npc-ai-router.ts';
 
-export const sceneCommand=(name:string)=>['roleplay-start','roleplay-join','roleplay-memory','finish-turn','roleplay-status','roleplay-cancel'].includes(name);
+export const sceneCommand=(name:string)=>['roleplay-start','roleplay-join','roleplay-memory','roleplay-ai-status','finish-turn','roleplay-status','roleplay-cancel'].includes(name);
 export const npcCommands=()=>[
   {type:1,name:'roleplay-start',description:'Start a scene with an approved server NPC in this RP channel or forum post.',options:[
     {type:3,name:'npc',description:'Choose an approved NPC',required:true,autocomplete:true},
@@ -21,6 +22,7 @@ export const npcCommands=()=>[
     {type:3,name:'memory',description:'Story continuity or temporary test scene',choices:[{name:'Story scene · NPC remembers actual encounters',value:'story'},{name:'Test scene · no lasting memory',value:'test'}]},
     ...(aiOptions()?[{type:3,name:'dialogue',description:'AI is the default; select Guided to opt out',choices:[{name:'AI dialogue · '+aiOptions()!.provider,value:'ai'},{name:'Guided dialogue · offline fallback',value:'guided'}]}]:[])]},
   {type:1,name:'roleplay-join',description:'Join this NPC scene with an approved character.',options:[{type:3,name:'character',description:'Your approved character',required:true,autocomplete:true}]},
+  {type:1,name:'roleplay-ai-status',description:'Owner-only AI capacity, free-provider usage and cooldowns.'},
   {type:1,name:'roleplay-memory',description:'View past NPC encounters or let the owner clear them.',options:[
     {type:3,name:'npc',description:'Choose the server NPC',required:true,autocomplete:true},
     {type:3,name:'character',description:'Approved character',required:true,autocomplete:true},
@@ -42,7 +44,7 @@ function sceneOptions(s:Scene,sheet:any,config:Config,note:string) {
   const embed:any={title:s.title+' · Round 1',description:openingLine(isAzurik(s.npc,sheet),s.mode,s.title,!!s.history?.length||!!s.opening),color:0xc76639,
     fields:[{name:'Turn order',value:order(s)},{name:'On your turn',value:'Write using your character tag or channel default. You can send several posts. Type /finish-turn to pass. A reminder comes after 30 minutes if your turn remains open. An unanswered turn passes after two hours.'},{name:'Opening context',value:note}]};
   if(s.opening)embed.fields.push({name:'Scene premise',value:s.opening});
-  if(s.ai)embed.fields.push({name:'AI dialogue',value:'Provider: '+(aiOptions()?.provider||'unavailable')+' · Scene text is sent to the provider.'});
+  if(s.ai)embed.fields.push({name:'AI dialogue',value:'Primary provider: '+(aiOptions()?.provider||'unavailable')+' · Free-model fallback may be used when configured.'});
   embed.fields.push({name:'Continuity',value:s.memory==='story'?'Story scene: verified encounters are remembered by NPC and character ID.':'Test scene: no permanent NPC memories are written.'});
   if(sheet.portrait)embed.thumbnail={url:new URL(sheet.portrait,config.dashboard).href};
   return {embeds:[embed],components:controls(s)};
@@ -102,6 +104,19 @@ export async function sceneInteraction(db:Store,config:Config,body:any,scope:Rol
       return {type:8,data:{choices:rows.filter(row=>String(row.sheet.name).toLowerCase().includes(term)||row.tag.toLowerCase().includes(term)).slice(0,25).map(row=>({name:String(row.sheet.name).slice(0,100),value:row.id}))}};
     }
     return {type:8,data:{choices:['roleplay-start','roleplay-memory'].includes(act)?await npcChoices(db.query,String(select(body,'npc')||'')):[]}};
+  }
+  if(act==='roleplay-ai-status'){
+    if(!player.isOwner)return reply('Only the server owner can view the NPC AI capacity report.');
+    const today=new Date().toISOString().slice(0,10);
+    const [total]=await db.query('SELECT used FROM pc_npc_ai_usage WHERE day=$1',[today]);
+    const budget=aiOptions()?.cap||0;
+    const providers=await freeProviderStatus(db);
+    const lines=providers.map(p=>{
+      const delay=p.retryAt>Date.now()?' · retry after '+new Date(p.retryAt).toISOString().slice(11,16)+' UTC':'';
+      return '**'+p.provider+' / '+p.model+'** · '+p.dailyUsed+'/'+p.dailyLimit+' daily requests · '+p.minuteUsed+'/'+p.minuteLimit+' this minute · '+p.lastStatus+delay;
+    });
+    return reply('**PhoenixCore NPC AI · '+today+' UTC**\nShared AI turns: '+Number(total?.used||0)+'/'+budget+
+      '\n'+(lines.join('\n')||'No API provider configured.')+'\nLimits are conservative local safeguards; provider-side quotas can be lower.');
   }
   if(act==='roleplay-memory'&&body.type!==4){
     if(!player.isPlayer&&!player.isOwner)return reply('An approved player is required.');

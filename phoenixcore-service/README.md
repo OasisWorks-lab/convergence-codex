@@ -177,6 +177,46 @@ Set these **only in Bot-Hosting.net → PhoenixCore → Environment**, not in Gi
 
 Restart the Node service after updating its environment, then open **a new scene** with `/roleplay-start`. Existing scenes retain their previously selected dialogue mode. The older `PHOENIX_NPC_AI_MODEL` variable remains accepted for compatibility. The AI mode is available only while its configured provider credentials and daily cap are valid. The bot does not send keys to the frontend. Discord posts, NPC biography, scene context, and verified story memory may be transmitted to the selected API provider; inspect that provider's terms, data usage and billing controls before enabling it. Prefer explicit provider spending limits.
 
+### Free-model backups and growth toward 30 Discord members
+
+PhoenixCore is one Discord server with **one shared pool** of AI capacity. A character takes one active turn at a time, and the NPC produces one reply per completed round. Neither every Discord message nor every character in a scene independently makes an API call. There is **no mandatory per-member quota**: some players can use NPCs more often than others.
+
+When `PHOENIX_NPC_AI_PROVIDER=gemini`, the configured fallback sequence is:
+
+1. `gemini-2.5-flash`, the preferred quality model.
+2. `gemini-2.5-flash-lite`, on the **same Gemini API key** and potentially a separate per-model allowance.
+3. Groq `openai/gpt-oss-120b` **only if** the optional `PHOENIX_NPC_GROQ_KEY` is configured on a Groq **Free** plan.
+4. OpenRouter `openrouter/free` **only if** `PHOENIX_NPC_OPENROUTER_KEY` is configured. Its free-account pool is shared across all free models and is typically 50 requests/day.
+
+No automatic fallback to OpenAI is permitted because it isn't a free provider. For OpenRouter, paid model identifiers are rejected. **No software can guarantee a zero bill if your Gemini or Groq account has paid billing enabled**: confirm each upstream project is genuinely free-tier. External providers receive the NPC and relevant scene text when used. Their privacy terms may differ.
+
+Environment variables (credentials go **only** in the private Bot-Hosting.net Environment panel):
+
+| Variable | Example / meaning |
+| --- | --- |
+| `PHOENIX_NPC_AI_PROVIDER` | `gemini` (recommended primary) |
+| `PHOENIX_NPC_AI_DAILY_REPLIES` | `20` while testing; shared **AI turns attempted**, not a member allowance |
+| `PHOENIX_NPC_AI_FREE_FALLBACKS` | `gemini-lite,groq,openrouter` (default; omit providers to disable) |
+| `PHOENIX_NPC_GEMINI_LITE_MODEL` | `gemini-2.5-flash-lite` (default) |
+| `PHOENIX_NPC_GROQ_KEY` | Groq Free-plan key, only if you choose to connect Groq |
+| `PHOENIX_NPC_GROQ_MODEL` | `openai/gpt-oss-120b` (current supported Free-plan model) |
+| `PHOENIX_NPC_OPENROUTER_KEY` | OpenRouter key, only if you choose to connect it |
+| `PHOENIX_NPC_OPENROUTER_MODEL` | `openrouter/free` (default, free-only) |
+| `PHOENIX_NPC_GEMINI_DAILY_REPLIES` | Conservative local Flash request allowance; default 20 |
+| `PHOENIX_NPC_GEMINI_LITE_DAILY_REPLIES` | Conservative local Flash-Lite allowance; default 50 |
+| `PHOENIX_NPC_GROQ_DAILY_REPLIES` | Conservative local Groq allowance; default 200 |
+| `PHOENIX_NPC_OPENROUTER_DAILY_REPLIES` | Conservative local OpenRouter allowance; default 40 |
+| `PHOENIX_NPC_GEMINI_RPM` / `PHOENIX_NPC_GEMINI_LITE_RPM` | Local requests/minute: default 3 each |
+| `PHOENIX_NPC_GROQ_RPM` / `PHOENIX_NPC_OPENROUTER_RPM` | Local requests/minute: default 8 each |
+
+These are **conservative bot safeguards**, not a promise of provider quota. Upstream limits vary by project, token usage, availability, and service terms. If an upstream provider returns 429 or becomes unreachable, PhoenixCore records a **model-specific cooldown in the database** and tries the next configured model, up to four models in one turn. Failed calls consume the provider's own request allowance; the shared global counter increases just once per attempted NPC turn. Provider safety refusals do not trigger further model-hopping. If all models are unavailable, the existing short Guided dialogue is labeled as an offline fallback in the Discord NPC post.
+
+For a future 30-member server, avoid hard-coding `20` permanently. After you have verified free-tier quotas in each provider's console, raise `PHOENIX_NPC_AI_DAILY_REPLIES` to a **realistic measured shared allowance**, perhaps beginning around `150` for an active test period. Do not raise it just because the app permits up to 10,000: provider quotas and token-per-day limits still apply. High activity from one player consumes shared pool capacity, but this release does not impose an unapproved per-player quota.
+
+Use the **owner-only** `/roleplay-ai-status` command to inspect each configured model's local daily/minute usage, cooldown, and recent result without revealing any API keys. The status is shared across restarts. If RP volume grows substantially, prioritize expanding genuinely free capacity, transparent model availability, and optional queueing before considering any paid tier.
+
+Official limits: https://console.groq.com/docs/rate-limits and https://openrouter.ai/collections/free-models . Check Google AI Studio's Rate Limits for the actual Gemini project.
+
 ### NPC relationship continuity and test scenes
 
 `/roleplay-start memory: Story` (the default for new scenes) records **only successful, witnessed, in-character NPC exchanges** under the actual NPC and character IDs. A later story encounter with the same NPC and the same approved OC can use those recorded posts as verified history. The bot does **not** invent a remembered relationship from username labels or unrelated channel messages. Each OC has independent history with each NPC.

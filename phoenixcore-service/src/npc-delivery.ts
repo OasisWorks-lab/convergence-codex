@@ -36,7 +36,7 @@ export async function sendNpcPost(discord:Discord,s:Scene,move:Speech,retry:bool
   }
   const rest=text.slice(cut).trimStart();
   const embed={author:{name:move.name,...(portrait?{icon_url:portrait}:{})},color:0xc76639,
-    ...(rest?{description:rest}:{}),fields:[{name:'Power Level',value:displayPL(move.pl),inline:true}],
+    ...(rest?{description:rest}:{}),fields:[{name:'Power Level',value:displayPL(move.pl),inline:true},...(s.ai?[{name:'NPC dialogue',value:move.source==='AI'?(move.provider+' · '+move.model):'Guided fallback · free AI currently unavailable',inline:true}]:[])],
     footer:{text:tag},...(artwork?{image:{url:artwork}}:{})};
   const payload={content:text.slice(0,cut).trimEnd(),embeds:[embed],allowed_mentions:{parse:[]}};
   if(hook?.token){
