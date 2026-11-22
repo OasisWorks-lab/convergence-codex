@@ -541,7 +541,7 @@ with sync_playwright() as p:
     expect(owner_dashboard.get_by_text("4 recorded selections",exact=False)).to_be_visible()
     expect(owner_dashboard.locator('#rolepanel-style-form')).to_have_count(1)
     expect(owner_dashboard.locator('#rolepanel-emoji-form')).to_have_count(1)
-    expect(owner_dashboard.get_by_text("🔥",exact=False)).to_be_visible()
+    expect(owner_dashboard.locator(".role-panel-option small").first).to_contain_text("🔥")
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"role-panels-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#community")
