@@ -26,7 +26,7 @@ import {deliverSuggestionPost} from './community-posts.ts';
 import {deliverScheduledJob} from './jobs.ts';
 import {closeInactiveSupport,deliverSupportOutbox} from './support-delivery.ts';
 import {advanceGiveaways,deliverGiveawayPost} from './giveaway-delivery.ts';
-import {giveawayChannels,setGiveawayChannels,createGiveaway,giveawayEntry,giveawayPublic,listGiveaways,claimGiveaway,concludeGiveaway,rerollGiveawaySlot,updateGiveawayStatus,confirmManualPrize,manualGiveawayWinner} from './giveaway.ts';
+import {giveawayChannels,setGiveawayChannels,createGiveaway,giveawayEntry,giveawayPublic,listGiveaways,claimGiveaway,concludeGiveaway,rerollGiveawaySlot,updateGiveawayStatus,confirmManualPrize,manualGiveawayWinner,editGiveaway,extendGiveaway} from './giveaway.ts';
 import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
 import {staffIdentity} from './staff.ts';
 import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,supportHistory,supportAnalytics,blockSupportMember} from './support.ts';
@@ -358,6 +358,15 @@ export function application(db:Store, config:Config, discord=new Discord(config)
             prizeText:input.prizeKind==='manual'?String(input.amountOrPrize||''):'',
             requiredRoles:input.requiredRoles||[],excludedRoles:input.excludedRoles||[],
             retentionDays:input.retentionDays===undefined?undefined:Number(input.retentionDays)},now);
+        }else if(input.action==='edit'){
+          staffOnly();
+          const changes:{title?:string;description?:string}={};
+          if(Object.hasOwn(input,'title'))changes.title=input.title;
+          if(Object.hasOwn(input,'description'))changes.description=input.description;
+          result=await editGiveaway(db,id,actorLive,Number(input.version),changes);
+        }else if(input.action==='extend'){
+          staffOnly();
+          result=await extendGiveaway(db,id,actorLive,Number(input.version),Number(input.minutes));
         }else if(['join','withdraw'].includes(input.action)){
           const memberLive=await discord.member(actor.id);
           result=await giveawayEntry(db,id,actor.id,memberLive,input.action==='join');
