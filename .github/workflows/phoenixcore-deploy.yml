@@ -1,0 +1,63 @@
+name: PhoenixCore production deployment
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['PhoenixCore checks']
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: phoenixcore-production
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: >-
+      ${{ vars.PHOENIXCORE_DEPLOY_ENABLED == 'true' &&
+          (github.event_name == 'workflow_dispatch' ||
+            (github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.event == 'push' &&
+             github.event.workflow_run.head_repository.full_name == github.repository)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - name: Validate deployment credentials
+        env:
+          HOST_KEY: ${{ secrets.BOT_HOSTING_API_KEY }}
+          DEPLOYMENT_ID: ${{ secrets.BOT_HOSTING_DEPLOYMENT_ID }}
+        run: |
+          if [[ -z "$HOST_KEY" || -z "$DEPLOYMENT_ID" ]]; then
+            echo "::error::Set BOT_HOSTING_API_KEY and BOT_HOSTING_DEPLOYMENT_ID in repository secrets before enabling deployment."
+            exit 1
+          fi
+          if [[ ! "$DEPLOYMENT_ID" =~ ^[A-Za-z0-9_-]{8,64}$ ]]; then
+            echo "::error::Invalid deployment identifier."
+            exit 1
+          fi
+      - name: Synchronize linked Convergence bot source
+        env:
+          HOST_KEY: ${{ secrets.BOT_HOSTING_API_KEY }}
+          DEPLOYMENT_ID: ${{ secrets.BOT_HOSTING_DEPLOYMENT_ID }}
+        run: |
+          response="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 100 \
+            -X POST "https://bot-hosting.net/api/v1/deployments/${DEPLOYMENT_ID}/sync" \
+            -H "Authorization: Bearer ${HOST_KEY}" \
+            -H "Content-Type: application/json" \
+            --data '{"branch":"main"}')"
+          echo "$response" | jq -e '.ok == true and (.commit | type == "string")' >/dev/null
+          echo "Bot-Hosting acknowledged repository sync for main."
+      - name: Verify public PhoenixCore health
+        env:
+          HEALTH_URL: ${{ vars.PHOENIXCORE_HEALTH_URL }}
+        run: |
+          url="${HEALTH_URL:-https://xr65xgo3xl.apps.bot-hosting.cloud/health}"
+          for i in {1..24}; do
+            if curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "$url" 2>/dev/null | jq -e '.ok == true' >/dev/null 2>&1; then
+              echo "PhoenixCore responded healthy after sync."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::PhoenixCore did not report a healthy API after synchronization."
+          exit 1
