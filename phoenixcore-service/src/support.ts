@@ -10,7 +10,7 @@ export type SupportState=typeof supportStates[number];
 export const supportIdleMs=4*60*60*1000;
 const uuid=/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 const receipt=/^[\w:-]{8,130}$/;
-export type SupportInput={receipt:string;actorId:string;requesterId:string;kind:SupportKind;message:string;sensitive?:boolean;anonymous?:boolean;linkedModCaseId?:string;assigneeId?:string;staffOpened?:boolean};
+export type SupportInput={receipt:string;actorId:string;requesterId:string;kind:SupportKind;message:string;sensitive?:boolean;ownerAuthorized?:boolean;anonymous?:boolean;linkedModCaseId?:string;assigneeId?:string;staffOpened?:boolean};
 const allowStaff=(actor:StaffIdentity,record:any)=>{
   requireThat(actor.isHelper,403,'Only authorized Convergence support staff may perform this action.');
   requireThat(!Number(record.sensitive)||actor.isOwner,403,'This case is restricted to the server Owner.');
@@ -40,7 +40,7 @@ export async function createSupportCase(db:Store,input:SupportInput,now=Date.now
   requireThat(supportKinds.includes(input.kind),400,'Invalid SupportCase kind.');
   requireThat(input.actorId===input.requesterId||input.staffOpened,403,'Staff approval is required to open a case for another member.');
   const content=textValue(input.message,2200,'Support question',true);
-  requireThat(!input.sensitive||input.staffOpened,403,'Only the server Owner may initiate a sensitive case.');
+  requireThat(!input.sensitive||input.ownerAuthorized,403,'Only the server Owner may initiate a sensitive case.');
   if(input.linkedModCaseId)requireThat(uuid.test(input.linkedModCaseId),400,'Invalid linked moderation case.');
   return db.transaction(async q=>{
     const [existing]=await q('SELECT id,requester_id,kind FROM pc_support_cases WHERE receipt_id=$1',[input.receipt]);
