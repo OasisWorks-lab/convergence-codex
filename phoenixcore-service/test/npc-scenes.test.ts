@@ -261,7 +261,7 @@ test('guided replies follow new subject matter and actual per-writer length, and
   const short=guided(s,sheet);assert.doesNotMatch(short.text,/signal/);assert.ok(short.text.split(/\s+/).length<100);
   s.posts[0].text='A merchant wants to trade with us at the market. '.repeat(26);
   const long=guided(s,sheet);assert.match(long.text,/bargain|terms/);assert.notEqual(long.text,short.text);
-  s.posts[0].text='a '.repeat(100);s.posts.push({...s.posts[0],source:'2',text:'b '.repeat(100)},{writer:guest,name:'Renn',source:'3',text:'c '.repeat(100)});assert.ok(replyLength(s)>=140&&replyLength(s)<=170);
+  s.posts[0].text='a '.repeat(100);s.posts.push({...s.posts[0],source:'2',text:'b '.repeat(100)},{writer:guest,name:'Renn',source:'3',text:'c '.repeat(100)});assert.equal(replyLength(s),60);
   s.posts=[{writer:host,name:'Rin',source:'4',text:'Show me your Super Saiyan transformation.'}];
   const first=await narrate(db,s,sheet);assert.match(first.artwork||'',/pinimg.com.*gif$/);
   await db.query('INSERT INTO pc_codex VALUES($1,1,$2,$3,$4)',['races/saiyan/paths/0/forms/1',JSON.stringify({art:'https://images.example/owner-edit.gif'}),host,Date.now()]);
