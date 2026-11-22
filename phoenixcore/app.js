@@ -1133,7 +1133,7 @@ function formList(raw){
     const data=automodData,p=data.policy.policy,revision=data.policy.revision;
     const fieldSwitch=(name,description,checked)=>'<label class="field"><span><input type="checkbox" name="'+
       h(name)+'"'+(checked?' checked':'')+'> '+h(description)+'</span></label>';
-    const lines=arr=>(arr||[]).join('\\n');
+    const lines=arr=>(arr||[]).join('\n');
     const configure=data.owner?'<section class="panel dossier"><h2>Owner: detection policy</h2>'+
       '<p>Audit only. Enabling these checks never deletes messages, warns members or times anyone out. Owner identity is always exempt.</p>'+
       '<form id="automod-policy-form" class="form" data-revision="'+h(revision)+'">'+
