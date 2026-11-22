@@ -2,7 +2,7 @@ import type { Store } from './db.ts';
 import type { Discord } from './discord.ts';
 
 export type Memory = {name:string; text:string};
-export const defaultHistory=5, maxHistory=50;
+export const defaultHistory=0, maxHistory=50;
 
 export async function readSceneHistory(db:Store,discord:Discord,body:any,count:number,prefixes:string) {
   const history:Memory[]=[];

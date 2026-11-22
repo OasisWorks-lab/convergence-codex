@@ -6,6 +6,7 @@ import {displayPL} from './npc-scenes.ts';
 import {lockedScene,includeWaiting,setClock} from './npc-turns.ts';
 import {touchScenePanel} from './npc-panel.ts';
 import { narrate, type Scene,type Speech } from './npc-voice.ts';
+import {writeEncounters} from './npc-memory.ts';
 
 export async function sendNpcPost(discord:Discord,s:Scene,move:Speech,retry:boolean,eligible?:(channel:any)=>Promise<boolean>) {
   const tag='Scene '+s.id.slice(0,8)+' · Round '+s.round;
@@ -76,6 +77,7 @@ export async function deliverScene(db:Store,send:(s:Scene,move:Speech,retry:bool
       s.waiting=liveScene.waiting;
       const speakers=new Map<string,string>();
       for(const part of s.posts)speakers.set(part.name,(speakers.get(part.name)||'')+'\n'+part.text);
+      await writeEncounters(q,s,move.text);
       s.past.push({posts:[...speakers].map(([name,text])=>({name,text:text.trim().slice(-1200)})),reply:move.text});
       s.past=s.past.slice(-4);s.posts=[];s.turn=0;s.round++;s.form=move.form;s.title=sheet.name;
       includeWaiting(s);await setClock(q,s,Date.now());

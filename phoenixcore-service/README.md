@@ -160,4 +160,31 @@ Choose **Directory → NPC catalog** on the dashboard to see approved NPC sheets
 
 Keep `DISCORD_RP_ENABLED=true` on the host. The roleplay health endpoint at `/health/roleplay` reports the gateway and guild command registration. Discord needs permission to send messages, read channel history, embed links and post in threads. Manage Webhooks enables the NPC’s own Discord display name and portrait. With standard posting permissions the bot can also use an attributed character embed.
 
-Guided dialogue runs on the bot host. NPCs treat unfamiliar OCs as strangers unless the approved NPC biography, family relationships, or in-world scene interactions establish otherwise. No response should assume the NPC heard a name only because Discord labeled the author with it. For optional open-ended dialogue, the owner sets `PHOENIX_NPC_OPENAI_KEY`, an enabled Responses API model in `PHOENIX_NPC_AI_MODEL`, and a positive daily reply cap in `PHOENIX_NPC_AI_DAILY_REPLIES`, then restarts. Choosing **AI dialogue** shares the selected opening history, recent scene exchanges, the current writers’ posts and the NPC brief with OpenAI. Guided dialogue uses local scene cues and authored responses. The default is guided. The daily cap counts attempted AI replies across the server. At the cap or during a provider outage, the scene continues with guided replies.
+### Real AI narration — OpenAI or Gemini
+
+The bot's original *Guided* mode uses authored fallback dialogue and is not a general language model. When an AI provider is configured, **AI dialogue becomes the default for newly started scenes**; choose `dialogue: Guided` to opt out. A configured daily budget limits the number of attempted AI replies; a provider outage or exhausted budget falls back to a short guided response rather than stalling the scene. API billing and quota are separate from your ChatGPT subscription.
+
+Set these **only in Bot-Hosting.net → PhoenixCore → Environment**, not in GitHub, Discord, or a public file:
+
+| Environment variable | OpenAI | Gemini |
+| --- | --- | --- |
+| `PHOENIX_NPC_AI_PROVIDER` | `openai` | `gemini` |
+| `PHOENIX_NPC_OPENAI_KEY` | Your OpenAI API key | — |
+| `PHOENIX_NPC_GEMINI_KEY` | — | Your Gemini API key |
+| `PHOENIX_NPC_OPENAI_MODEL` | `gpt-4.1-mini` (or another accessible model) | — |
+| `PHOENIX_NPC_GEMINI_MODEL` | — | `gemini-2.5-flash` (or another accessible model) |
+| `PHOENIX_NPC_AI_DAILY_REPLIES` | e.g. `40` | e.g. `40` |
+
+Restart the Node service after updating its environment, then open **a new scene** with `/roleplay-start`. Existing scenes retain their previously selected dialogue mode. The older `PHOENIX_NPC_AI_MODEL` variable remains accepted for compatibility. The AI mode is available only while its configured provider credentials and daily cap are valid. The bot does not send keys to the frontend. Discord posts, NPC biography, scene context, and verified story memory may be transmitted to the selected API provider; inspect that provider's terms, data usage and billing controls before enabling it. Prefer explicit provider spending limits.
+
+### NPC relationship continuity and test scenes
+
+`/roleplay-start memory: Story` (the default for new scenes) records **only successful, witnessed, in-character NPC exchanges** under the actual NPC and character IDs. A later story encounter with the same NPC and the same approved OC can use those recorded posts as verified history. The bot does **not** invent a remembered relationship from username labels or unrelated channel messages. Each OC has independent history with each NPC.
+
+`/roleplay-start memory: Test` is temporary and writes **no** permanent encounter record. This remains true even when a test runs for multiple rounds. Scenes created with older PhoenixCore versions have no memory mode and do not retroactively create permanent memories. Channel backscroll is now **0 by default** instead of 5; you may explicitly request up to 50 context messages, but those are background reading, never automatic evidence that the NPC personally witnessed them.
+
+Use `/roleplay-memory` with the NPC and approved character to inspect up to four recent stored encounters. Only the server owner may choose **Erase memory** for that pair. The owner can also end a scene with `/roleplay-cancel forget: true`, erasing any encounters saved by **that particular scene** without affecting other story meetings. Canceling a normal story scene preserves its existing witnessed encounters unless the owner explicitly chooses to forget. Removing a character or NPC cleans up its linked history.
+
+**Important:** the current test performed before this feature is not automatically remembered by Azurik. You can safely end it with `/roleplay-cancel` and start a new scene with `memory: Test`.
+
+

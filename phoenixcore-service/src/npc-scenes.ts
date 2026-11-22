@@ -8,20 +8,26 @@ import {aiOptions,openingLine,type Scene} from './npc-voice.ts';
 import {defaultHistory,maxHistory,readSceneHistory,type Memory} from './npc-history.ts';
 import {controls,currentSlot,currentWriter,slotHasPost,lockedScene,nextTurn,noMentions,order,resumeTurn,setClock,turnWindow} from './npc-turns.ts';
 import {createScenePanel,touchScenePanel} from './npc-panel.ts';
+import {remembered,clearPair,clearScene} from './npc-memory.ts';
 
-export const sceneCommand=(name:string)=>['roleplay-start','roleplay-join','finish-turn','roleplay-status','roleplay-cancel'].includes(name);
+export const sceneCommand=(name:string)=>['roleplay-start','roleplay-join','roleplay-memory','finish-turn','roleplay-status','roleplay-cancel'].includes(name);
 export const npcCommands=()=>[
   {type:1,name:'roleplay-start',description:'Start a scene with an approved server NPC in this RP channel or forum post.',options:[
     {type:3,name:'npc',description:'Choose an approved NPC',required:true,autocomplete:true},
     {type:3,name:'character',description:'Your approved character (required if you have multiple)',autocomplete:true},
-    {type:4,name:'context',description:'Recent messages to read in this channel or thread (default 5, fresh scene 0)',min_value:0,max_value:maxHistory},
+    {type:4,name:'context',description:'Recent messages to include (default 0 for a fresh scene; max 50)',min_value:0,max_value:maxHistory},
     {type:3,name:'scene',description:'Choose a style (default Open roleplay)',choices:[{name:'Open roleplay',value:'open'},{name:'Audience',value:'audience'},{name:'Training spar',value:'spar'}]},
     {type:3,name:'opening',description:'Optional setting or premise for the scene',max_length:500},
-    ...(aiOptions()?[{type:3,name:'dialogue',description:'How the NPC responds (AI shares selected history and turns with OpenAI)',choices:[{name:'Guided dialogue',value:'guided'},{name:'AI dialogue · sends scene text to OpenAI',value:'ai'}]}]:[])]},
+    {type:3,name:'memory',description:'Story continuity or temporary test scene',choices:[{name:'Story scene · NPC remembers actual encounters',value:'story'},{name:'Test scene · no lasting memory',value:'test'}]},
+    ...(aiOptions()?[{type:3,name:'dialogue',description:'AI is the default; select Guided to opt out',choices:[{name:'AI dialogue · '+aiOptions()!.provider,value:'ai'},{name:'Guided dialogue · offline fallback',value:'guided'}]}]:[])]},
   {type:1,name:'roleplay-join',description:'Join this NPC scene with an approved character.',options:[{type:3,name:'character',description:'Your approved character',required:true,autocomplete:true}]},
+  {type:1,name:'roleplay-memory',description:'View past NPC encounters or let the owner clear them.',options:[
+    {type:3,name:'npc',description:'Choose the server NPC',required:true,autocomplete:true},
+    {type:3,name:'character',description:'Approved character',required:true,autocomplete:true},
+    {type:3,name:'action',description:'View or erase stored encounters',choices:[{name:'View memory',value:'view'},{name:'Erase memory · owner only',value:'forget'}]}]},
   {type:1,name:'finish-turn',description:'Finish your in-character posts and pass to the next writer in this scene.'},
   {type:1,name:'roleplay-status',description:'Show this scene’s turn order, NPC form and controls.'},
-  {type:1,name:'roleplay-cancel',description:'End this scene as its initiator or a Discord administrator.'}
+  {type:1,name:'roleplay-cancel',description:'End this scene as its initiator or a Discord administrator.',options:[{type:5,name:'forget',description:'Owner only: erase saved memories created by this scene'}]}
 ];
 function reply(content:string,privateReply=true,extra:any={}) {
   return {type:4,data:{content,allowed_mentions:noMentions,...(privateReply?{flags:64}:{}),...extra}};
@@ -36,7 +42,8 @@ function sceneOptions(s:Scene,sheet:any,config:Config,note:string) {
   const embed:any={title:s.title+' · Round 1',description:openingLine(isAzurik(s.npc,sheet),s.mode,s.title,!!s.history?.length||!!s.opening),color:0xc76639,
     fields:[{name:'Turn order',value:order(s)},{name:'On your turn',value:'Write using your character tag or channel default. You can send several posts. Type /finish-turn to pass. A reminder comes after 30 minutes if your turn remains open. An unanswered turn passes after two hours.'},{name:'Opening context',value:note}]};
   if(s.opening)embed.fields.push({name:'Scene premise',value:s.opening});
-  if(s.ai)embed.fields.push({name:'AI dialogue',value:'Selected opening history and participating writers’ turns are shared with OpenAI.'});
+  if(s.ai)embed.fields.push({name:'AI dialogue',value:'Provider: '+(aiOptions()?.provider||'unavailable')+' · Scene text is sent to the provider.'});
+  embed.fields.push({name:'Continuity',value:s.memory==='story'?'Story scene: verified encounters are remembered by NPC and character ID.':'Test scene: no permanent NPC memories are written.'});
   if(sheet.portrait)embed.thumbnail={url:new URL(sheet.portrait,config.dashboard).href};
   return {embeds:[embed],components:controls(s)};
 }
@@ -87,11 +94,31 @@ export async function sceneInteraction(db:Store,config:Config,body:any,scope:Rol
     if(!player.isPlayer&&!player.isOwner)return {type:8,data:{choices:[]}};
     const focus=body.data.options?.find((o:any)=>o.focused);
     if(focus?.name==='character'){
-      const rows=await playable(db.query,actor);
+      const rows=act==='roleplay-memory'&&player.isOwner?
+        (await db.query('SELECT c.id,c.sheet,t.tag FROM pc_characters c LEFT JOIN pc_post_tags t ON t.character_id=c.id ORDER BY c.id'))
+          .map(row=>({id:String(row.id),tag:String(row.tag||''),sheet:JSON.parse(row.sheet)})).filter(row=>row.sheet.characterType!=='NPC')
+        :await playable(db.query,actor);
       const term=String(focus.value||'').toLowerCase();
       return {type:8,data:{choices:rows.filter(row=>String(row.sheet.name).toLowerCase().includes(term)||row.tag.toLowerCase().includes(term)).slice(0,25).map(row=>({name:String(row.sheet.name).slice(0,100),value:row.id}))}};
     }
-    return {type:8,data:{choices:act==='roleplay-start'?await npcChoices(db.query,String(select(body,'npc')||'')):[]}};
+    return {type:8,data:{choices:['roleplay-start','roleplay-memory'].includes(act)?await npcChoices(db.query,String(select(body,'npc')||'')):[]}};
+  }
+  if(act==='roleplay-memory'&&body.type!==4){
+    if(!player.isPlayer&&!player.isOwner)return reply('An approved player is required.');
+    const npc=String(select(body,'npc')||''),characterId=String(select(body,'character')||'');
+    const [c]=await db.query('SELECT owner_id,sheet FROM pc_characters WHERE id=$1',[characterId]);
+    if(!c||JSON.parse(c.sheet).characterType==='NPC'||(c.owner_id!==actor&&!player.isOwner))return reply('Select one of your approved characters.');
+    if(!await loadNpc(db.query,npc))return reply('Select an approved NPC.');
+    const action=select(body,'action')||'view';
+    if(action==='forget'){
+      if(!player.isOwner)return reply('Only the owner can erase persistent NPC memories.');
+      const count=await db.transaction(q=>clearPair(q,npc,characterId));
+      return reply('Erased '+count+' stored encounter(s) for this NPC and character.');
+    }
+    const history=(await remembered(db,npc,[characterId],6))[characterId]||[];
+    if(!history.length)return reply('No permanent encounters are stored for that NPC and character.');
+    const text=history.slice(-4).map(m=>'**Encounter · '+new Date(m.occurredAt).toISOString().slice(0,10)+'**\nCharacter: '+m.spoken.slice(0,180)+'\nNPC: '+m.npcReplied.slice(0,180)).join('\n\n');
+    return reply('**Remembered story encounters**\n'+text.slice(0,1650));
   }
   let opening:{history:Memory[];note:string}={history:[],note:'Fresh scene'};
   if(act==='roleplay-start'){
@@ -126,12 +153,14 @@ export async function sceneInteraction(db:Store,config:Config,body:any,scope:Rol
         }
         const sheet=await loadNpc(q,id);
         if(!sheet)return reply('That NPC is no longer in the approved catalog.');
-        const ai=select(body,'dialogue')==='ai';
-        if(ai&&!aiOptions())return reply('AI dialogue is currently unavailable. Choose guided dialogue.');
+        const selection=select(body,'dialogue');
+        const ai=selection==='ai'||(selection!=='guided'&&!!aiOptions());
+        if(ai&&!aiOptions())return reply('AI dialogue is not configured on the host. Choose guided dialogue.');
+        const memory=select(body,'memory')==='test'?'test':'story';
         const mode=select(body,'scene');
         const picked=await selectedCharacter(q,actor,requested);
         if(!picked)return reply('Choose one of your approved characters using the character option.');
-        const s:Scene={id:randomUUID(),channel,host:actor,npc:id,title:sheet.name,mode:['spar','audience'].includes(mode)?mode:'open',ai,
+        const s:Scene={id:randomUUID(),channel,host:actor,npc:id,title:sheet.name,mode:['spar','audience'].includes(mode)?mode:'open',ai,memory,
           cast:[picked.characterId?picked:actorEntry],round:1,turn:0,form:'',opening:String(select(body,'opening')||'').slice(0,500),history:opening.history,posts:[],past:[],startedAt:Date.now()};
         const saved=await q('INSERT INTO pc_rp_scenes(channel_id,scene_id,state) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING scene_id',[channel,s.id,JSON.stringify(s)]);
         if(!saved.length)return reply('Another writer just started a scene here. Use /roleplay-status.');
@@ -147,12 +176,16 @@ export async function sceneInteraction(db:Store,config:Config,body:any,scope:Rol
         const sheet=await loadNpc(q,s.npc),stats=sheet?formStats(sheet,s.form):null;
         const wrote=slotHasPost(s);
         const status=s.paused?'Paused. Any joined writer can resume.':wrote?'The current writer has posted. Use /finish-turn when ready.':currentWriter(s)&&s.startedAt?'Unanswered turn passes <t:'+Math.floor((s.startedAt+turnWindow)/1000)+':R>.':'';
-        return reply('**'+s.title+' · Round '+s.round+'**\n'+order(s)+'\n'+(stats?(stats.form?.name||'Base')+' · PL '+displayPL(stats.pl):'NPC sheet unavailable')+(status?'\n'+status:'')+(row.delivery_note?'\n'+row.delivery_note:'')+(s.ai?'\nAI dialogue shares scene history and participating writers’ posts with OpenAI.':''),true,{components:controls(s)});
+        return reply('**'+s.title+' · Round '+s.round+'**\n'+order(s)+'\n'+(stats?(stats.form?.name||'Base')+' · PL '+displayPL(stats.pl):'NPC sheet unavailable')+(status?'\n'+status:'')+(row.delivery_note?'\n'+row.delivery_note:'')+(s.ai?'\nAI dialogue: '+(aiOptions()?.provider||'unavailable')+'.':'')+'\nMemory: '+(s.memory==='story'?'story continuity':'test / no permanent memories'),true,{components:controls(s)});
       };
       if(act==='roleplay-status'||action==='order')return privateState();
       if(act==='roleplay-cancel'){
         if(actor!==s.host&&!signedAdmin(body,config))return reply('Only the writer who started this scene or a Discord administrator can cancel it.');
-        await q('DELETE FROM pc_rp_scenes WHERE scene_id=$1',[s.id]);return reply('The scene with '+s.title+' has ended.',false);
+        const forget=select(body,'forget')===true&&actor===config.owner;
+        if(select(body,'forget')===true&&!forget)return reply('Only the owner may delete permanent NPC memories.');
+        if(forget)await clearScene(q,s.id);
+        await q('DELETE FROM pc_rp_scenes WHERE scene_id=$1',[s.id]);
+        return reply('The scene with '+s.title+' has ended.'+(forget?' Its saved encounters were erased.':''),false);
       }
       if(!action&&act!=='roleplay-join')return reply('Unknown roleplay control.');
       if(!scope?.interactionEligible(settings,body))return reply('This location is outside current RP coverage. The initiator or an administrator can still cancel the scene.');
