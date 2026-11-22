@@ -24,6 +24,10 @@ with sync_playwright() as p:
     page.locator("#players .person").first.wait_for()
     expect(page.locator("#players .person")).to_have_count(4)
     screenshot(page,"directory.png")
+    page.get_by_role("link",name="Community",exact=True).click()
+    expect(page.get_by_role("heading",name="Community",exact=True)).to_be_visible()
+    expect(page.get_by_text("Practice mode does not write server data.")).to_be_visible()
+    page.get_by_role("link",name="Directory",exact=True).click()
     page.get_by_role("searchbox").fill("emberquill")
     expect(page.locator("#players .person")).to_have_count(1)
     page.locator("#players .person").filter(has_text="Ember Quill").click()
@@ -231,6 +235,12 @@ with sync_playwright() as p:
                 patch=route.request.post_data_json
                 edits[patch["key"]]={"key":patch["key"],"revision":patch["revision"]+1,"fields":{**edits.get(patch["key"],{}).get("fields",{}),**patch["fields"]}}
                 route.fulfill(json=edits[patch["key"]])
+            elif url.path=="/api/community":
+                if route.request.method=="GET":
+                    route.fulfill(json={"staff":False,"owner":False,"modules":{"tags":True,"suggestions":True},
+                        "tags":[{"name":"visitor-guide","body":"Welcome to Convergence.","revision":2}],
+                        "suggestions":[{"id":"b21c01cb-3f65-4b16-9178-c9d247de983e","title":"More RP arenas","body":"We could use another practice arena.","status":"Under Review","staff_response":"On the roadmap.","upvotes":2,"downvotes":0}],"proposals":[]})
+                else: route.fulfill(json={"ok":True})
             elif url.path=="/api/state":
                 if route.request.headers.get("authorization")!="Bearer fixture":
                     route.fulfill(status=401,json={"error":"Sign in again"})
@@ -308,6 +318,10 @@ with sync_playwright() as p:
     again=remembered.new_page()
     again.goto("https://codex.test/phoenixcore/index.html")
     expect(again.get_by_role("button",name="Sign out")).to_be_visible()
+    again.goto("https://codex.test/phoenixcore/index.html#community")
+    expect(again.get_by_role("heading",name="Community",exact=True)).to_be_visible()
+    expect(again.get_by_role("heading",name="visitor-guide",exact=True)).to_be_visible()
+    expect(again.get_by_role("heading",name="More RP arenas",exact=True)).to_be_visible()
     assert again.evaluate("sessionStorage.getItem('pc:/phoenixcore/:verifier')") is None
     assert not problems,problems
     browser.close()
