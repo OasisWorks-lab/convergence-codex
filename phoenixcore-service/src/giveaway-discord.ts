@@ -192,7 +192,7 @@ export async function giveawayButton(db:Store,config:Config,body:any,discord:Dis
     const id=action[2],g=await giveawayPublic(db,id),userId=String(body.member.user.id);
     requireThat(body.channel_id===g.channelId,403,'Use the designated giveaway channel to interact with this event.');
     const member=await discord.call('/guilds/'+config.guild+'/members/'+userId);
-    if(action[1]==='claim')return giveawayClaimPicker(db,id,userId,member);
+    if(action[1]==='claim')return await giveawayClaimPicker(db,id,userId,member);
     if(action[1]==='choose'){
       const characterId=body.data?.values?.[0];
       requireThat(typeof characterId==='string',400,'Choose an approved character from the menu.');
