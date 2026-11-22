@@ -126,6 +126,10 @@ const ddl = [
   'CREATE INDEX IF NOT EXISTS pc_support_idle_due ON pc_support_idle(due_ms,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_support_blocks (user_id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,reason TEXT NOT NULL,created_ms BIGINT NOT NULL,active INTEGER NOT NULL DEFAULT 1)',
   'CREATE TABLE IF NOT EXISTS pc_support_templates (id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,body TEXT NOT NULL,creator_id TEXT NOT NULL,revision INTEGER NOT NULL,updated_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_support_template_history (template_id TEXT NOT NULL REFERENCES pc_support_templates(id),revision INTEGER NOT NULL,name TEXT NOT NULL,body TEXT NOT NULL,active INTEGER NOT NULL,actor_id TEXT NOT NULL,changed_ms BIGINT NOT NULL,PRIMARY KEY(template_id,revision))',
+  'CREATE TABLE IF NOT EXISTS pc_support_feedback (case_id TEXT PRIMARY KEY REFERENCES pc_support_cases(id) ON DELETE CASCADE,requester_id TEXT NOT NULL,rating INTEGER NOT NULL,comment TEXT NOT NULL,created_ms BIGINT NOT NULL)',
+  'CREATE INDEX IF NOT EXISTS pc_support_feedback_created ON pc_support_feedback(created_ms)',
+
   'CREATE TABLE IF NOT EXISTS pc_core_jobs (id TEXT PRIMARY KEY,job_type TEXT NOT NULL,recipient_id TEXT NOT NULL,payload TEXT NOT NULL,due_ms BIGINT NOT NULL,status TEXT NOT NULL DEFAULT \'pending\',attempts INTEGER NOT NULL DEFAULT 0,lease TEXT,lease_until BIGINT NOT NULL DEFAULT 0,last_error TEXT,delivery_id TEXT,created_ms BIGINT NOT NULL)',
   'CREATE INDEX IF NOT EXISTS pc_core_jobs_due ON pc_core_jobs(status,due_ms,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_giveaway_config (slot INTEGER PRIMARY KEY,channels TEXT NOT NULL,revision INTEGER NOT NULL,actor_id TEXT NOT NULL,changed_ms BIGINT NOT NULL)',
@@ -199,6 +203,10 @@ export async function initialize(db: Store, guildId: string) {
     else if(!(await q('PRAGMA table_info(pc_post_tags)')).some(column=>column.name==='tag_key')) await q('ALTER TABLE pc_post_tags ADD COLUMN tag_key TEXT');
     await q('UPDATE pc_post_tags SET tag_key=tag WHERE tag_key IS NULL');
     await q('CREATE UNIQUE INDEX IF NOT EXISTS pc_tag_per_writer ON pc_post_tags(owner_id,tag_key)');
+    if(db.dialect==='postgres')await q('ALTER TABLE pc_support_templates ADD COLUMN IF NOT EXISTS active INTEGER NOT NULL DEFAULT 1');
+    else if(!(await q('PRAGMA table_info(pc_support_templates)')).some(c=>c.name==='active'))
+      await q('ALTER TABLE pc_support_templates ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
+
     if(db.dialect==='postgres') await q('ALTER TABLE pc_shops ADD COLUMN IF NOT EXISTS owner_npc_id TEXT');
     else if(!(await q('PRAGMA table_info(pc_shops)')).some(column=>column.name==='owner_npc_id'))
       await q('ALTER TABLE pc_shops ADD COLUMN owner_npc_id TEXT');
