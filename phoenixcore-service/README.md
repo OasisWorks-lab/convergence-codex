@@ -412,3 +412,13 @@ Staff can later **switch shopkeepers** from the same selector, with version chec
 
 The change adds a nullable column to the existing shop table using an idempotent SQLite/PostgreSQL migration. Back up your live database before rolling forward, and verify the populated NPC dropdown using your currently approved NPC registry rather than a hard-coded demo roster.
 
+
+
+## Shop sales reports — Owner/Helper only
+
+The Shops & Inventory dashboard now includes read-only **all-time, last-seven-day and last-30-day** sales summaries. Owner and configured Helpers can review purchases per merchant, including total units, unique purchase receipts, cash-vs-bank Zeni spent, top purchased items, and up to 40 recent receipts. Members never receive financial reports, even though the shop catalog remains browsable. Staff can also run `/shop admin-sales` with or without a shop ID; the command replies privately.
+
+Sales data comes from the existing authoritative `pc_shop_purchases` receipts, not from an editable sheet or a new shop wallet. Zeni totals are aggregated with JavaScript `BigInt` and returned as integer strings to preserve exactness above Number.MAX_SAFE_INTEGER. The report pages through existing receipts by timestamp and receipt ID, avoiding a hard-coded 100- or 1,000-sale cap, and can still include items that have since been unlisted. The reporting endpoint is `GET /api/economy/shops/sales` and is subject to the same authenticated Owner/Helper permissions as shop management.
+
+A sale reflects **actual PhoenixCore checkout**, not arbitrary Discord messages, unpaid cart attempts, manually edited inventories, or in-character dialogue. Reporting is historical and read-only; it does not alter accounts, stock, refunds, transfers, or prize logic. As a scalability follow-up, servers with unusually large receipt volumes may want a durable pre-aggregated sales index, but the baseline has no additional reporting migrations or denormalized balances.
+

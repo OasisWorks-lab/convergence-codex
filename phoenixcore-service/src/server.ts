@@ -16,6 +16,7 @@ import { accountAvatar, Discord, DiscordFailure, CommandRegistrationError, deliv
 import {nicknameJob,announcement} from './bot-tools.ts';
 import {bankAction,visibleAccounts,statement} from './economy.ts';
 import {listShopCatalog,characterInventory,createShop,createShopItem,setShopOpen,setShopStock,setShopLocations,setShopkeeper,unlistShopItem} from './shop.ts';
+import {shopSalesReport} from './shop-sales.ts';
 import {listRolePanels,createRolePanel,addRoleOption,removeRoleOption,publishRolePanel,verifyAssignableRole,deliverRolePanel} from './role-panels.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
 import { aiOptions } from './npc-voice.ts';
@@ -469,6 +470,9 @@ export function application(db:Store, config:Config, discord=new Discord(config)
           result=await publishRolePanel(db,actor,String(input.panelId||''),Number(input.revision),input.active);
         }else throw new Problem(400,'Unknown role panel action.');
         json(res,200,{ok:true,result});wake();return;
+      }
+      if(method==='GET'&&path==='/api/economy/shops/sales'){
+        json(res,200,await shopSalesReport(db,actor));return;
       }
       if(path==='/api/economy/shops'&&['GET','POST'].includes(String(method))){
         if(method==='GET'){
