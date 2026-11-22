@@ -40,8 +40,9 @@ test('new OCs and NPCs validate personal traits and long bios while partial edit
   await decide(db,owner.id,owner.id,edit.id,true);
   const saved=await sheet(db,legacy);assert.equal(saved.bio,'Original history');assert.equal(saved.family,'Sister returned');assert.equal(saved.wallet,'3');
 });
-test('four design types become approved catalogue records without granting a sheet, gear or transformation',async t=>{
+test('four design types respect Helper approval except Owner-only races and transformations',async t=>{
   const db=await fresh(t);
+  await db.query('UPDATE pc_config SET value=$1 WHERE slot=1',[JSON.stringify(settings)]);
   const designs={
     technique:{name:'Step',techType:'SPT',description:'Shift Ki into the soles.',requirements:'Steady focus',drawbacks:'One use per scene'},
     item:{name:'Sightglass',description:'A survey lens',effects:'Read energy traces',drawbacks:'Clear skies only',currentInt:'8',requiredInt:'50',designNotes:'A mentor can assist.'},
