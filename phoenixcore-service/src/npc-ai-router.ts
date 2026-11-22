@@ -1,4 +1,4 @@
-import type {Store,Query} from './db.ts';
+import type {Store} from './db.ts';
 import {aiCandidates,npcCompletionResult,type NpcAiConfig,type AiAttempt} from './npc-ai.ts';
 
 const keyOf=(config:NpcAiConfig)=>config.provider+':'+config.model;
@@ -23,8 +23,14 @@ export async function providerOutcome(db:Store,config:NpcAiConfig,result:AiAttem
   if(result.status==='quota')until=result.daily?nextDay(now):now+Math.min(86400000,result.retryMs||90000);
   if(result.status==='invalid')until=now+86400000;
   if(result.status==='unavailable')until=now+Math.min(300000,result.retryMs||45000);
-  await db.query('UPDATE pc_npc_ai_providers SET blocked_until=$1,last_status=$2,last_checked_ms=$3 WHERE provider_key=$4',
-    [until,result.status,now,keyOf(config)]);
+  await db.transaction(async q=>{
+    const [row]=await q('SELECT blocked_until FROM pc_npc_ai_providers WHERE provider_key=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[keyOf(config)]);
+    if(!row)return;
+    const existing=Number(row.blocked_until)||0;
+    const next=existing>now?Math.max(existing,until):until;
+    await q('UPDATE pc_npc_ai_providers SET blocked_until=$1,last_status=$2,last_checked_ms=$3 WHERE provider_key=$4',
+      [next,result.status,now,keyOf(config)]);
+  });
 }
 export async function freeProviderStatus(db:Store,env=process.env,now=Date.now()):Promise<ProviderStatus[]>{
   const configs=aiCandidates(env),day=dayOf(now),minute=Math.floor(now/60000);
