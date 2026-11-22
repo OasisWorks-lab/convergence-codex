@@ -121,6 +121,9 @@ const ddl = [
   'CREATE INDEX IF NOT EXISTS pc_mod_active_warnings ON pc_mod_cases(target_id,kind,active)',
   'CREATE TABLE IF NOT EXISTS pc_mod_case_events (id TEXT PRIMARY KEY,case_id TEXT NOT NULL REFERENCES pc_mod_cases(id) ON DELETE CASCADE,actor_id TEXT NOT NULL,event TEXT NOT NULL,detail TEXT NOT NULL,occurred_ms BIGINT NOT NULL)',
   'CREATE INDEX IF NOT EXISTS pc_mod_case_events_case ON pc_mod_case_events(case_id,occurred_ms)',
+  'CREATE TABLE IF NOT EXISTS pc_mod_sanctions (case_id TEXT PRIMARY KEY REFERENCES pc_mod_cases(id) ON DELETE CASCADE,action TEXT NOT NULL,status TEXT NOT NULL,until_ms BIGINT,applied_ms BIGINT,ended_ms BIGINT,last_error TEXT NOT NULL DEFAULT \'\',updated_ms BIGINT NOT NULL)',
+  'CREATE INDEX IF NOT EXISTS pc_mod_sanctions_due ON pc_mod_sanctions(status,until_ms)',
+
   'CREATE TABLE IF NOT EXISTS pc_support_cases (id TEXT PRIMARY KEY,receipt_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,requester_id TEXT NOT NULL,status TEXT NOT NULL,sensitive INTEGER NOT NULL DEFAULT 0,anonymous INTEGER NOT NULL DEFAULT 0,summary TEXT NOT NULL,assigned_id TEXT,linked_mod_case_id TEXT,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL,activity_ms BIGINT NOT NULL,closed_ms BIGINT,close_reason TEXT NOT NULL DEFAULT \'\',revision INTEGER NOT NULL DEFAULT 1,container_id TEXT)',
   'CREATE INDEX IF NOT EXISTS pc_support_cases_visible ON pc_support_cases(requester_id,status,created_ms)',
   'CREATE INDEX IF NOT EXISTS pc_support_cases_staff ON pc_support_cases(sensitive,status,activity_ms)',
