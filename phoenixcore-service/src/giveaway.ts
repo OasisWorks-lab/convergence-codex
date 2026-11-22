@@ -281,12 +281,57 @@ export async function updateGiveawayStatus(db:Store,id:string,who:StaffIdentity,
     return {id,status};
   });
 }
+
+export async function editGiveaway(db:Store,id:string,who:StaffIdentity,expectedVersion:number,
+  changes:{title?:string;description?:string},now=Date.now()){
+  staffOnly(who);giveawayId(id);
+  requireThat(changes&&typeof changes==='object'&&!Array.isArray(changes),400,'Provide giveaway details to edit.');
+  requireThat(changes.title!==undefined||changes.description!==undefined,400,'Specify a title or description to change.');
+  requireThat(Number.isInteger(expectedVersion)&&expectedVersion>=1,400,'A valid giveaway version is required.');
+  const title=changes.title===undefined?null:textValue(changes.title,120,'Giveaway title',true);
+  const description=changes.description===undefined?null:textValue(changes.description,1600,'Giveaway description');
+  return db.transaction(async q=>{
+    const [g]=await q('SELECT * FROM pc_giveaways WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
+    requireThat(g,404,'Giveaway unavailable.');
+    requireThat(['scheduled','active','paused'].includes(g.status)&&
+      (g.status!=='active'||Number(g.ends_ms)>now),409,'A closed or drawn giveaway cannot be edited.');
+    requireThat(Number(g.version)===expectedVersion,409,'Giveaway changed since you opened it. Refresh before editing.');
+    const nextTitle=title===null?g.title:title,nextDescription=description===null?g.description:description;
+    if(nextTitle===g.title&&nextDescription===g.description)return {id,version:expectedVersion,changed:false};
+    await q('UPDATE pc_giveaways SET title=$1,description=$2,updated_ms=$3,version=version+1 WHERE id=$4',
+      [nextTitle,nextDescription,now,id]);
+    await record(q,id,who.id,'edited','Updated '+[nextTitle!==g.title?'title':null,nextDescription!==g.description?'description':null].filter(Boolean).join(' and '),now);
+    await dirty(q,id);
+    return {id,version:expectedVersion+1,changed:true};
+  });
+}
+
+export async function extendGiveaway(db:Store,id:string,who:StaffIdentity,expectedVersion:number,minutes:number,now=Date.now()){
+  staffOnly(who);giveawayId(id);
+  requireThat(Number.isInteger(expectedVersion)&&expectedVersion>=1,400,'A valid giveaway version is required.');
+  requireThat(Number.isSafeInteger(minutes)&&minutes>=1&&minutes<=525600,400,'Extend by 1–525600 whole minutes.');
+  return db.transaction(async q=>{
+    const [g]=await q('SELECT * FROM pc_giveaways WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
+    requireThat(g,404,'Giveaway unavailable.');
+    requireThat(['scheduled','active','paused'].includes(g.status)&&
+      (g.status!=='active'||Number(g.ends_ms)>now),409,'A closed or drawn giveaway cannot be extended.');
+    requireThat(Number(g.version)===expectedVersion,409,'Giveaway changed since you opened it. Refresh before extending.');
+    const ends=Number(g.ends_ms)+minutes*60_000;
+    requireThat(Number.isSafeInteger(ends)&&ends-Number(g.starts_ms)<=maxDurationMs,400,
+      'The giveaway cannot run longer than one year from its start.');
+    await q('UPDATE pc_giveaways SET ends_ms=$1,updated_ms=$2,version=version+1 WHERE id=$3',[ends,now,id]);
+    await record(q,id,who.id,'extended','Entry deadline extended by '+minutes+' minute(s).',now);
+    await dirty(q,id);
+    return {id,endsMs:ends,version:expectedVersion+1};
+  });
+}
+
 export async function giveawayPublic(db:Store,id:string){
   const g=await getGiveaway(db,id);
   const [entries,winners]=await Promise.all([
     db.query('SELECT COUNT(*) AS total FROM pc_giveaway_entries WHERE giveaway_id=$1 AND active=1',[id]),
     db.query('SELECT user_id,slot,draw_round,status,claim_deadline_ms,character_id,claimed_ms FROM pc_giveaway_winners WHERE giveaway_id=$1 ORDER BY slot,draw_round',[id])]);
-  return {id:g.id,title:g.title,description:g.description,channelId:g.channel_id,status:g.status,prizeKind:g.prize_kind,
+  return {id:g.id,version:Number(g.version),title:g.title,description:g.description,channelId:g.channel_id,status:g.status,prizeKind:g.prize_kind,
     prizeText:g.prize_text,zeniAmount:g.zeni_amount,winnerCount:Number(g.winner_count),
     startsMs:Number(g.starts_ms),endsMs:Number(g.ends_ms),claimDurationMs:Number(g.claim_duration_ms),
     requiredRoles:JSON.parse(g.required_roles),excludedRoles:JSON.parse(g.excluded_roles),
