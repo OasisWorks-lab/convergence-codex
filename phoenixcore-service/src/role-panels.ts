@@ -7,9 +7,14 @@ import {communityEnabled} from './community.ts';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const safeImage=(value:unknown)=>{
-  const url=String(value||'').trim();
-  requireThat(!url||url.length<=600&&/^https:\/\/[^\\s@/]+(?:\/[^\\s]*)?$/i.test(url),400,'Use an HTTPS image URL without embedded credentials.');
-  return url;
+  const raw=String(value||'').trim();
+  if(!raw)return '';
+  requireThat(raw.length<=600&&!/\\s/.test(raw),400,'Use an HTTPS image URL.');
+  let url:URL;
+  try{url=new URL(raw);}catch{requireThat(false,400,'Image URL is invalid.');throw Error('Invalid URL');}
+  requireThat(url.protocol==='https:'&&!url.username&&!url.password&&!url.hash,400,
+    'Image URL must be HTTPS without credentials or fragments.');
+  return url.href;
 };
 const emojiPattern=/^(?!\s)[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Component}\u200d\ufe0f]{1,16}$/u;
 
