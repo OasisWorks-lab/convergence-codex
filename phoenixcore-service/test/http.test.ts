@@ -209,6 +209,7 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
     .shops.find((x:any)=>x.id===shopId);
   assert.equal(finalShop.ownerName,'Custom World Merchant');
   assert.equal(finalShop.stock.length,0);
+  await db.query('DELETE FROM pc_characters WHERE id=$1',[merchantNpcId]);
 
   const roleUrl='/api/community/roles';
   assert.equal((await get(roleUrl)).status,401);
