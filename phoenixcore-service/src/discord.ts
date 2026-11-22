@@ -1,5 +1,6 @@
 import { npcCommands, sceneCommand, sceneInteraction } from './npc-scenes.ts';
 import {communityCommand,communityCommands,communityInteraction} from './community-discord.ts';
+import {operationCommand,operationCommands,operationInteraction} from './operations-discord.ts';
 import type { RoleplayScope } from './scope.ts';
 import servicePackage from '../package.json' with {type:'json'};
 import {characterCommand} from './characters.ts';
@@ -119,7 +120,7 @@ export class Discord {
       {name:'character',description:'Your character name, posting tag or sheet ID',type:3,required:true,autocomplete:true},
       {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
     specs.push({name:'revert-form',type:1,description:'Return to base or an earlier attained form.',options:[{name:'character',type:3,description:'Your approved character',required:true,autocomplete:true},{name:'form',type:3,description:'Base or an earlier attained form',required:false,autocomplete:true}]});
-    const required=[...npcCommands(),...communityCommands(),...specs];
+    const required=[...npcCommands(),...communityCommands(),...operationCommands(),...specs];
     let operation='Listing Convergence commands';
     try {
       const current=await this.call(path);
@@ -213,6 +214,15 @@ export async function handleInteraction(db:Store, config:Config, body:any,discor
     const run=()=>sceneInteraction(db,config,body,scope,discord);
     if(defer&&body.type===2&&body.data.name==='roleplay-start'){
       defer(async()=>(await run()).data.content);return {type:5,data:{flags:64}};
+    }
+    return run();
+  }
+  if(body.type===2&&operationCommand(body.data?.name)){
+    const run=()=>operationInteraction(db,config,body,discord);
+    const action=body.data?.options?.[0]?.name;
+    if(defer&&body.data.name==='mod'&&['warn','note','remove-warning'].includes(action)){
+      defer(async()=>String((await run()).data.content||'Moderation operation completed.'));
+      return {type:5,data:{flags:64}};
     }
     return run();
   }
