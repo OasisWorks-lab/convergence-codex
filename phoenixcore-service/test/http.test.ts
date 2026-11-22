@@ -20,6 +20,8 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   const fixture=new ReviewFixture(config);
   const prizeChannel='1573908218260885614';
   fixture.channels.set(prizeChannel,{id:prizeChannel,type:0,guild_id:ids.guild,flags:0});
+  const prizeChannel='1573908218260885614';
+  fixture.channels.set(prizeChannel,{id:prizeChannel,type:0,guild_id:ids.guild,flags:0});
   const discord=new Discord(config,async(u,init)=>{
     const path=new URL(String(u)).pathname;
     if(path.endsWith('/oauth2/token')) return Response.json({access_token:new URLSearchParams(String(init?.body)).get('code')});
@@ -158,6 +160,33 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await post('/api/support',{action:'sensitive',caseId:reportId},judge)).status,403);
   assert.equal((await post('/api/support',{action:'sensitive',caseId:reportId},owner)).status,200);
   assert.equal((await get('/api/support/'+reportId,{headers:{authorization:'Bearer '+judge,origin}})).status,403);
+  const publicGiveaways=await get('/api/giveaways',{headers:{authorization:'Bearer '+writer,origin}});
+  assert.equal(publicGiveaways.status,200);
+  assert.equal((await publicGiveaways.json()).staff,false);
+  assert.equal((await post('/api/giveaways',{action:'channels',revision:0,channels:[prizeChannel]},judge)).status,403);
+  assert.equal((await post('/api/giveaways',{action:'channels',revision:0,channels:[prizeChannel]},owner)).status,200);
+  const data={action:'create',receipt:randomUUID(),title:'Website integration trial',description:'Unit test only',
+    channelId:prizeChannel,prizeKind:'zeni',amountOrPrize:'150',
+    durationMinutes:5,claimMinutes:15,winnerCount:1,startInMinutes:0,retentionDays:7,
+    requiredRoles:[],excludedRoles:[]};
+  assert.equal((await post('/api/giveaways',data,writer)).status,403);
+  const createdGiveaway=await post('/api/giveaways',data,judge);
+  assert.equal(createdGiveaway.status,200);
+  const drawId=(await createdGiveaway.json()).result.id;
+  assert.equal((await post('/api/giveaways',data,judge)).status,200);
+  assert.equal((await db.query('SELECT id FROM pc_giveaways')).length,1);
+  assert.equal((await post('/api/giveaways',{action:'join',id:drawId},writer)).status,200);
+  assert.equal((await post('/api/giveaways',{action:'join',id:drawId},writer)).status,200);
+  const webDraw=await (await get('/api/giveaways/'+drawId,{headers:{authorization:'Bearer '+writer,origin}})).json();
+  assert.equal(webDraw.giveaways[0].entries,1);
+  assert.ok(webDraw.enteredGiveawayIds.includes(drawId));
+  assert.equal((await post('/api/giveaways',{action:'end',id:drawId},writer)).status,403);
+  assert.equal((await post('/api/giveaways',{action:'end',id:drawId},judge)).status,200);
+  const [winner]=await db.query('SELECT user_id,status FROM pc_giveaway_winners WHERE giveaway_id=$1',[drawId]);
+  assert.equal(winner.user_id,ids.writer);
+  assert.equal(winner.status,'awaiting_claim');
+  assert.equal((await post('/api/giveaways',{action:'claim',id:drawId,characterId:randomUUID()},writer)).status,403);
+  assert.equal((await post('/api/giveaways',{action:'claim',id:drawId,characterId:randomUUID()},extra)).status,403);
   const publicGiveaways=await get('/api/giveaways',{headers:{authorization:'Bearer '+writer,origin}});
   assert.equal(publicGiveaways.status,200);
   assert.equal((await publicGiveaways.json()).staff,false);
