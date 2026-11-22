@@ -78,7 +78,9 @@ export async function communityInteraction(db:Store,config:Config,body:any){
       const updated=staffReviewPanel(await getSuggestion(db,staffClick[1]));
       return {type:7,data:{...updated.data,flags:undefined,content:'**Staff decision recorded:** '+status+'. The public suggestion will update shortly.'}};
     }
-    const operation=String(body.data?.options?.[0]?.name||''),options=body.data?.options?.[0]?.options||[];
+    const direct=group==='pc-tag-show'||group==='pc-tag-save';
+    const operation=direct?(group==='pc-tag-show'?'show':'save'):String(body.data?.options?.[0]?.name||'');
+    const options=direct?(body.data?.options||[]):(body.data?.options?.[0]?.options||[]);
     const value=(name:string)=>pick(options,name);
     if(group==='community-module'){
       if(operation==='set'){
