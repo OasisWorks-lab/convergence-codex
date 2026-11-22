@@ -27,7 +27,7 @@ function presentation(input:any){
   return {title,imageUrl,color,buttons};
 }
 const format=(row:any)=>({title:row?.title||'',imageUrl:row?.image_url||'',color:Number(row?.color??0x6a7bc5),
-  buttons:row?JSON.parse(row.buttons):[],presentationRevision:Number(row?.revision||0)});
+  buttons:row?.buttons?JSON.parse(row.buttons):[],presentationRevision:Number(row?.revision||0)});
 export async function richTag(db:Store,name:string){
   const key=String(name||'').trim().toLowerCase();
   requireThat(nameValid.test(key),400,'Choose a valid informational tag name.');
