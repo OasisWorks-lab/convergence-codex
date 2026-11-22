@@ -134,7 +134,7 @@ export async function getSuggestion(db:Store,id:string){
   return row;
 }
 export async function listSuggestions(db:Store){
-  return db.query('SELECT s.id,s.title,s.status,s.created_ms,COALESCE(SUM(CASE WHEN v.choice=1 THEN 1 ELSE 0 END),0) AS upvotes,COALESCE(SUM(CASE WHEN v.choice=-1 THEN 1 ELSE 0 END),0) AS downvotes FROM pc_suggestions s LEFT JOIN pc_suggestion_votes v ON v.suggestion_id=s.id GROUP BY s.id ORDER BY s.created_ms DESC LIMIT 15');
+  return db.query('SELECT s.id,s.title,s.body,s.staff_response,s.anonymous,s.status,s.created_ms,COALESCE(SUM(CASE WHEN v.choice=1 THEN 1 ELSE 0 END),0) AS upvotes,COALESCE(SUM(CASE WHEN v.choice=-1 THEN 1 ELSE 0 END),0) AS downvotes FROM pc_suggestions s LEFT JOIN pc_suggestion_votes v ON v.suggestion_id=s.id GROUP BY s.id ORDER BY s.created_ms DESC LIMIT 15');
 }
 export async function voteSuggestion(db:Store,actor:CommunityActor,id:string,choice:number){
   requireThat(idPattern.test(id),400,'Invalid suggestion ID.');
