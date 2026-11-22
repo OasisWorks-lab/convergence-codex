@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -722,6 +722,17 @@ function formList(raw){
     finally{shopsLoading=false;}
   }
 
+  async function shopSalesRefresh(){
+    if(shopSalesLoading||demo||!session||!state?.actor.isJudge)return;
+    shopSalesLoading=true;
+    try{
+      shopSalesData=await call('/api/economy/shops/sales');
+      if(route()==='shops'||/^shop-[\da-f-]{36}$/.test(route()))render();
+    }catch(e){tell(e.message,true);}
+    finally{shopSalesLoading=false;}
+  }
+  const salesStat=(label,value,unit='')=>'<div class="stat-row"><span>'+h(label)+'</span>'+
+    '<strong>'+h(num(value||'0'))+(unit?' '+h(unit):'')+'</strong></div>';
   function shopkeeperControls(data,selected='',customName=''){
     const current=String(selected||''),custom=current==='custom';
     const npcs=(data.npcOptions||[]);
@@ -744,6 +755,18 @@ function formList(raw){
     if(!shopsData){void shopsRefresh();return title('Shops & Inventory','Loading shops and merchandise…');}
     const data=shopsData,shopMatch=/^shop-([\da-f-]{36})$/.exec(route()),
       itemMap=new Map(data.items.map(item=>[item.id,item]));
+    if(data.staff&&!shopSalesData&&!shopSalesLoading)void shopSalesRefresh();
+    const allSales=shopSalesData?.overall;
+    const saleOverview=data.staff?'<section class="panel dossier"><h2>Sales overview</h2>'+
+      (!allSales?'<p>Loading recorded purchases…</p>':
+        salesStat('All-time purchases',allSales.all.receipts)+
+        salesStat('All-time items sold',allSales.all.units)+
+        salesStat('All-time Zeni spent',allSales.all.zeni,'Zeni')+
+        salesStat('Zeni spent in the last 30 days',allSales.last30.zeni,'Zeni')+
+        salesStat('Cash purchases',allSales.all.cashZeni,'Zeni')+
+        salesStat('Bank purchases',allSales.all.bankZeni,'Zeni'))+
+      '<p class="muted">Recorded player purchases only. Zeni spent at NPC shops leaves circulation; these figures are not shop-wallet balances.</p>'+
+      '</section>':'';
     const money=value=>h(String(value||'0'))+' Zeni';
     const inventoryChars=state.characters.filter(c=>c.ownerId===state.actor.id&&c.sheet.characterType!=='NPC');
     const ownInventory='<section class="panel dossier"><h2>Your character inventory</h2>'+
@@ -785,13 +808,30 @@ function formList(raw){
           field('channels','Allowed Discord RP channel IDs (one per line)',shop.channels.join('\n'),{area:true,wide:true,max:1100})+
           '<button class="primary">Save shop locations</button></form>':'')+
         '</section>':'';
+      const sales=shopSalesData?.shops.find(x=>x.id===shop.id);
+      const saleDetail=data.staff?'<section class="panel dossier"><h2>Shop sales report</h2>'+
+        (!sales?'<p>Loading shop receipts…</p>':
+          salesStat('All-time transactions',sales.all.receipts)+
+          salesStat('Units sold',sales.all.units)+
+          salesStat('All-time Zeni spent',sales.all.zeni,'Zeni')+
+          salesStat('Last 7 days',sales.last7.zeni,'Zeni')+
+          salesStat('Last 30 days',sales.last30.zeni,'Zeni')+
+          '<h3>Most purchased items</h3>'+
+          (sales.topItems.length?sales.topItems.map(item=>salesStat(item.name,item.units,'units')).join(''):
+            '<p>No sales recorded for this shop yet.</p>')+
+          '<h3>Recent purchases</h3>'+
+          (shopSalesData.recent.filter(x=>x.shopId===shop.id).slice(0,8)
+            .map(x=>'<div class="stat-row"><span>'+h(x.itemName)+' · '+h(new Date(x.createdMs).toLocaleString())+
+              '</span><strong>'+h(num(x.totalZeni))+' Zeni</strong></div>').join('')||
+            '<p>No recent receipts.</p>'))+
+        '</section>':'';
       return breadcrumbs([link('shops','Shops & Inventory'),h(shop.name)])+title(shop.name,shop.description)+
         '<section class="panel dossier"><p><b>'+h(shop.status.toUpperCase())+'</b> · '+h(shop.kind==='general'?'Available in eligible RP channels':'Restricted to configured RP locations')+
         ' · Shopkeeper: '+h(shop.ownerName||'Unlisted')+'</p>'+
         (shop.ownerPortrait?artwork(shop.ownerPortrait,shop.ownerName+' shopkeeper portrait'):'')+
         '<p>Purchases must be made through /shop in an eligible in-character Discord RP channel. The dashboard cannot bypass location rules.</p>'+
         (shop.kind==='location'?'<p>Location channel IDs: '+h(shop.channels.join(', ')||'Not configured')+'</p>':'')+
-        (lines||'<p>No merchandise listed yet.</p>')+'</section>'+admin+ownInventory;
+        (lines||'<p>No merchandise listed yet.</p>')+'</section>'+admin+saleDetail+ownInventory;
     }
     const create=data.staff?'<section class="panel dossier"><h2>Staff: create a shop</h2>'+
       '<form id="shop-create-form" class="form">'+field('name','Shop name','',{required:true,max:100})+
@@ -813,7 +853,7 @@ function formList(raw){
       h(shop.kind==='general'?'General Store access':'Location restricted')+'</small></span>'+
       '<span class="pill">'+h(shop.status)+'</span></a>').join('');
     return title('Shops & Inventory','Browse staff-managed merchandise. Purchases require your character to be present in the appropriate RP channel.')+
-      ownInventory+'<section class="stack"><h2>Shops</h2>'+(cards||'<p>No shops configured yet.</p>')+'</section>'+create;
+      saleOverview+ownInventory+'<section class="stack"><h2>Shops</h2>'+(cards||'<p>No shops configured yet.</p>')+'</section>'+create;
   }
   async function rolePanelRefresh(){
     if(rolePanelLoading||demo||!session)return;
