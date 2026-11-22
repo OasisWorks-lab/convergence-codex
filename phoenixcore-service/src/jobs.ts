@@ -10,6 +10,7 @@ export async function createReminder(db:Store,userId:string,receipt:string,minut
   requireThat(Number.isInteger(minutes)&&minutes>=1&&minutes<=maxReminderMinutes,400,'Choose a reminder between 1 minute and 7 days.');
   const content=textValue(message,500,'Reminder text',true),id='remind:'+receipt;
   return db.transaction(async q=>{
+    if(db.dialect==='postgres')await q('SELECT pg_advisory_xact_lock(hashtext($1))',[userId]);
     const [existing]=await q('SELECT id,due_ms FROM pc_core_jobs WHERE id=$1',[id]);
     if(existing)return {id:existing.id,dueAt:Number(existing.due_ms),created:false};
     const [total]=await q("SELECT COUNT(*) AS n FROM pc_core_jobs WHERE recipient_id=$1 AND job_type='reminder' AND status='pending'",[userId]);
