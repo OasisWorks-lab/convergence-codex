@@ -132,17 +132,17 @@ export async function shopInteraction(db:Store,config:Config,body:any,discord:Pi
       const report=await shopSalesReport(db,actor,shopId||undefined);
       if(shopId){
         const shop=report.shops[0];
-        return ephemeral('**'+shop.name+' · Sales report**\\nAll-time: '+shop.all.receipts+' purchase(s), '+
-          shop.all.units+' units, '+shop.all.zeni+' Zeni spent\\nLast 30 days: '+
-          shop.last30.receipts+' purchase(s), '+shop.last30.zeni+' Zeni spent\\nCash: '+
-          shop.all.cashZeni+' · Bank: '+shop.all.bankZeni+' Zeni\\n'+
-          (shop.topItems.length?'Top merchandise:\\n'+shop.topItems.slice(0,7)
-            .map(i=>i.name+' · '+i.units+' units').join('\\n'):'No purchases yet.'));
+        return ephemeral('**'+shop.name+' · Sales report**\nAll-time: '+shop.all.receipts+' purchase(s), '+
+          shop.all.units+' units, '+shop.all.zeni+' Zeni spent\nLast 30 days: '+
+          shop.last30.receipts+' purchase(s), '+shop.last30.zeni+' Zeni spent\nCash: '+
+          shop.all.cashZeni+' · Bank: '+shop.all.bankZeni+' Zeni\n'+
+          (shop.topItems.length?'Top merchandise:\n'+shop.topItems.slice(0,7)
+            .map(i=>i.name+' · '+i.units+' units').join('\n'):'No purchases yet.'));
       }
-      return ephemeral('**Shop sales · all-time**\\n'+report.overall.all.receipts+' purchase(s), '+
-        report.overall.all.units+' units, '+report.overall.all.zeni+' Zeni spent\\n'+
+      return ephemeral('**Shop sales · all-time**\n'+report.overall.all.receipts+' purchase(s), '+
+        report.overall.all.units+' units, '+report.overall.all.zeni+' Zeni spent\n'+
         (report.shops.length?report.shops.slice(0,10)
-          .map(x=>'**'+x.name+'** · '+x.all.zeni+' Zeni · '+x.all.receipts+' transactions').join('\\n'):
+          .map(x=>'**'+x.name+'** · '+x.all.zeni+' Zeni · '+x.all.receipts+' transactions').join('\n'):
           'No shops configured.'));
     }
     if(action==='admin-stock'){
