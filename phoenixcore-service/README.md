@@ -244,7 +244,7 @@ The seven November 21 handoffs are audited in [the implementation audit](../docs
 
 - **/suggest create** accepts title and details, with optional **anonymous** submission. Public embeds show no member identity when anonymous.
 - Each public suggestion has **Upvote**, **Downvote** and **Remove vote** buttons. The server stores one effective ballot per real Discord user per suggestion; retries don't multiply votes. Members may also use **/suggest vote**, **/suggest list**, and **/suggest view**.
-- **/suggest review** permits Owner/Admin/Helper to set Pending, Under Review, Approved, Denied or Implemented, with an optional official response. Every staff transition creates a history record.
+- **/suggest review** permits Owner/Admin/Helper to set Pending, Under Review, Approved, Denied or Implemented, with an optional official response. Every staff transition creates a history record. Staff decisions also enqueue a private DM for the original submitter. Delivery is restart-safe, retried on transient errors, and marked undeliverable when Discord blocks DMs; the staff decision remains committed.
 - Anonymous reporters and voters are not exposed to ordinary users by the dashboard or public Discord embeds. Their real identities remain in the private database for authorized anti-abuse investigation; public voting does not reveal voters.
 - Suggestion replies do not grant BPL, Zeni, items, ranks, privileged roles or automatic staff approvals. The default is a suggestion **for discussion**, not a binding character/rules change. Follow-up notifications, configured announcement channels, and automatic live edits of older dashboard-created suggestions are additional work, not falsely claimed completed.
 
