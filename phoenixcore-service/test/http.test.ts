@@ -387,6 +387,30 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.deepEqual(closedPoll.counts,[1,0]);
   assert.equal((await get('/api/polls/'+pollId+'/audit',{headers:{authorization:'Bearer '+writer,origin}})).status,403);
 
+  assert.equal((await get('/api/schedules',{headers:{origin}})).status,401);
+  assert.equal((await get('/api/schedules',{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+  const scheduleDefinition={receipt:randomUUID(),name:'Human DISBOARD prompt',kind:'bump-reminder',
+    channelId:prizeChannel,body:'Please run the official DISBOARD bump manually.',
+    mentionRole:'',firstDueMs:Date.now()+7200000,intervalMinutes:120,maxRuns:2,
+    style:'text',color:5793266,imageUrl:''};
+  assert.equal((await post('/api/schedules',{action:'create',schedule:scheduleDefinition},judge)).status,403);
+  const createdSchedule=await post('/api/schedules',{action:'create',schedule:scheduleDefinition},owner);
+  assert.equal(createdSchedule.status,200);
+  const scheduleId=(await createdSchedule.json()).result.id;
+  const scheduleList=await get('/api/schedules',{headers:{authorization:'Bearer '+owner,origin}});
+  assert.equal(scheduleList.status,200);
+  assert.equal((await scheduleList.json()).schedules[0].status,'draft');
+  assert.equal((await post('/api/schedules',{action:'publish',scheduleId,revision:1},writer)).status,403);
+  assert.equal((await post('/api/schedules',{action:'publish',scheduleId,revision:1},owner)).status,200);
+  assert.equal((await post('/api/schedules',{action:'pause',scheduleId,revision:2},owner)).status,200);
+  const pausedSchedule=await get('/api/schedules/'+scheduleId,
+    {headers:{authorization:'Bearer '+owner,origin}});
+  assert.equal((await pausedSchedule.json()).schedule.status,'paused');
+  assert.equal((await post('/api/schedules',{action:'resume',scheduleId,revision:3},owner)).status,200);
+  assert.equal((await post('/api/schedules',{action:'cancel',scheduleId,revision:4},owner)).status,200);
+  assert.equal((await get('/api/schedules/'+scheduleId,{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+
+
 
 
   assert.equal((await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,

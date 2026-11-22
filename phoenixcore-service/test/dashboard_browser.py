@@ -391,6 +391,54 @@ with sync_playwright() as p:
                     "zeniAmount":None,"status":"active","entries":4,"winnerCount":1,
                     "startsMs":1700000000000,"endsMs":4700000000000,
                     "channelId":"1573908218260885614","winners":[]}]})
+            elif url.path=="/api/schedules":
+                assert owner, "Scheduled messages are owner-private."
+                if route.request.method=="GET":
+                    base_schedule={"id":"a21c01cb-3f65-4b16-9178-c9d247de983e",
+                        "name":"Weekly Convergence update","kind":"announcement",
+                        "channelId":"1573908218260885614","body":"Training arena opens tonight.",
+                        "mentionRole":"","intervalMinutes":10080,"maxRuns":0,"sentCount":2,
+                        "nextDueMs":4700000000000,"status":"active","revision":5,
+                        "style":"embed","color":5793266,"imageUrl":"",
+                        "lastError":"","lastSentMs":1700000000000,"createdMs":1700000000000,
+                        "pendingStatus":None}
+                    draft={**base_schedule,"id":"a31c01cb-3f65-4b16-9178-c9d247de983e",
+                        "name":"Pending bump prompt","kind":"bump-reminder","body":"",
+                        "intervalMinutes":120,"maxRuns":0,"status":"draft","revision":1,
+                        "style":"text","sentCount":0}
+                    uncertain={**base_schedule,"id":"a41c01cb-3f65-4b16-9178-c9d247de983e",
+                        "name":"Unconfirmed dispatch","status":"paused","revision":6,
+                        "pendingStatus":"needs-review",
+                        "lastError":"Discord delivery could not be confirmed."}
+                    route.fulfill(json={"schedules":[base_schedule,draft,uncertain],"moduleEnabled":True})
+                else:
+                    route.fulfill(json={"ok":True,"result":{"id":"a21c01cb-3f65-4b16-9178-c9d247de983e",
+                        "status":"active","revision":6}})
+            elif url.path.startswith("/api/schedules/"):
+                assert owner
+                sid=url.path.split("/")[-1]
+                draft=sid.startswith("a31")
+                uncertain=sid.startswith("a41")
+                rec={"id":sid,"name":"Pending bump prompt" if draft else
+                    ("Unconfirmed dispatch" if uncertain else "Weekly Convergence update"),
+                    "kind":"bump-reminder" if draft else "announcement",
+                    "channelId":"1573908218260885614",
+                    "body":"" if draft else "Training arena opens tonight.",
+                    "mentionRole":"","intervalMinutes":120 if draft else 10080,
+                    "maxRuns":0,"sentCount":0 if draft else 2,
+                    "nextDueMs":4700000000000,
+                    "status":"draft" if draft else ("paused" if uncertain else "active"),
+                    "revision":1 if draft else (6 if uncertain else 5),
+                    "style":"text" if draft else "embed","color":5793266,
+                    "imageUrl":"","lastError":"Discord delivery could not be confirmed." if uncertain else "",
+                    "createdMs":1700000000000,"lastSentMs":None,
+                    "pendingStatus":"needs-review" if uncertain else None}
+                route.fulfill(json={"schedule":rec,"events":[{"actor_id":"owner",
+                    "event":"created","detail":"Owner created unpublished schedule.",
+                    "at_ms":1700000000000}],
+                    "deliveries":[{"occurrence":1,"status":"needs-review" if uncertain else "delivered",
+                        "due_ms":1700000000000,"last_error":"Unconfirmed" if uncertain else "",
+                        "message_id":"980000000000000040"}]})
             elif url.path=="/api/polls":
                 if route.request.method=="GET":
                     active={"id":"d21c01cb-3f65-4b16-9178-c9d247de983e",
@@ -593,6 +641,7 @@ with sync_playwright() as p:
     assert again.get_by_role("heading",name="Shop sales report").count()==0
     assert again.locator('img[src="x"]').count()==0
     assert again.get_by_role("link",name="Moderation").count()==0
+    assert again.get_by_role("link",name="Schedules").count()==0
     assert again.get_by_role("link",name="AutoMod").count()==0
     again.goto("https://codex.test/phoenixcore/index.html#polls")
     expect(again.get_by_role("heading",name="Polls",exact=True)).to_be_visible()
@@ -627,6 +676,19 @@ with sync_playwright() as p:
     expect(owner_dashboard.get_by_text("Page 1 of 1")).to_be_visible()
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"giveaway-owner-participants-mobile.png")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#schedules")
+    expect(owner_dashboard.get_by_role("heading",name="Schedules",exact=True)).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Create a schedule draft")).to_be_visible()
+    expect(owner_dashboard.get_by_text("Weekly Convergence update",exact=False).first).to_be_visible()
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#schedule-a31c01cb-3f65-4b16-9178-c9d247de983e")
+    expect(owner_dashboard.get_by_role("heading",name="Edit a paused or unpublished schedule")).to_be_visible()
+    expect(owner_dashboard.get_by_role("button",name="Publish and activate")).to_be_visible()
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#schedule-a41c01cb-3f65-4b16-9178-c9d247de983e")
+    expect(owner_dashboard.get_by_role("heading",name="Unconfirmed delivery requires your decision")).to_be_visible()
+    expect(owner_dashboard.get_by_role("button",name="Retry this delivery")).to_be_visible()
+    expect(owner_dashboard.get_by_role("button",name="Skip this occurrence")).to_be_visible()
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"scheduled-messages-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#polls")
     expect(owner_dashboard.get_by_role("heading",name="Polls",exact=True)).to_be_visible()
     expect(owner_dashboard.get_by_role("heading",name="Create a new poll draft")).to_be_visible()

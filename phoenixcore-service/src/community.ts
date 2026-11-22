@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {requireThat,textValue} from './domain.ts';
 import type {Store,Query} from './db.ts';
 
-export const communityModules=['tags','suggestions','moderation','reminders','support','giveaways','roles','polls'] as const;
+export const communityModules=['tags','suggestions','moderation','reminders','support','giveaways','roles','polls','schedules'] as const;
 export const suggestionChannelId='1573908218260885614';
 export type CommunityModule=typeof communityModules[number];
 export type CommunityActor={id:string;isOwner:boolean;isStaff:boolean};
