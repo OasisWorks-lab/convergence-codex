@@ -6,6 +6,7 @@ import {communityEnabled} from './community.ts';
 import {staffIdentity} from './staff.ts';
 import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
 import {createSupportCase,addSupportMessage,transitionSupport,supportHistory,listSupportCases,blockSupportMember,supportAnalytics,type SupportKind} from './support.ts';
+import {searchSupportCases,listSupportTemplates,saveSupportTemplate,archiveSupportTemplate,previewSupportTemplate,submitSupportFeedback,supportInsights} from './support-workspace.ts';
 
 const str=(name:string,description:string,required=true,max_length?:number)=>({type:3,name,description,required,...(max_length?{max_length}:{})});
 const member={type:6,name:'member',description:'Convergence Discord member',required:true};
@@ -29,7 +30,26 @@ export const supportCommands=()=>[
     sub('reopen','Staff: reopen a closed/resolved case.',[caseOption]),
     sub('restrict','Owner: mark a case sensitive (Owner-only staff access).',[caseOption]),
     sub('block','Staff: restrict or restore a member’s general support intake.',[member,{type:5,name:'blocked',description:'Block new cases? Appeals still allowed',required:true},str('reason','Optional reason',false,300)]),
-    sub('stats','Staff: view general support caseload counts.')
+    sub('stats','Staff: view general support caseload counts.'),
+    sub('search','Search accessible support cases by subject and conversation.',[
+      str('query','Find text in accessible cases',false,120),
+      {type:3,name:'kind',description:'Case type',required:false,
+        choices:['ticket','modmail','report','appeal'].map(x=>({name:x,value:x}))},
+      {type:3,name:'status',description:'Case status',required:false,
+        choices:['Open','Claimed','Waiting for Member','Waiting for Staff','Resolved','Closed'].map(x=>({name:x,value:x}))}]),
+    sub('template-list','Staff: list active and archived saved reply templates.'),
+    sub('template-save','Staff: create or edit a saved reply (not sent to a member).',[
+      str('name','Saved reply identifier, e.g. account-help',true,40),
+      str('body','Template content. {{case}}, {{member}}, {{staff}} supported.',true,1800),
+      str('id','Existing template UUID when editing',false,36),
+      {type:4,name:'revision',description:'Existing template revision if editing',required:false,min_value:1}]),
+    sub('template-archive','Staff: archive a saved reply.',[
+      str('id','Saved reply UUID'),{type:4,name:'revision',description:'Current template revision',required:true,min_value:1}]),
+    sub('template-preview','Staff: privately preview a saved reply for one case.',[
+      caseOption,str('id','Saved reply UUID')]),
+    sub('feedback','Rate your own resolved SupportCase once.',[
+      caseOption,{type:4,name:'rating',description:'Rating from 1 to 5',required:true,min_value:1,max_value:5},
+      str('comment','Optional feedback comment',false,500)])
   ]}
 ];
 export const isSupportCommand=(name:string)=>name==='support';
@@ -89,10 +109,45 @@ export async function supportInteraction(db:Store,config:Config,body:any,discord
       await blockSupportMember(db,who,String(value('member')),value('blocked')===true,String(value('reason')||''));
       return respond('Support intake restriction updated. Moderation appeals remain accessible.');
     }
+    if(action==='search'){
+      const results=await searchSupportCases(db,who,{query:String(value('query')||''),
+        kind:String(value('kind')||''),status:String(value('status')||''),pageSize:12});
+      return respond('**Accessible SupportCases · '+results.total+' match(es)**\n'+
+        (results.cases.length?results.cases.map(c=>c.id+' · '+c.kind+' · '+c.status+' · '+c.summary.slice(0,70))
+          .join('\n'):'No matching cases.'));
+    }
+    if(action==='template-list'){
+      const templates=await listSupportTemplates(db,who);
+      return respond('**Saved replies (staff only)**\n'+(templates.length?
+        templates.slice(0,20).map(t=>t.name+' · r'+t.revision+(t.active?'':' · archived')+
+          ' · '+t.id).join('\n'):'No saved replies yet.'));
+    }
+    if(action==='template-save'){
+      const data={name:value('name'),body:value('body'),...(value('id')?{id:value('id')}:{}),
+        ...(value('revision')?{revision:value('revision')}:{} )};
+      const result=await saveSupportTemplate(db,who,data);
+      return respond('Saved reply **'+result.name+'** · revision '+result.revision+'. This did not send a DM.');
+    }
+    if(action==='template-archive'){
+      const result=await archiveSupportTemplate(db,who,String(value('id')||''),Number(value('revision')));
+      return respond('Saved reply archived at revision '+result.revision+'.');
+    }
+    if(action==='template-preview'){
+      const body=await previewSupportTemplate(db,who,String(value('id')||''),caseId);
+      return respond('**Private saved reply preview — nothing sent**\n'+body);
+    }
+    if(action==='feedback'){
+      const result=await submitSupportFeedback(db,who,caseId,
+        {rating:Number(value('rating')),comment:String(value('comment')||'')});
+      return respond('Your optional case feedback was recorded. Thank you.');
+    }
     if(action==='stats'){
-      const stats=await supportAnalytics(db,who);
+      const [stats,insights]=await Promise.all([supportAnalytics(db,who),supportInsights(db,who)]);
       return respond('Support Center · '+stats.total+' cases · '+stats.open+' active · '+stats.resolved+' resolved/closed.\n'+
-        Object.entries(stats.byStatus).map(([key,n])=>key+': '+n).join(' · '));
+        Object.entries(stats.byStatus).map(([key,n])=>key+': '+n).join(' · ')+
+        '\nWaiting for staff: '+insights.awaitingStaff+' · Opened in last 7 days: '+insights.openedLast7Days+
+        ' · Average resolution: '+(insights.averageResolutionHours??'N/A')+' hours'+
+        ' · Satisfaction: '+(insights.feedback.average??'N/A')+'/5 ('+insights.feedback.responses+' responses)');
     }
     return respond('Unknown Support Center action.');
   }catch(error){

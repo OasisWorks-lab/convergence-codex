@@ -422,3 +422,19 @@ Sales data comes from the existing authoritative `pc_shop_purchases` receipts, n
 
 A sale reflects **actual PhoenixCore checkout**, not arbitrary Discord messages, unpaid cart attempts, manually edited inventories, or in-character dialogue. Reporting is historical and read-only; it does not alter accounts, stock, refunds, transfers, or prize logic. As a scalability follow-up, servers with unusually large receipt volumes may want a durable pre-aggregated sales index, but the baseline has no additional reporting migrations or denormalized balances.
 
+
+
+## Support Center operations suite — case search, saved replies, feedback and insights
+
+This milestone **extends** the existing Unified Support Center rather than creating another ticket database. Authenticated members can search only cases and conversation events they are entitled to see, with type/status filters and 25-case pagination on the dashboard; staff also have a private `/support search` command. Sensitive cases stay hidden from other staff, and member searches cannot probe staff-only notes. Searches do not copy or publish private messages to public channels.
+
+The Owner, native Discord Administrators and configured Helpers can maintain **versioned saved reply templates**, inspect their history, archive/restore through new revisions, and privately preview the resolved `{{case}}`, `{{member}}`, `{{staff}}` placeholders. The website allows selecting a saved reply while writing an outward case message; it inserts draft text **without sending anything**. Only clicking the existing explicit Send DM action delivers a message through the existing case outbox. Neither a template save nor preview changes case activity or the four-hour inactivity deadline.
+
+After a case reaches **Resolved** or **Closed**, its requester can optionally submit one 1–5 satisfaction rating and a short comment. The rating is permission-checked and remains available even if the case is later reopened; no repeated scoring is allowed. Staff-only operations reporting includes case totals, cases awaiting staff, last-seven-day intake, average first staff reply and resolution durations (no-data is shown when unavailable), satisfaction average and recorded assignee workload. Helpers see only non-sensitive case aggregates; the Owner can see all case aggregates.
+
+Additive schema: `pc_support_feedback`, `pc_support_template_history`, and a backwards-compatible active state for the reserved `pc_support_templates` table. The existing `pc_support_cases`, event visibility, inbox/outbox, four-hour timer, and moderation system remain unchanged. Live Bot-Hosting deployment requires a backup and an intentional update/restart; automated GitHub tests alone do not prove live Discord delivery.
+
+## Character and design review authority
+
+Configured **Helpers can approve ordinary character submissions, character updates, judged training, techniques and items**; the Owner does **not** have to approve those individually. **Only the configured Owner can finally approve Race and Transformation submissions.** Helpers may still examine those submissions and recommend denial through the existing review process, with decisions and the Owner appeal path audited. The service enforces this restriction on the review transaction itself for both website and Discord actions, and both interfaces communicate the special Owner-approval requirement. This rule is separate from the Owner-only ability to change bot settings.
+

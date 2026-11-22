@@ -180,9 +180,10 @@ export function reviewMessage(r: ReturnType<typeof visibleRequest>, c: Config, s
   if(r.details?.approval) fields.push({name:'Approval requested',value:brief(r.details.approval,400)});
   if(r.judgment) fields.push({name:'Staff judgment',value:'<@'+r.judgment.judgeId+'> · '+brief(r.judgment.note,350)});
   if(r.award) fields.push({name:'Calculated award',value:'+'+r.award.gain+' BPL · +'+r.award.currency+' currency'+(r.award.stats?.length?' · '+r.award.stats.length+' stat gain(s)':'')});
+  if(['race','transformation'].includes(r.kind))fields.push({name:'Final approval authority',value:'Convergence Owner only. Helpers may review and recommend denial.'});
   const buttons=[];
   if(r.details?.scene)fields.push({name:'Training scene',value:r.details.scene});
-  if(r.status==='pending') buttons.push({type:2,style:3,label:'Approve',custom_id:'pc:approve:'+r.id});
+  if(r.status==='pending') buttons.push({type:2,style:3,label:['race','transformation'].includes(r.kind)?'Owner approve':'Approve',custom_id:'pc:approve:'+r.id});
   if(open)buttons.push({type:2,style:4,label:'Decline',custom_id:'pc:decline:'+r.id});
   if(ownerDm&&r.status==='owner_review'){
     buttons.push({type:2,style:4,label:'Uphold denial',custom_id:'pc:uphold:'+r.id+':'+decisionKey},{type:2,style:3,label:'Veto denial',custom_id:'pc:veto:'+r.id+':'+decisionKey});

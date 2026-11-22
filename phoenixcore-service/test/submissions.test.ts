@@ -40,8 +40,9 @@ test('new OCs and NPCs validate personal traits and long bios while partial edit
   await decide(db,owner.id,owner.id,edit.id,true);
   const saved=await sheet(db,legacy);assert.equal(saved.bio,'Original history');assert.equal(saved.family,'Sister returned');assert.equal(saved.wallet,'3');
 });
-test('four design types become approved catalogue records without granting a sheet, gear or transformation',async t=>{
+test('four design types respect Helper approval except Owner-only races and transformations',async t=>{
   const db=await fresh(t);
+  await db.query('UPDATE pc_config SET value=$1 WHERE slot=1',[JSON.stringify(settings)]);
   const designs={
     technique:{name:'Step',techType:'SPT',description:'Shift Ki into the soles.',requirements:'Steady focus',drawbacks:'One use per scene'},
     item:{name:'Sightglass',description:'A survey lens',effects:'Read energy traces',drawbacks:'Clear skies only',currentInt:'8',requiredInt:'50',designNotes:'A mentor can assist.'},
@@ -50,8 +51,13 @@ test('four design types become approved catalogue records without granting a she
   };
   for(const [kind,fields] of Object.entries(designs)){
     const r=await propose(db,writer,submit(kind,fields),active);assert.equal(r.status,'pending');
-    await assert.rejects(decide(db,judge.id,owner.id,r.id,true),/Only the configured owner/);
-    assert.equal((await decide(db,owner.id,owner.id,r.id,true)).status,'approved');
+    if(['race','transformation'].includes(kind)){
+      await assert.rejects(decide(db,judge.id,owner.id,r.id,true,[role]),/Only the Convergence Owner can approve Race or Transformation/);
+      assert.equal((await db.query('SELECT status FROM pc_requests WHERE id=$1',[r.id]))[0].status,'pending');
+      assert.equal((await decide(db,owner.id,owner.id,r.id,true)).status,'approved');
+    }else{
+      assert.equal((await decide(db,judge.id,owner.id,r.id,true,[role])).status,'approved');
+    }
   }
   assert.equal((await db.query('SELECT * FROM pc_characters')).length,0);
   assert.equal((await db.query("SELECT id FROM pc_requests WHERE status='approved'")).length,4);

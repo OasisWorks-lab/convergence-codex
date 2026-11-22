@@ -245,16 +245,61 @@ with sync_playwright() as p:
                 route.fulfill(json=edits[patch["key"]])
             elif url.path=="/api/support":
                 if route.request.method=="GET":
-                    route.fulfill(json={"staff":False,"owner":False,"stats":None,"cases":[{
-                        "id":"b21c01cb-3f65-4b16-9178-c9d247de983e","kind":"ticket","status":"Waiting for Staff",
-                        "summary":"A rules clarification","assignedId":None,"sensitive":False,"anonymous":False}]})
+                    cases=[{"id":"b21c01cb-3f65-4b16-9178-c9d247de983e","kind":"ticket",
+                        "status":"Waiting for Staff","summary":"A rules clarification",
+                        "assignedId":None,"sensitive":False,"anonymous":False},
+                        {"id":"b21c01cb-3f65-4b16-9178-c9d247de983f","kind":"ticket",
+                        "status":"Closed","summary":"Resolved issue","assignedId":None,
+                        "sensitive":False,"anonymous":False}]
+                    insights={"total":2,"active":1,"resolved":1,"awaitingStaff":1,
+                        "openedLast7Days":2,"averageFirstStaffReplyHours":1.5,
+                        "averageResolutionHours":2.0,
+                        "feedback":{"responses":1,"average":4.0},
+                        "workload":[{"staffId":"960000000000000003","total":2,"active":1,"resolved":1}]}
+                    route.fulfill(json={"staff":owner,"owner":owner,
+                        "stats":{"total":2,"open":1,"resolved":1} if owner else None,
+                        "insights":insights if owner else None,
+                        "templates":[{"id":"b31c01cb-3f65-4b16-9178-c9d247de983e",
+                            "name":"account-help","body":"Hello {{member}}, welcome to {{case}}",
+                            "revision":2,"active":True,"creatorId":"owner","updatedMs":1700000000000}] if owner else None,
+                        "cases":cases})
                 else: route.fulfill(json={"ok":True,"result":{"id":"b21c01cb-3f65-4b16-9178-c9d247de983e"}})
-            elif url.path=="/api/support/b21c01cb-3f65-4b16-9178-c9d247de983e":
-                route.fulfill(json={"case":{"id":"b21c01cb-3f65-4b16-9178-c9d247de983e",
-                    "kind":"ticket","status":"Waiting for Staff","summary":"A rules clarification",
-                    "isStaff":False,"sensitive":False,"assignedId":None},
+            elif url.path=="/api/support/search":
+                items=[{"id":"b21c01cb-3f65-4b16-9178-c9d247de983e",
+                    "kind":"ticket","status":"Waiting for Staff","summary":"A rules clarification"},
+                    {"id":"b21c01cb-3f65-4b16-9178-c9d247de983f",
+                    "kind":"ticket","status":"Closed","summary":"Resolved issue"}]
+                term=url.query.lower()
+                if "resolved" in term:items=items[1:]
+                route.fulfill(json={"total":len(items),"page":1,"pages":1,"pageSize":25,"cases":items})
+            elif url.path=="/api/support/templates":
+                assert owner, "Saved replies require support staff."
+                if route.request.method=="GET":route.fulfill(json={"templates":[]})
+                else:
+                    action=route.request.post_data_json.get("action")
+                    route.fulfill(json={"result":{"id":"b31c01cb-3f65-4b16-9178-c9d247de983e",
+                        "revision":3,"body":"Hello Convergence!","active":action!="archive"}})
+            elif url.path=="/api/support/templates/b31c01cb-3f65-4b16-9178-c9d247de983e/history":
+                assert owner
+                route.fulfill(json={"history":[{"revision":2,"name":"account-help",
+                    "body":"Hello {{member}}","active":True,"actorId":"owner",
+                    "changedMs":1700000000000}]})
+            elif url.path.startswith("/api/support/feedback/"):
+                if route.request.method=="GET":
+                    route.fulfill(json={"caseId":url.path.split("/")[-1],"closed":True,
+                        "maySubmit":not owner,"feedback":None})
+                else:route.fulfill(json={"recorded":True})
+            elif url.path in ("/api/support/b21c01cb-3f65-4b16-9178-c9d247de983e",
+                             "/api/support/b21c01cb-3f65-4b16-9178-c9d247de983f"):
+                closed=url.path.endswith("983f")
+                route.fulfill(json={"case":{"id":url.path.split("/")[-1],
+                    "kind":"ticket","status":"Closed" if closed else "Waiting for Staff",
+                    "summary":"Resolved issue" if closed else "A rules clarification",
+                    "isStaff":owner,"sensitive":False,"assignedId":None},
                     "events":[{"type":"opened","text":"Could you explain the guideline?",
-                               "createdMs":1700000000000,"authorId":"writer"}]})
+                               "createdMs":1700000000000,"authorId":"writer"}],
+                    "feedback":{"maySubmit":closed and not owner,
+                        "feedback":None}})
             elif url.path=="/api/community/roles":
                 if route.request.method=="GET":
                     route.fulfill(json={"owner":owner,"enabled":True,"panels":[{
@@ -435,9 +480,15 @@ with sync_playwright() as p:
     again.goto("https://codex.test/phoenixcore/index.html#support")
     expect(again.get_by_role("heading",name="Support Center",exact=True)).to_be_visible()
     expect(again.get_by_text("A rules clarification",exact=False)).to_be_visible()
-    again.get_by_role("link",name="A rules clarification",exact=False).click()
+    expect(again.get_by_role("heading",name="Search accessible cases")).to_be_visible()
+    assert again.get_by_role("heading",name="Staff saved replies").count()==0
+    assert again.get_by_role("heading",name="Support operations").count()==0
+    again.locator('a.request-row[href="#support-b21c01cb-3f65-4b16-9178-c9d247de983e"]').first.click()
     expect(again.get_by_role("heading",name="SupportCase",exact=False)).to_be_visible()
     expect(again.get_by_text("Could you explain the guideline?")).to_be_visible()
+    again.goto("https://codex.test/phoenixcore/index.html#support-b21c01cb-3f65-4b16-9178-c9d247de983f")
+    expect(again.get_by_role("heading",name="Optional case feedback")).to_be_visible()
+    expect(again.locator('#support-feedback-form select[name="rating"]')).to_have_count(1)
     again.goto("https://codex.test/phoenixcore/index.html#roles")
     expect(again.get_by_role("heading",name="Role Panels",exact=True)).to_be_visible()
     again.get_by_role("link",name="Member Badges",exact=False).click()
@@ -483,6 +534,16 @@ with sync_playwright() as p:
     expect(owner_dashboard.get_by_text("4 recorded selections",exact=False)).to_be_visible()
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"role-panels-owner-mobile.png")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#support")
+    expect(owner_dashboard.get_by_role("heading",name="Support operations")).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Search accessible cases")).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Staff saved replies")).to_be_visible()
+    owner_dashboard.locator('#support-template-picker').select_option("b31c01cb-3f65-4b16-9178-c9d247de983e")
+    expect(owner_dashboard.locator('#support-template-form input[name="name"]')).to_have_value("account-help")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#support-b21c01cb-3f65-4b16-9178-c9d247de983e")
+    expect(owner_dashboard.locator('[data-support-template-insert]')).to_have_count(1)
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"support-owner-operations-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#shops")
     expect(owner_dashboard.get_by_role("heading",name="Sales overview")).to_be_visible()
     expect(owner_dashboard.get_by_text("625 Zeni",exact=False)).to_be_visible()
