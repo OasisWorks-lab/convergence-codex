@@ -27,7 +27,7 @@ export async function npcCompletion(config:NpcAiConfig,instructions:string,input
       method:'POST',signal:AbortSignal.timeout(23000),headers:{'x-goog-api-key':config.key,'Content-Type':'application/json'},
       body:JSON.stringify({systemInstruction:{parts:[{text:instructions}]},
         contents:[{role:'user',parts:[{text:JSON.stringify(input)}]}],
-        generationConfig:{maxOutputTokens:limit,temperature:0.95}})});
+        generationConfig:{maxOutputTokens:limit,temperature:0.95,...(config.model==='gemini-2.5-flash'?{thinkingConfig:{thinkingBudget:0}}:{})}})});
   }
   if(!response.ok)return null;
   const data:any=await response.json();
