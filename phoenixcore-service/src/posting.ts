@@ -11,6 +11,7 @@ import type { Store } from './db.ts';
 import { Discord, handleInteraction, type Config } from './discord.ts';
 import {receiveSupportDm} from './support-dm.ts';
 import {communityEnabled} from './community.ts';
+import {observeAutomod} from './automod.ts';
 import {applyRoleReaction,captureStickyRoles,restoreStickyRoles} from './role-persistence.ts';
 
 const channelIds=(settings:Settings)=>settings.rpChannels.split(/\s+/).filter(Boolean);
@@ -225,6 +226,10 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
     let settings:Settings;
     try{
       settings=(await readSettings(db)).value;
+      try{
+        await observeAutomod(db,config,{id:message.id,guildId:message.guildId,
+          channelId:message.channelId,userId:message.author.id,roles,content:message.content});
+      }catch{console.warn('Automod audit observation failed; player posting remains available.');}
       if(await captureNative(db,config,{id:message.id,channel:message.channelId,parent:thread?.parentId||undefined,title:thread?.id===message.id?thread.name:'',guild:message.guildId,author:message.author.id,roles,content:message.content,attachments:[...message.attachments.values()],reply:!!message.reference},'',settings))return;
       const prefix=settings.commandPrefixes.split(/\s+/).filter(Boolean).sort((a,b)=>b.length-a.length).find(p=>message.content.startsWith(p));
       if(prefix){
