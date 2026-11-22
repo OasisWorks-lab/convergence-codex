@@ -72,6 +72,13 @@ export async function bankAction(db:Store,actor:Actor,input:any){
     }
     const [character]=await q('SELECT owner_id,revision,sheet FROM pc_characters WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[input.characterId]);
     requireThat(character && character.owner_id===actor.id,403,'Select one of your approved characters.');
+    const [raced]=await q('SELECT fingerprint FROM pc_economy_transactions WHERE id=$1',[input.id]);
+    if(raced){
+      requireThat(raced.fingerprint===fingerprint,409,'This transaction ID was used for a different action.');
+      const [receipt]=await q('SELECT cash_after,bank_after FROM pc_economy_entries WHERE transaction_id=$1 AND character_id=$2',[input.id,input.characterId]);
+      requireThat(receipt,409,'The existing transaction belongs to a different character.');
+      return {id:input.id,cash:receipt.cash_after,bank:receipt.bank_after,replayed:true};
+    }
     const sheet=JSON.parse(character.sheet);
     await ensureAccount(q,input.characterId,sheet);
     const [account]=await q('SELECT cash,bank FROM pc_economy_accounts WHERE character_id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[input.characterId]) as Account[];
