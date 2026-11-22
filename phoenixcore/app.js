@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='';
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -454,12 +454,68 @@ function formList(raw){
       field('currency','Currency display name',s.currency,{max:32,required:true})+'</div><div class="actions"><button class="primary">Save settings</button></div></form><section id="live-scope" class="panel dossier">'+scopePanel(state.scope,s.rpDivider)+'</section>'+npcAiCapacity()+'<section class="stack dossier"><h2>Discord embeds</h2>'+embedForm('guidelines')+embedForm('welcome')+'</section>'+
       (state.canEditPaths?'<details class="panel dossier"><summary>Character paths by race</summary>'+currentRaces().map(r=>'<details><summary>'+h(r.name)+'</summary>'+editPaths(r)+'</details>').join('')+'</details>':'');
   }
+  async function communityRefresh(){
+    if(communityLoading||demo||!session)return;
+    communityLoading=true;
+    try{
+      communityData=await call('/api/community');
+      if(route()==='community')render();
+    }catch(e){tell(e.message,true);}
+    finally{communityLoading=false;}
+  }
+  function community(){
+    if(demo)return title('Community','Informational tags and member suggestions appear here after connecting to the live PhoenixCore service.')+
+      '<section class="panel"><p>Sign in to the live service to browse approved tags and submit suggestions. Practice mode does not write server data.</p></section>';
+    if(!communityData){
+      void communityRefresh();
+      return title('Community','Server information and member suggestions.')+'<section class="panel"><p>Loading community content…</p></section>';
+    }
+    const data=communityData,staff=data.staff,owner=data.owner,active=data.modules||{};
+    const tags=(data.tags||[]).map(item=>'<article class="panel dossier community-tag" data-community-name="'+h(item.name)+'"><h3>'+h(item.name)+'</h3><p class="prewrap">'+h(item.body)+'</p><small class="muted">Revision '+h(item.revision)+'</small></article>').join('');
+    const suggestions=(data.suggestions||[]).map(item=>
+      '<article class="panel dossier"><h3>'+h(item.title)+'</h3><p class="prewrap">'+h(item.body)+'</p>'+
+      '<p><strong>'+h(item.status)+'</strong> · 👍 '+h(item.upvotes)+' · 👎 '+h(item.downvotes)+'</p>'+
+      (item.staff_response?'<p class="prewrap"><b>Staff response:</b> '+h(item.staff_response)+'</p>':'')+
+      '<div class="actions"><button type="button" data-community-vote="1" data-suggestion-id="'+h(item.id)+'">👍 Upvote</button>'+
+      '<button type="button" data-community-vote="-1" data-suggestion-id="'+h(item.id)+'">👎 Downvote</button>'+
+      '<button type="button" data-community-vote="0" data-suggestion-id="'+h(item.id)+'">Remove vote</button></div>'+
+      (staff?'<form class="community-review-form form" data-id="'+h(item.id)+'"><label class="field"><span>Decision</span><select name="status">'+
+        ['Pending','Under Review','Approved','Denied','Implemented'].map(option=>'<option value="'+h(option)+'"'+(item.status===option?' selected':'')+'>'+h(option)+'</option>').join('')+
+        '</select></label>'+field('response','Official staff response',item.staff_response||'',{area:true,max:950,wide:true})+'<button class="primary">Save decision</button></form>':'')+
+      '</article>').join('');
+    const proposalCards=staff?(data.proposals||[]).map(p=>'<article class="panel dossier"><h3>'+h(p.name)+'</h3><p class="prewrap">'+h(p.body)+'</p>'+
+      '<p class="muted">Submitted by '+h(p.author_id)+'</p><div class="actions"><button type="button" data-community-proposal="approve" data-proposal-id="'+h(p.id)+'">Approve</button>'+
+      '<button type="button" data-community-proposal="decline" data-proposal-id="'+h(p.id)+'">Decline</button></div></article>').join(''):'';
+    return title('Community','Share server knowledge and vote on ideas without replacing character roleplay tags.')+
+      (owner?'<section class="panel dossier"><h2>Module switches</h2><p>Changes are owner-only and do not delete existing records.</p>'+
+        ['tags','suggestions'].map(m=>'<label class="field"><span>'+h(m)+' enabled</span><input type="checkbox" data-community-toggle="'+m+'"'+(active[m]?' checked':'')+'></label>').join('')+'</section>':'')+
+      (active.tags?'<section class="stack"><h2>Informational tags</h2><p>Published answers, guides and server references.</p>'+
+        '<label class="field"><span>Search tags</span><input id="community-search" type="search" placeholder="Find a topic…"></label>'+
+        (tags||'<section class="panel"><p>No information tags have been published yet.</p></section>')+
+        '<section class="panel dossier"><h3>'+(staff?'Publish or update an information tag':'Propose an information tag')+'</h3>'+
+        '<form id="community-tag-form" class="form">'+field('name','Short tag name','',{required:true,max:40})+
+        field('content','Useful content','',{required:true,area:true,wide:true,max:1600})+
+        '<button class="primary">'+(staff?'Publish tag':'Send proposal')+'</button></form></section>'+
+        (staff?'<section class="stack"><h3>Pending tag proposals</h3>'+(proposalCards||'<p>No pending tag proposals.</p>')+
+          '<form id="community-rollback-form" class="panel form">'+field('name','Tag to restore','',{required:true,max:40})+
+          field('revision','Previous revision','',{required:true,max:8,numeric:true})+'<button class="primary">Restore version</button></form></section>':'')+'</section>':
+        '<section class="panel"><h2>Informational tags</h2><p>This module is disabled.</p></section>')+
+      (active.suggestions?'<section class="stack"><h2>Member suggestions</h2>'+(suggestions||'<section class="panel"><p>No suggestions have been submitted yet.</p></section>')+
+        '<section class="panel dossier"><h3>Submit a suggestion</h3><form id="community-suggest-form" class="form">'+
+        field('title','Suggestion title','',{required:true,max:120})+
+        field('content','What should be improved?','',{required:true,area:true,wide:true,max:1800})+
+        '<label class="field"><span><input name="anonymous" type="checkbox"> Post anonymously to regular members</span></label>'+
+        '<button class="primary">Submit suggestion</button></form></section></section>':
+        '<section class="panel"><h2>Suggestions</h2><p>This module is disabled.</p></section>')+
+      '<section class="panel dossier"><p>Want to post a public tag or launch an interactive vote inside Discord? Use /tag and /suggest. Character posting tags are a separate system.</p></section>';
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
     const r=route();
     if(r==='directory')view.innerHTML=directory();
     else if(r==='npcs')view.innerHTML=npcDirectory();
+    else if(r==='community')view.innerHTML=community();
     else if(r==='requests'||r==='archived')view.innerHTML=requestList(r==='archived');
     else if(r==='settings')view.innerHTML=settings();
     else if(r==='new'||r.startsWith('new-'))view.innerHTML=editor(r==='new'?'create':r.slice(4));
@@ -524,10 +580,22 @@ function formList(raw){
     if(e.target.closest('.attained-row'))syncForms(e.target.form);
     if(e.target.name==='lineage')refreshChoices(e.target.form);
     if(e.target.id==='filter')filterPlayers();
+    if(e.target.id==='community-search'){
+      const word=e.target.value.trim().toLowerCase();
+      document.querySelectorAll('.community-tag').forEach(card=>{card.hidden=!card.dataset.communityName.includes(word)&&!card.textContent.toLowerCase().includes(word);});
+    }
     if(e.target.form?.id==='submissionForm' && !e.target.matches('[data-media-file]')){recordDraft();tierFeedback();syncEditMode(e.target.form);}
     if(e.target.form?.id==='awardForm')estimate();
   });
   document.addEventListener('change',async e=>{
+    if(e.target.matches('[data-community-toggle]')){
+      const control=e.target,module=control.dataset.communityToggle;
+      try{
+        await call('/api/community','POST',{action:'module-set',module,enabled:control.checked});
+        communityData=null;await communityRefresh();tell(module+' module updated.');
+      }catch(error){control.checked=!control.checked;tell(error.message,true);}
+      return;
+    }
     if(e.target.matches('[data-lineage]')){
       const f=e.target.form,custom=e.target.value==='__custom',input=f.elements.lineage;
       input.closest('label').hidden=!custom;input.value=custom?'':e.target.value;if(custom)input.focus();
@@ -566,6 +634,24 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const communityVote=e.target.closest('[data-community-vote]');
+    if(communityVote){
+      try{
+        await call('/api/community','POST',{action:'suggest-vote',id:communityVote.dataset.suggestionId,choice:Number(communityVote.dataset.communityVote)});
+        communityData=null;await communityRefresh();tell('Your vote was saved.');
+      }catch(error){tell(error.message,true);}
+      return;
+    }
+    const communityProposal=e.target.closest('[data-community-proposal]');
+    if(communityProposal){
+      try{
+        const decision=communityProposal.dataset.communityProposal,id=communityProposal.dataset.proposalId;
+        if(!confirm((decision==='approve'?'Publish':'Decline')+' this informational tag proposal?'))return;
+        await call('/api/community','POST',{action:'tag-review',id,decision});
+        communityData=null;await communityRefresh();tell('Tag proposal reviewed.');
+      }catch(error){tell(error.message,true);}
+      return;
+    }
     const move=e.target.closest('[data-move-form]');
     if(move){
       const row=move.closest('.attained-row'),parent=row.parentElement,up=move.dataset.moveForm==='up',sibling=up?row.previousElementSibling:row.nextElementSibling;
@@ -638,7 +724,7 @@ function formList(raw){
         if(demo)preview.archive(id,archived);else await call('/api/requests/'+id+'/archive','POST',{archived});
         await load();go(archived?'archived':'requests');tell(archived?'Request archived.':'Request restored.');return;
       }
-      if(action==='logout'){await call('/api/logout','POST',{});store.remove('session');drafts.clear();session='';state=null;location.replace(location.pathname+'#directory');location.reload();return;}
+      if(action==='logout'){await call('/api/logout','POST',{});store.remove('session');drafts.clear();session='';state=null;communityData=null;location.replace(location.pathname+'#directory');location.reload();return;}
       if(demo&&(action==='demo-approve'||action==='demo-decline')){preview.decision(route().slice(8),action==='demo-approve');await load();tell('Practice decision recorded.');}
     }catch(err){tell(err.message,true);}
   });
@@ -661,6 +747,27 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(!['community-tag-form','community-suggest-form','community-rollback-form'].includes(f.id)&&!f.classList.contains('community-review-form'))return;
+    e.preventDefault();
+    if(demo){tell('Practice mode cannot publish community content.');return;}
+    const fields=Object.fromEntries(new FormData(f));
+    const action=f.id==='community-tag-form'?(communityData?.staff?'tag-save':'tag-propose'):
+      f.id==='community-suggest-form'?'suggest-create':
+      f.id==='community-rollback-form'?'tag-rollback':'suggest-review';
+    const payload={action,...fields};
+    if(action==='tag-save'||action==='tag-propose')payload.content=fields.content;
+    if(action==='suggest-create')payload.anonymous=fields.anonymous==='on';
+    if(action==='tag-rollback')payload.revision=Number(fields.revision);
+    if(action==='suggest-review')payload.id=f.dataset.id;
+    const submit=f.querySelector('button.primary');if(submit?.disabled)return;if(submit)submit.disabled=true;
+    try{
+      await call('/api/community','POST',payload);
+      communityData=null;await communityRefresh();tell('Community changes saved.');
+    }catch(error){tell(error.message,true);}
+    finally{if(submit)submit.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;if(!['submissionForm','awardForm','settingsForm','defaultForm','attributionForm'].includes(f.id)&&!f.matches('.tag-form,.race-path-form,.embed-form'))return;
     e.preventDefault();const submit=f.querySelector('button.primary');if(submit.disabled)return;

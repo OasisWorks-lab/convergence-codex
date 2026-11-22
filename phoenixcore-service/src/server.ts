@@ -20,6 +20,8 @@ import { aiOptions } from './npc-voice.ts';
 import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
 import {deliverScenePanel} from './npc-panel.ts';
 import {freeProviderStatus} from './npc-ai-router.ts';
+import {communityActor,communityModules,communityEnabled,communitySetModule,saveTag,tagAlias,tagRollback,proposeTag,pendingTagProposals,reviewTag,createSuggestion,voteSuggestion,reviewSuggestion,listSuggestions,type CommunityModule} from './community.ts';
+import {deliverCommunityNotice} from './community-delivery.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -210,6 +212,49 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       if(method==='POST'&&path==='/api/announcements'){
         json(res,200,await announcement(db,discord,actor,parse(await rawBody(req))));return;
       }
+      if(path==='/api/community'&&(method==='GET'||method==='POST')){
+        const roleRows=actor.isOwner||actor.isJudge?[]:await discord.call('/guilds/'+config.guild+'/roles').catch(()=>[]);
+        const isAdmin=!actor.isOwner&&roleRows.some((r:any)=>member.roles.includes(r.id)&&/^\d+$/.test(String(r.permissions))&&(BigInt(r.permissions)&8n)!==0n);
+        const who=communityActor(actor.id,member.roles,isAdmin?'8':'0',config.owner,settings.value.judgeRole);
+        const flags=Object.fromEntries(await Promise.all(communityModules.map(async m=>[m,await communityEnabled(db,m)])));
+        if(method==='GET'){
+          const tags=flags.tags?await db.query('SELECT name,body,revision FROM pc_info_tags WHERE active=1 ORDER BY name LIMIT 200'):[];
+          const suggestions=flags.suggestions?await listSuggestions(db):[];
+          const proposals=who.isStaff&&flags.tags?await pendingTagProposals(db,who):[];
+          json(res,200,{modules:flags,staff:who.isStaff,owner:who.isOwner,tags,suggestions,proposals});return;
+        }
+        const input=parse(await rawBody(req,12288));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input)&&typeof input.action==='string',400,'Choose a community action.');
+        if(input.action==='module-set'){
+          requireThat(communityModules.includes(input.module),400,'Unknown module.');
+          requireThat(typeof input.enabled==='boolean',400,'Choose true or false.');
+          await communitySetModule(db,who,input.module as CommunityModule,input.enabled);
+          json(res,200,{ok:true});return;
+        }
+        if(input.action.startsWith('tag-')){
+          requireThat(flags.tags,403,'Informational tags are disabled.');
+          let result:any;
+          if(input.action==='tag-propose')result={id:await proposeTag(db,who,input.name,input.content)};
+          else if(input.action==='tag-save')result=await saveTag(db,who,input.name,input.content);
+          else if(input.action==='tag-alias')result={name:await tagAlias(db,who,input.name,input.alias)};
+          else if(input.action==='tag-rollback')result=await tagRollback(db,who,input.name,Number(input.revision));
+          else if(input.action==='tag-review')result=await reviewTag(db,who,input.id,input.decision,input.note||'');
+          else throw new Problem(400,'Unknown tag action.');
+          json(res,200,{ok:true,result});return;
+        }
+        if(input.action.startsWith('suggest-')){
+          requireThat(flags.suggestions,403,'Suggestions are disabled.');
+          let result:any;
+          if(input.action==='suggest-create')result={id:await createSuggestion(db,who,input.title,input.content,input.anonymous===true)};
+          else if(input.action==='suggest-vote'){
+            requireThat([-1,0,1].includes(input.choice),400,'Choose a ballot.');
+            result={ok:await voteSuggestion(db,who,input.id,input.choice)};
+          }else if(input.action==='suggest-review')result=await reviewSuggestion(db,who,input.id,input.status,input.response||'');
+          else throw new Problem(400,'Unknown suggestion action.');
+          json(res,200,{ok:true,result});return;
+        }
+        throw new Problem(400,'Unknown community action.');
+      }
       const decision=/^\/api\/requests\/([\da-f-]{36})\/decision$/.exec(path);
       if(method==='POST'&&decision){
         const input=parse(await rawBody(req));requireThat(['approve','decline','uphold','veto'].includes(input?.action),400,'Choose a review action.');
@@ -333,6 +378,7 @@ async function start() {
       await nicknameJob(db,discord);
       await provisionNext(db,discord,value.updatesForum);
       for(let i=0;i<8;i++) if(!await deliverNext(db,discord)) break;
+      for(let i=0;i<4;i++) if(!await deliverCommunityNotice(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}
