@@ -160,12 +160,13 @@ export async function concludeGiveaway(db:Store,id:string,actorId:string,fetchMe
     return {id,drawn:true,winners:selected,drawId};
   });
 }
-export async function manualGiveawayWinner(db:Store,id:string,who:StaffIdentity,userId:string,now=Date.now()){
+export async function manualGiveawayWinner(db:Store,id:string,who:StaffIdentity,userId:string,member:any,now=Date.now()){
   requireThat(who.isOwner,403,'Only the Owner can manually select a winner.');
   requireThat(discordId.test(userId),400,'Choose a Discord member.');
   return db.transaction(async q=>{
     const [g]=await q('SELECT * FROM pc_giveaways WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
     requireThat(g&&g.status==='ended',409,'Manual winner selection requires an ended giveaway.');
+    requireThat(giveawayEligibleMember(userId,member,g).eligible,403,'Manual winners must meet the giveaway eligibility rules at selection time.');
     const [prior]=await q('SELECT user_id FROM pc_giveaway_winners WHERE giveaway_id=$1 AND user_id=$2',[id,userId]);
     requireThat(!prior,409,'A previous winner cannot win again in this giveaway.');
     const [entry]=await q('SELECT active FROM pc_giveaway_entries WHERE giveaway_id=$1 AND user_id=$2',[id,userId]);
@@ -217,11 +218,12 @@ export async function rerollGiveawaySlot(db:Store,id:string,slot:number,actorId:
     return {id,slot,exhausted:false,winner,round};
   });
 }
-export async function claimGiveaway(db:Store,id:string,userId:string,characterId?:string,now=Date.now()){
+export async function claimGiveaway(db:Store,id:string,userId:string,characterId?:string,member?:any,now=Date.now()){
   requireThat(discordId.test(userId),400,'Discord member required.');
   return db.transaction(async q=>{
     const [g]=await q('SELECT * FROM pc_giveaways WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
     requireThat(g&&g.status==='ended',409,'This giveaway cannot currently be claimed.');
+    requireThat(giveawayEligibleMember(userId,member,g).eligible,403,'The winner must remain eligible at claim time.');
     const [winner]=await q('SELECT * FROM pc_giveaway_winners WHERE giveaway_id=$1 AND user_id=$2'+(db.dialect==='postgres'?' FOR UPDATE':''),[id,userId]);
     requireThat(winner,403,'You were not selected as a winner of this giveaway.');
     if(winner.status==='claimed'||winner.status==='claim_pending')return {claimed:winner.status==='claimed',pending:winner.status==='claim_pending',replayed:true};
