@@ -198,6 +198,56 @@ test('unclaimed and pending-manual awards block retention deletion until claim/r
   assert.equal((await db.query('SELECT id FROM pc_giveaways WHERE id=$1',[g.id])).length,0);
 });
 
+
+test('giveaway winner can claim with a private Discord character picker, never paying the wrong character',async t=>{
+  const db=await setup(t),now=Date.now(),g=await createGiveaway(db,helper,input(now,{winnerCount:1,requiredRoles:[]}));
+  await giveawayEntry(db,g.id,memberId,normal(memberId),true,now+1000);
+  await concludeGiveaway(db,g.id,helperId,lookup,now+60001);
+  const first=randomUUID(),second=randomUUID(),outsider=randomUUID();
+  await createChar(db,first,memberId);await createChar(db,second,memberId);await createChar(db,outsider,extraId);
+  const discord:any={call:async(path:string)=>people[path.split('/').pop()]||null};
+  const interact=(userId:string,action:string,values?:string[])=>({
+    guild_id:guild,channel_id:channel,member:{user:{id:userId}},data:{custom_id:'pcg:'+action+':'+g.id,...(values?{values}:{})}
+  });
+  const other=await giveawayButton(db,config,interact(extraId,'claim'),discord);
+  assert.match(other.data.content,/Only a selected winner/);
+  const prompt=await giveawayButton(db,config,interact(memberId,'claim'),discord);
+  assert.equal(prompt.type,4);assert.equal(prompt.data.flags,64);
+  const chooser=prompt.data.components[0].components[0];
+  assert.equal(chooser.type,3);assert.equal(chooser.options.length,2);
+  assert.deepEqual(new Set(chooser.options.map((o:any)=>o.value)),new Set([first,second]));
+  const wrong=await giveawayButton(db,config,interact(memberId,'choose',[outsider]),discord);
+  assert.match(wrong.data.content,/approved player characters/);
+  assert.equal((await db.query("SELECT id FROM pc_economy_transactions WHERE kind='giveaway_prize'")).length,0);
+  const awarded=await giveawayButton(db,config,interact(memberId,'choose',[second]),discord);
+  assert.match(awarded.data.content,/deposited/);
+  assert.equal((await db.query('SELECT bank FROM pc_economy_accounts WHERE character_id=$1',[second]))[0].bank,'750');
+  assert.equal((await db.query("SELECT id FROM pc_economy_transactions WHERE kind='giveaway_prize'")).length,1);
+  const duplicate=await giveawayButton(db,config,interact(memberId,'choose',[second]),discord);
+  assert.match(duplicate.data.content,/already recorded/);
+  assert.equal((await db.query("SELECT id FROM pc_economy_transactions WHERE kind='giveaway_prize'")).length,1);
+  const done=await giveawayButton(db,config,interact(memberId,'claim'),discord);
+  assert.match(done.data.content,/already been recorded/);
+  const message=giveawayMessage(await giveawayPublic(db,g.id));
+  assert.equal(message.components.length,0);
+});
+
+test('manual giveaway prize claim button does not bypass staff delivery confirmation',async t=>{
+  const db=await setup(t),now=Date.now(),g=await createGiveaway(db,helper,input(now,{
+    requiredRoles:[],winnerCount:1,prizeKind:'manual',prizeText:'Community title',zeniAmount:undefined
+  }));
+  await giveawayEntry(db,g.id,memberId,normal(memberId),true,now+1000);
+  await concludeGiveaway(db,g.id,helperId,lookup,now+60001);
+  const message=giveawayMessage(await giveawayPublic(db,g.id));
+  assert.equal(message.components[0].components[0].custom_id,'pcg:claim:'+g.id);
+  const discord:any={call:async(path:string)=>people[path.split('/').pop()]||null};
+  const action={guild_id:guild,channel_id:channel,member:{user:{id:memberId}},data:{custom_id:'pcg:claim:'+g.id}};
+  const result=await giveawayButton(db,config,action,discord);
+  assert.match(result.data.content,/pending staff delivery/);
+  assert.equal((await db.query('SELECT status FROM pc_giveaway_winners WHERE giveaway_id=$1',[g.id]))[0].status,'claim_pending');
+  assert.equal((await db.query("SELECT id FROM pc_economy_transactions WHERE kind='giveaway_prize'")).length,0);
+});
+
 test('staff edits open giveaway details with optimistic revisions, audited public message refresh and no prize mutation',async t=>{
   const db=await setup(t),now=Date.now(),created=await createGiveaway(db,helper,input(now));
   const id=created.id,initial=await giveawayPublic(db,id);
