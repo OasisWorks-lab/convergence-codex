@@ -250,6 +250,10 @@ export async function decide(db:Store,reviewer:string,ownerId:string,id:string,a
     requireThat(existing,404,'Unknown request.');
     requireThat(existing.status!=='archived',409,'This request is archived. Restore it in PhoenixCore to resume review.');
     if(!['pending','awaiting_judge','needs_details','owner_review'].includes(existing.status))return visibleRequest(existing);
+    // TODO: Race and Transformation approvals are reserved for the Owner; Helpers may approve all other eligible requests.
+    if(approve&&['race','transformation'].includes(existing.kind)&&!owner)
+      requireThat(false,403,'Only the Convergence Owner can approve Race or Transformation submissions.');
+
     let target=approve?'approved':'declined';
     if(existing.status==='owner_review'){
       requireThat(owner&&['uphold','veto'].includes(action),403,'The owner must uphold or veto the Helper denial.');
