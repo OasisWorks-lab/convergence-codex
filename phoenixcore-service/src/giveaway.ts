@@ -3,6 +3,7 @@ import {Problem,requireThat,textValue,discordId} from './domain.ts';
 import type {Store,Query} from './db.ts';
 import type {StaffIdentity} from './staff.ts';
 import {balance,giveawayBankCredit} from './economy.ts';
+import {DiscordFailure} from './discord.ts';
 
 export const giveawayStatuses=['scheduled','active','paused','ended','cancelled'] as const;
 export type GiveawayStatus=typeof giveawayStatuses[number];
@@ -128,7 +129,12 @@ export async function validatedPool(db:Store,id:string,fetchMember:(userId:strin
     db.query('SELECT user_id FROM pc_giveaway_winners WHERE giveaway_id=$1',[id])]);
   const excluded=new Set(prior.map(row=>row.user_id));
   const snapshot=await Promise.all(entries.map(async row=>{
-    let member:any=null;try{member=await fetchMember(row.user_id);}catch{}
+    let member:any=null;
+    try{member=await fetchMember(row.user_id);}
+    catch(error){
+      if(error instanceof DiscordFailure&&error.status===404)member=null;
+      else throw error;
+    }
     const eligible=giveawayEligibleMember(row.user_id,member,g);
     const final=Number(row.active)===1&&!excluded.has(row.user_id)&&eligible.eligible;
     return {userId:row.user_id,eligible:final,booster:final&&eligible.booster,tickets:final?(eligible.booster?3:1):0,
