@@ -457,6 +457,25 @@ h3 {
   gap:20px;
 }
 
+.shop-stock-row {
+  flex-wrap:wrap;
+}
+
+.shop-stock-row span:first-child {
+  min-width:0;
+  flex:1 1 200px;
+  overflow-wrap:anywhere;
+}
+
+.shop-stock-row span:nth-child(2) {
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+
+.shop-stock-row button {
+  max-width:100%;
+}
+
 .role-panel-option {
   flex-wrap:wrap;
   align-items:center;
