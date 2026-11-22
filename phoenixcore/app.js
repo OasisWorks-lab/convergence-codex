@@ -769,6 +769,12 @@ function formList(raw){
         '<p>Shop revision '+h(shop.revision)+' · Only approved Helpers or Owner can save changes.</p>'+
         '<div class="actions"><button type="button" data-shop-action="status" data-shop-id="'+h(shop.id)+'" data-shop-revision="'+h(shop.revision)+'" data-shop-open="'+(shop.status!=='open')+'">'+
         (shop.status==='open'?'Close shop':'Open shop')+'</button></div>'+
+        '<form id="shop-keeper-form" class="form" data-id="'+h(shop.id)+'" data-revision="'+h(shop.revision)+'">'+
+        '<h3>Shopkeeper</h3>'+
+        shopkeeperControls(data,shop.ownerNpcId&&(data.npcOptions||[]).some(n=>n.id===shop.ownerNpcId)?
+          shop.ownerNpcId:'custom',shop.ownerNpcId?'':shop.ownerName)+
+        (shop.ownerNpcId&&!shop.npcAvailable?'<p class="muted">Previously linked NPC is unavailable. Select a current NPC or Custom Entry.</p>':'')+
+        '<button class="primary">Save shopkeeper</button></form>'+
         '<form id="shop-stock-form" class="form" data-id="'+h(shop.id)+'" data-revision="'+h(shop.revision)+'">'+
         '<h3>Add stock or update price</h3><label class="field"><span>Registered item</span><select name="itemId" required>'+
         data.items.map(item=>'<option value="'+h(item.id)+'">'+h(item.name)+'</option>').join('')+'</select></label>'+
