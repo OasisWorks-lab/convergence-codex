@@ -5,8 +5,8 @@ import {detail,expandPost,replyLength,sceneBeat} from './npc-prose.ts';
 import type {Memory} from './npc-history.ts';
 import forms from '../../phoenixcore/templates.js';
 
-export type Player = {id:string; name:string};
-export type Entry = {writer:string; name:string; text:string; source:string};
+export type Player = {id:string; name:string; characterId?:string};
+export type Entry = {writer:string; name:string; text:string; source:string; characterId?:string};
 export type Exchange = {posts:{name:string;text:string}[]; reply:string};
 export type Scene = {
   id:string; channel:string; host:string; npc:string; title:string; mode:'open'|'audience'|'spar'; ai:boolean;

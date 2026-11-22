@@ -77,6 +77,14 @@ Keep your bot token, client secret and database credentials in your host’s sec
 
 [Discord Developer Portal](https://discord.com/developers/applications) · [Discord OAuth2](https://docs.discord.com/developers/topics/oauth2) · [Guild member listing](https://docs.discord.com/developers/resources/guild#list-guild-members) · [Discord interactions](https://docs.discord.com/developers/interactions/receiving-and-responding) · [GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
 
+## Character-based NPC scene turns
+
+In a configured RP channel or forum thread, start an NPC scene with `/roleplay-start`. Choose **character** when you control multiple approved OCs. Each approved character may occupy its own turn slot, even when the same Discord account controls several characters. An owner with no playable OC can still start an administrative NPC scene without selecting one.
+
+Use `/roleplay-join character:<your character>` to join an existing scene. You can join again with another approved OC, but cannot join twice with the same character. The **Join scene** button can automatically select a character if you have exactly one; otherwise, use the slash command to choose. New arrivals during NPC delivery join the following round. The 12-slot limit applies to characters, not Discord accounts.
+
+Each turn displays the selected character's name beside the real writer's Discord mention. Post as **that specific character** with the approved tag or the channel's character default; another character's posts do not consume their turn. Complete each character's turn separately with `/finish-turn`. The two-hour unanswered-turn deadline is tracked for each turn, and notifications mention the real writer. Legacy scenes created before character-specific slots remain compatible.
+
 ## Posting as a character in Discord
 
 1. To enable character posting, switch on **Message Content Intent** on PhoenixCore’s **Bot** page in the Discord Developer Portal. Set `DISCORD_RP_ENABLED=true` on the host and restart the service. The basic directory and review service can run on their own.
