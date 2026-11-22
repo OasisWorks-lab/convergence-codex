@@ -25,6 +25,8 @@ import {deliverCommunityNotice} from './community-delivery.ts';
 import {deliverSuggestionPost} from './community-posts.ts';
 import {deliverScheduledJob} from './jobs.ts';
 import {closeInactiveSupport,deliverSupportOutbox} from './support-delivery.ts';
+import {advanceGiveaways,deliverGiveawayPost} from './giveaway-delivery.ts';
+import {giveawayChannels,setGiveawayChannels,createGiveaway,giveawayEntry,giveawayPublic,listGiveaways,claimGiveaway,concludeGiveaway,rerollGiveawaySlot,updateGiveawayStatus,confirmManualPrize,manualGiveawayWinner} from './giveaway.ts';
 import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
 import {staffIdentity} from './staff.ts';
 import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,supportHistory,supportAnalytics,blockSupportMember} from './support.ts';
@@ -307,6 +309,82 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         }else throw new Problem(400,'Unknown Support Center action.');
         json(res,200,{ok:true,result});wake();return;
       }
+      if((path==='/api/giveaways'||/^\/api\/giveaways\/[\da-f-]{36}$/.test(path))&&['GET','POST'].includes(String(method))){
+        requireThat(await communityEnabled(db,'giveaways'),403,'Giveaways are currently disabled.');
+        const actorLive=await liveSupportActor(db,discord,config,actor.id);
+        if(method==='GET'){
+          const channels=await giveawayChannels(db),giveaways=path==='/api/giveaways'?
+            await listGiveaways(db,50):[await giveawayPublic(db,path.split('/').pop()!)];
+          const [entries,characters]=await Promise.all([
+            db.query('SELECT giveaway_id,active FROM pc_giveaway_entries WHERE user_id=$1',[actor.id]),
+            db.query('SELECT id,sheet FROM pc_characters WHERE owner_id=$1 ORDER BY id',[actor.id])
+          ]);
+          json(res,200,{giveaways,channels:channels.channels,channelRevision:channels.revision,guild:config.guild,
+            staff:actorLive.isHelper,owner:actorLive.isOwner,
+            enteredGiveawayIds:entries.filter(e=>Number(e.active)).map(e=>e.giveaway_id),
+            characters:characters.filter(c=>JSON.parse(c.sheet).characterType!=='NPC')
+              .map(c=>({id:c.id,name:String(JSON.parse(c.sheet).name||'Character').slice(0,75)}))});
+          return;
+        }
+        requireThat(path==='/api/giveaways',404,'Unknown giveaway action.');
+        const input=parse(await rawBody(req,12288));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input)&&typeof input.action==='string',400,'Choose a giveaway action.');
+        const staffOnly=()=>{
+          requireThat(actorLive.isHelper,403,'Only Owner, Admin and Helper may manage giveaways.');
+        };
+        const id=String(input.id||'');
+        let result:any;
+        if(input.action==='channels'){
+          requireThat(actorLive.isOwner,403,'Only the Owner may designate giveaway channels.');
+          requireThat(Array.isArray(input.channels),400,'Provide an array of designated channels.');
+          for(const target of input.channels){
+            requireThat(typeof target==='string'&&discordId.test(target),400,'Invalid channel ID.');
+            const dest=await discord.guildChannel(target);
+            requireThat([0,5,15].includes(Number(dest.type)),400,'Designate a Discord text or announcement channel.');
+          }
+          result=await setGiveawayChannels(db,actorLive,input.channels,Number(input.revision));
+        }else if(input.action==='create'){
+          staffOnly();
+          const channelId=String(input.channelId||''),dest=await discord.guildChannel(channelId);
+          requireThat([0,5,15].includes(Number(dest.type)),400,'Select a Convergence text or announcement channel.');
+          const now=Date.now(),delay=Number(input.startInMinutes||0),
+            duration=Number(input.durationMinutes),claimMinutes=Number(input.claimMinutes);
+          requireThat(Number.isInteger(delay)&&delay>=0&&delay<=10080,400,'Choose a valid delayed start.');
+          result=await createGiveaway(db,actorLive,{receipt:String(input.receipt||randomUUID()),
+            title:input.title,description:input.description||'',channelId,
+            startsMs:now+delay*60000,endsMs:now+(delay+duration)*60000,claimDurationMs:claimMinutes*60000,
+            winnerCount:Number(input.winnerCount),prizeKind:input.prizeKind,
+            zeniAmount:input.prizeKind==='zeni'?String(input.amountOrPrize||''):undefined,
+            prizeText:input.prizeKind==='manual'?String(input.amountOrPrize||''):'',
+            requiredRoles:input.requiredRoles||[],excludedRoles:input.excludedRoles||[],
+            retentionDays:input.retentionDays===undefined?undefined:Number(input.retentionDays)},now);
+        }else if(['join','withdraw'].includes(input.action)){
+          const memberLive=await discord.member(actor.id);
+          result=await giveawayEntry(db,id,actor.id,memberLive,input.action==='join');
+        }else if(input.action==='claim'){
+          const memberLive=await discord.member(actor.id);
+          result=await claimGiveaway(db,id,actor.id,input.characterId?String(input.characterId):undefined,memberLive);
+        }else if(['pause','resume','cancel'].includes(input.action)){
+          staffOnly();
+          result=await updateGiveawayStatus(db,id,actorLive,input.action);
+        }else if(input.action==='end'){
+          staffOnly();
+          result=await concludeGiveaway(db,id,actor.id,
+            userId=>discord.call('/guilds/'+config.guild+'/members/'+userId));
+        }else if(input.action==='reroll'){
+          staffOnly();
+          result=await rerollGiveawaySlot(db,id,Number(input.slot),actor.id,
+            userId=>discord.call('/guilds/'+config.guild+'/members/'+userId));
+        }else if(input.action==='manual-winner'){
+          requireThat(actorLive.isOwner,403,'Only the Owner may select a manual giveaway winner.');
+          const target=String(input.memberId||''),memberLive=await discord.member(target);
+          result=await manualGiveawayWinner(db,id,actorLive,target,memberLive);
+        }else if(input.action==='confirm'){
+          staffOnly();
+          result=await confirmManualPrize(db,id,actorLive,String(input.memberId||''));
+        }else throw new Problem(400,'Unknown giveaway action.');
+        json(res,200,{ok:true,result});wake();return;
+      }
       const decision=/^\/api\/requests\/([\da-f-]{36})\/decision$/.exec(path);
       if(method==='POST'&&decision){
         const input=parse(await rawBody(req));requireThat(['approve','decline','uphold','veto'].includes(input?.action),400,'Choose a review action.');
@@ -435,6 +513,8 @@ async function start() {
       for(let i=0;i<8;i++) if(!await deliverScheduledJob(db,discord)) break;
       for(let i=0;i<8;i++) if(!await closeInactiveSupport(db)) break;
       for(let i=0;i<8;i++) if(!await deliverSupportOutbox(db,discord)) break;
+      for(let i=0;i<5;i++) if(!await advanceGiveaways(db,discord,config)) break;
+      for(let i=0;i<8;i++) if(!await deliverGiveawayPost(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}

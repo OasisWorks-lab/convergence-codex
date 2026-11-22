@@ -210,6 +210,9 @@ with sync_playwright() as p:
     page.get_by_role("link",name="Support Center",exact=True).click()
     expect(page.get_by_role("heading",name="Support Center",exact=True)).to_be_visible()
     expect(page.get_by_text("Practice mode does not create or transmit cases.")).to_be_visible()
+    page.get_by_role("link",name="Giveaways",exact=True).click()
+    expect(page.get_by_role("heading",name="Giveaways",exact=True)).to_be_visible()
+    expect(page.get_by_text("Practice mode never awards Zeni or draws winners.")).to_be_visible()
     page.get_by_role("link",name="Directory",exact=True).click()
 
     phone=browser.new_page(viewport={"width":375,"height":812},device_scale_factor=1)
@@ -252,6 +255,24 @@ with sync_playwright() as p:
                     "isStaff":False,"sensitive":False,"assignedId":None},
                     "events":[{"type":"opened","text":"Could you explain the guideline?",
                                "createdMs":1700000000000,"authorId":"writer"}]})
+            elif url.path=="/api/giveaways":
+                if route.request.method=="GET":
+                    route.fulfill(json={"staff":False,"owner":False,"guild":"950522987646418964",
+                        "channels":["1573908218260885614"],"channelRevision":1,"characters":[],
+                        "enteredGiveawayIds":[],"giveaways":[{
+                          "id":"c21c01cb-3f65-4b16-9178-c9d247de983e","title":"An Autumn Celebration",
+                          "description":"A special community gift.","prizeKind":"manual","prizeText":"Custom event title",
+                          "zeniAmount":None,"status":"active","entries":4,"winnerCount":1,
+                          "startsMs":1700000000000,"endsMs":4700000000000,
+                          "channelId":"1573908218260885614","winners":[]}]})
+                else: route.fulfill(json={"ok":True})
+            elif url.path=="/api/giveaways/c21c01cb-3f65-4b16-9178-c9d247de983e":
+                route.fulfill(json={"giveaways":[{
+                    "id":"c21c01cb-3f65-4b16-9178-c9d247de983e","title":"An Autumn Celebration",
+                    "description":"A special community gift.","prizeKind":"manual","prizeText":"Custom event title",
+                    "zeniAmount":None,"status":"active","entries":4,"winnerCount":1,
+                    "startsMs":1700000000000,"endsMs":4700000000000,
+                    "channelId":"1573908218260885614","winners":[]}]})
             elif url.path=="/api/community":
                 if route.request.method=="GET":
                     route.fulfill(json={"staff":False,"owner":False,"modules":{"tags":True,"suggestions":True},
@@ -345,6 +366,13 @@ with sync_playwright() as p:
     again.get_by_role("link",name="A rules clarification",exact=False).click()
     expect(again.get_by_role("heading",name="SupportCase",exact=False)).to_be_visible()
     expect(again.get_by_text("Could you explain the guideline?")).to_be_visible()
+    again.goto("https://codex.test/phoenixcore/index.html#giveaways")
+    expect(again.get_by_role("heading",name="Giveaways",exact=True)).to_be_visible()
+    expect(again.get_by_text("An Autumn Celebration",exact=False)).to_be_visible()
+    again.get_by_role("link",name="An Autumn Celebration",exact=False).click()
+    expect(again.get_by_role("heading",name="An Autumn Celebration",exact=True)).to_be_visible()
+    expect(again.get_by_text("Custom event title",exact=False)).to_be_visible()
+    expect(again.get_by_role("button",name="Enter giveaway")).to_be_visible()
     assert again.evaluate("sessionStorage.getItem('pc:/phoenixcore/:verifier')") is None
     assert not problems,problems
     browser.close()
