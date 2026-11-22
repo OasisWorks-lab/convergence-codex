@@ -145,13 +145,16 @@
   function sheet(id){
     const c=state.characters.find(c=>c.id===id);if(!c)return missing();
     const s=c.sheet;document.title=s.name+' · PhoenixCore';
-    const own=c.ownerId===state.actor.id,active=forms.readForms(s.attainedForms).find(f=>f.id===c.activeForm),effective=forms.effectiveSheet(s,active);
+    const own=c.ownerId===state.actor.id,account=(state.economyAccounts||[]).find(a=>a.characterId===id),active=forms.readForms(s.attainedForms).find(f=>f.id===c.activeForm),effective=forms.effectiveSheet(s,active);
     return breadcrumbs([link('directory','Directory'),(s.characterType==='NPC'?link('npcs','NPC catalog'):link('player-'+c.ownerId,ownerName(c.ownerId))),h(s.name)])+
       '<div class="sheet-head">'+avatar(s.name,c.id,active?.portrait||s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'</code>':'Unassigned')+'</p></div></div>'+
       '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+btn('favorite-character',isFavorite(id)?'★ Remove favorite':'☆ Favorite')+(own?link('edit-'+id,'Propose edit','button primary')+link('forms-'+id,'Add attained transformation','button')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
       '<div class="two"><div class="stack"><section class="panel"><h3>Base Power Level</h3><div class="big-number">'+h(num(s.bpl))+'</div>'+(active?'<h3>Power Level · '+h(active.name)+'</h3><div class="big-number">'+h(num(effective.bpl))+'</div>':'')+'</section><section class="panel"><h3>Attributes</h3>'+
       traits.map(k=>'<div class="stat-row"><span>'+h(label[k])+'</span><strong>'+h(effective[k]||'Unrecorded')+'</strong></div>').join('')+'</section></div>'+
-      '<div class="stack"><section class="panel"><h3>Wallet &amp; gear</h3><p><b>'+h(num(s.wallet))+'</b> '+h(state.currency)+'</p><div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section></div></div><section class="panel dossier"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section>'+
+      '<div class="stack"><section class="panel"><h3>Wallet &amp; gear</h3><p>Cash · <b>'+h(num(account?.cash??s.wallet))+'</b> '+h(state.currency)+'</p>'+
+       (account?'<p>Bank · <b>'+h(num(account.bank))+'</b> '+h(state.currency)+'</p>':'')+
+       (own&&account?'<div class="actions">'+btn('bank-deposit','Deposit to bank')+btn('bank-withdraw','Withdraw from bank')+'</div>':'')+
+       '<div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section></div></div><section class="panel dossier"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section>'+
       (s.progress?.length?'<section class="panel dossier"><h3>Training stats</h3>'+s.progress.filter(x=>x.name.toLowerCase()!=='strength').map(x=>'<div class="stat-row"><span>'+h(x.name)+'</span><strong>'+h(num(x.amount))+'</strong></div>').join('')+'</section>':'')+
       '<div class="stack sheet-dossier">'+formsPanel(c)+displayGroups('create',s,['name','lineage','portrait','tag','bio','bpl','attainedForms',...traits])+'</div>'+
       (own?posting(c):'')+(state.actor.isOwner?'<section class="panel dossier"><h3>Owner controls</h3>'+btn('remove-character','Remove character from profile','danger')+'</section>':'');
@@ -584,6 +587,16 @@ function formList(raw){
         await load();go('archived');tell('Archived request deleted.');return;
       }
       if(action==='login'){await login();return;}
+      if(action==='bank-deposit'||action==='bank-withdraw'){
+        const id=route().slice(6),character=state.characters.find(c=>c.id===id);
+        if(!character||character.ownerId!==state.actor.id)return;
+        const direction=action==='bank-deposit'?'deposit':'withdraw',amount=prompt('How much '+state.currency+' would you like to '+direction+'?');
+        if(amount===null)return;
+        if(!/^[1-9][0-9]{0,59}$/.test(amount.trim()))throw Error('Enter a positive whole-number amount, without commas.');
+        if(demo)preview.bank(id,direction,amount.trim());
+        else await call('/api/economy/bank','POST',{id:crypto.randomUUID(),characterId:id,action:direction,amount:amount.trim()});
+        await load();tell(direction==='deposit'?'Deposit recorded.':'Withdrawal recorded.');return;
+      }
       if(action==='favorite-character'){
         const id=route().slice(6),on=!isFavorite(id);
         if(!state.characters.some(c=>c.id===id))return;
