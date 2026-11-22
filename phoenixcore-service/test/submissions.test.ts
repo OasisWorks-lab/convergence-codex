@@ -50,8 +50,13 @@ test('four design types become approved catalogue records without granting a she
   };
   for(const [kind,fields] of Object.entries(designs)){
     const r=await propose(db,writer,submit(kind,fields),active);assert.equal(r.status,'pending');
-    await assert.rejects(decide(db,judge.id,owner.id,r.id,true),/Only the configured owner/);
-    assert.equal((await decide(db,owner.id,owner.id,r.id,true)).status,'approved');
+    if(['race','transformation'].includes(kind)){
+      await assert.rejects(decide(db,judge.id,owner.id,r.id,true),/Only the Convergence Owner can approve Race or Transformation/);
+      assert.equal((await db.query('SELECT status FROM pc_requests WHERE id=$1',[r.id]))[0].status,'pending');
+      assert.equal((await decide(db,owner.id,owner.id,r.id,true)).status,'approved');
+    }else{
+      assert.equal((await decide(db,judge.id,owner.id,r.id,true,[role])).status,'approved');
+    }
   }
   assert.equal((await db.query('SELECT * FROM pc_characters')).length,0);
   assert.equal((await db.query("SELECT id FROM pc_requests WHERE status='approved'")).length,4);
