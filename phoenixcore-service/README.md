@@ -228,3 +228,34 @@ Use `/roleplay-memory` with the NPC and approved character to inspect up to four
 **Important:** the current test performed before this feature is not automatically remembered by Azurik. You can safely end it with `/roleplay-cancel` and start a new scene with `memory: Test`.
 
 
+
+## Community milestone — informational tags and suggestions
+
+The seven November 21 handoffs are audited in [the implementation audit](../docs/PHOENIXCORE_SEVEN_HANDOFF_AUDIT_2026-11-22.md). This milestone provides two independent low-risk Carl-bot-style features **within PhoenixCore**. Existing character proxy tags, NPC scenes, approval routes, economy ledgers, and DISBOARD remain unchanged.
+
+### Informational tags
+
+- All current Convergence members can read public tags using **/tag show** and search them using **/tag search**. These are not character posting tags and never modify player identities.
+- Members can use **/tag propose** to submit a new draft privately for staff review. Staff use **/tag proposals** and **/tag review** to approve/decline; approved drafts become public.
+- **Owner, native Discord Administrators and configured Helpers** can use **/tag save**, **/tag alias**, **/tag history** and **/tag rollback**. Each edit and restoration is saved as a new immutable numbered revision with editor and timestamp. Staff cannot claim an old revision is a fresh original.
+- Published text supports ordinary Discord Markdown/links and safe placeholders **{user}**, **{channel}**, **{date}** and **{server}**. PhoenixCore disallows automatic pings in generated messages. Rich interactive tag builders, conditional roles/fields, and attachment support are separate pending enhancements.
+
+### Member suggestions
+
+- **/suggest create** accepts title and details, with optional **anonymous** submission. Public embeds show no member identity when anonymous.
+- Each public suggestion has **Upvote**, **Downvote** and **Remove vote** buttons. The server stores one effective ballot per real Discord user per suggestion; retries don't multiply votes. Members may also use **/suggest vote**, **/suggest list**, and **/suggest view**.
+- **/suggest review** permits Owner/Admin/Helper to set Pending, Under Review, Approved, Denied or Implemented, with an optional official response. Every staff transition creates a history record.
+- Anonymous reporters and voters are not exposed to ordinary users by the dashboard or public Discord embeds. Their real identities remain in the private database for authorized anti-abuse investigation; public voting does not reveal voters.
+- Suggestion replies do not grant BPL, Zeni, items, ranks, privileged roles or automatic staff approvals. The default is a suggestion **for discussion**, not a binding character/rules change. Follow-up notifications, configured announcement channels, and automatic live edits of older dashboard-created suggestions are additional work, not falsely claimed completed.
+
+### Website and module controls
+
+Authenticated members open **Community** from the PhoenixCore dashboard to browse information tags, submit proposals, view suggestions and cast votes. Authorized staff additionally see pending tag proposals, publishing, rollback and suggestion decisions. Dashboard API endpoints authenticate live Discord members, re-check staff roles using Discord's native Administrator permission or configured Helper role, and never trust hidden buttons as authorization.
+
+The Owner may use **/community-module status** and **/community-module set** or the dashboard module switches. **tags** and **suggestions** can be disabled independently without deleting historical records. The owner, time, previous enabled value and revision are saved on each switch. Both are enabled by default on the first installation of this additive schema. To disable them immediately, use /community-module set.
+
+All data persists through bot restarts in both SQLite and PostgreSQL. Authoritative tables are pc_community_modules, pc_community_module_history, pc_info_tags, pc_info_tag_aliases, pc_info_tag_history, pc_info_tag_proposals, pc_suggestions, pc_suggestion_votes, and pc_suggestion_history.
+
+### Remaining modules
+
+This is the first completed implementation slice, **not** a claim that the 63+40+44+40+60+65+56 requested decisions are already delivered. Continue with shared authorization/jobs, moderation, unified SupportCase, self-roles/panels, approved profile fields, giveaway rewards, economy shops, and saved wheel logic. Do not invent fifth-warning punishments, wheel purchase entitlements, finance overdraft rules or fusion co-control votes.
