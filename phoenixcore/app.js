@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|community|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -490,7 +490,7 @@ function formList(raw){
       '<button type="button" data-community-proposal="decline" data-proposal-id="'+h(p.id)+'">Decline</button></div></article>').join(''):'';
     return title('Community','Share server knowledge and vote on ideas without replacing character roleplay tags.')+
       (owner?'<section class="panel dossier"><h2>Module switches</h2><p>Changes are owner-only and do not delete existing records.</p>'+
-        ['tags','suggestions','moderation','reminders'].map(m=>'<label class="field"><span>'+h(m)+' enabled</span><input type="checkbox" data-community-toggle="'+m+'"'+(active[m]?' checked':'')+'></label>').join('')+'</section>':'')+
+        ['tags','suggestions','moderation','reminders','support'].map(m=>'<label class="field"><span>'+h(m)+' enabled</span><input type="checkbox" data-community-toggle="'+m+'"'+(active[m]?' checked':'')+'></label>').join('')+'</section>':'')+
       (active.tags?'<section class="stack"><h2>Informational tags</h2><p>Published answers, guides and server references.</p>'+
         '<label class="field"><span>Search tags</span><input id="community-search" type="search" placeholder="Find a topic…"></label>'+
         (tags||'<section class="panel"><p>No information tags have been published yet.</p></section>')+
@@ -511,6 +511,65 @@ function formList(raw){
         '<section class="panel"><h2>Suggestions</h2><p>This module is disabled.</p></section>')+
       '<section class="panel dossier"><p>Want to post a public tag or launch an interactive vote inside Discord? Use /tag and /suggest. Character posting tags are a separate system.</p></section>';
   }
+  async function supportRefresh(){
+    if(supportLoading||demo||!session)return;
+    supportLoading=true;
+    try{
+      supportData=await call('/api/support');
+      const selected=/^support-([\da-f-]{36})$/i.exec(route());
+      supportDetail=selected?await call('/api/support/'+selected[1]):null;
+      if(route()==='support'||/^support-/.test(route()))render();
+    }catch(error){tell(error.message,true);}
+    finally{supportLoading=false;}
+  }
+  function supportPage(){
+    if(demo)return title('Support Center','Live, private tickets and Modmail conversations')+
+      '<section class="panel"><p>The Support Center is available only when signed into the live PhoenixCore server. Practice mode does not create or transmit cases.</p></section>';
+    if(!supportData){
+      void supportRefresh();
+      return title('Support Center','Private tickets, reports, appeals and Modmail.')+
+        '<section class="panel"><p>Loading accessible support cases…</p></section>';
+    }
+    const match=/^support-([\da-f-]{36})$/i.exec(route());
+    if(match){
+      if(!supportDetail||supportDetail.case?.id!==match[1]){
+        void supportRefresh();
+        return title('SupportCase','Loading private conversation…')+'<section class="panel"><p>Verifying current case access.</p></section>';
+      }
+      const c=supportDetail.case,staff=c.isStaff,closed=['Resolved','Closed'].includes(c.status);
+      const entries=(supportDetail.events||[]).map(e=>'<article class="panel dossier"><p class="eyeline">'+h(e.type.replaceAll('-',' '))+
+        ' · '+h(new Date(e.createdMs).toLocaleString())+'</p><p class="prewrap">'+h(e.text)+'</p>'+
+        (e.authorId?'<small class="muted">Sender '+h(e.authorId)+'</small>':'')+'</article>').join('');
+      const input=(name,caption)=>'<form class="panel form support-message-form" data-mode="'+name+'" data-id="'+h(c.id)+'">'+
+        '<h3>'+h(caption)+'</h3>'+field('message','Message','',{area:true,wide:true,required:true,max:1800})+
+        (name==='send'?'<label class="field"><span><input type="checkbox" name="signed"> Sign with my Discord identity</span></label>':'')+
+        '<button class="primary">'+h(name==='note'?'Save internal note':name==='send'?'Send DM to member':'Add message')+'</button></form>';
+      const actions=staff?'<section class="panel dossier"><h3>Staff case controls</h3><p class="muted">Only staff can close/reopen cases. Internal notes are never sent to members.</p>'+
+        '<div class="actions">'+(closed?
+          '<button type="button" data-support-action="reopen" data-support-id="'+h(c.id)+'">Reopen</button>':
+          ['claim','resolve','close'].map(a=>'<button type="button" data-support-action="'+a+'" data-support-id="'+h(c.id)+'">'+h(a)+'</button>').join(''))+
+        (supportData.owner&&!c.sensitive?'<button type="button" data-support-action="sensitive" data-support-id="'+h(c.id)+'">Restrict to Owner</button>':'')+'</div></section>':'';
+      return breadcrumbs([link('support','Support Center'),h(c.id)])+
+        title('SupportCase · '+c.kind,c.status+' · '+(c.sensitive?'Restricted access':'Private case'))+
+        '<section class="panel dossier"><h2>'+h(c.summary)+'</h2><p>Case ID: '+h(c.id)+'</p><p>Assigned staff: '+h(c.assignedId||'Unassigned')+'</p></section>'+
+        '<section class="stack"><h2>Conversation and activity</h2>'+entries+'</section>'+actions+
+        (!closed?(staff?input('send','Explicit outward staff reply')+input('note','Staff-only note'):input('reply','Reply to staff')):'<section class="panel"><p>This case is closed. Contact support staff to reopen it.</p></section>');
+    }
+    const stats=supportData.stats,staff=supportData.staff;
+    const cases=(supportData.cases||[]).map(c=>'<a class="request-row" href="#support-'+h(c.id)+'"><span class="summary"><b>'+h(c.summary)+'</b>'+
+      '<small class="muted">'+h(c.kind)+' · '+h(c.id)+' · '+h(c.assignedId?'Assigned':'Awaiting assignment')+'</small></span>'+
+      '<span class="pill">'+h(c.status)+'</span></a>').join('');
+    return title('Support Center','Private support cases in one place, including tickets, Modmail, reports and appeals.')+
+      (stats?'<section class="panel dossier"><h2>Staff caseload</h2><p>'+h(stats.total)+' total · '+h(stats.open)+' active · '+h(stats.resolved)+' resolved/closed</p></section>':'')+
+      '<section class="panel dossier"><h2>Open a support case</h2><p>One generic question or concern. No priority categories or extra forms.</p>'+
+      '<form id="support-open-form" class="form"><label class="field"><span>Type</span><select name="kind">'+
+      [['ticket','General ticket'],['report','Report'],['appeal','Moderation appeal']].map(([id,name])=>'<option value="'+id+'">'+name+'</option>').join('')+
+      '</select></label>'+field('message','How can staff help?','',{area:true,required:true,wide:true,max:1800})+
+      '<label class="field"><span><input type="checkbox" name="anonymous"> Anonymous report (does not hide identity from authorized senior staff)</span></label>'+
+      '<button class="primary">Create private case</button></form></section>'+
+      '<section class="stack"><h2>'+(staff?'Staff case queue':'Your cases')+'</h2>'+(cases||'<p>No cases to display.</p>')+'</section>'+
+      '<section class="panel"><p>You can also use /support in Discord, or DM PhoenixCore to start Modmail. Staff replies require an explicit send action; notes remain internal.</p></section>';
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
@@ -518,6 +577,7 @@ function formList(raw){
     if(r==='directory')view.innerHTML=directory();
     else if(r==='npcs')view.innerHTML=npcDirectory();
     else if(r==='community')view.innerHTML=community();
+    else if(r==='support'||/^support-[\da-f-]{36}$/i.test(r))view.innerHTML=supportPage();
     else if(r==='requests'||r==='archived')view.innerHTML=requestList(r==='archived');
     else if(r==='settings')view.innerHTML=settings();
     else if(r==='new'||r.startsWith('new-'))view.innerHTML=editor(r==='new'?'create':r.slice(4));
@@ -736,7 +796,7 @@ function formList(raw){
         if(demo)preview.archive(id,archived);else await call('/api/requests/'+id+'/archive','POST',{archived});
         await load();go(archived?'archived':'requests');tell(archived?'Request archived.':'Request restored.');return;
       }
-      if(action==='logout'){await call('/api/logout','POST',{});store.remove('session');drafts.clear();session='';state=null;communityData=null;location.replace(location.pathname+'#directory');location.reload();return;}
+      if(action==='logout'){await call('/api/logout','POST',{});store.remove('session');drafts.clear();session='';state=null;communityData=null;supportData=null;supportDetail=null;location.replace(location.pathname+'#directory');location.reload();return;}
       if(demo&&(action==='demo-approve'||action==='demo-decline')){preview.decision(route().slice(8),action==='demo-approve');await load();tell('Practice decision recorded.');}
     }catch(err){tell(err.message,true);}
   });
