@@ -1221,6 +1221,28 @@ function formList(raw){
       finally{give.disabled=false;}
       return;
     }
+    const searchPager=e.target.closest('[data-support-search-page]');
+    if(searchPager){
+      supportSearchPage=Math.max(1,Math.min(supportSearch?.pages||1,supportSearchPage+Number(searchPager.dataset.supportSearchPage)));
+      await supportSearchLoad();
+      return;
+    }
+    const templateAction=e.target.closest('[data-support-template-action]');
+    if(templateAction){
+      const action=templateAction.dataset.supportTemplateAction,id=templateAction.dataset.id;
+      try{
+        if(action==='archive'){
+          if(!confirm('Archive this saved reply? It will no longer appear in the case reply selector.'))return;
+          await call('/api/support/templates','POST',{action:'archive',id,revision:Number(templateAction.dataset.revision)});
+          supportTemplateId='';supportTemplateHistoryData=null;supportData=null;
+          await supportRefresh();tell('Saved reply archived.');
+        }else if(action==='history'){
+          const data=await call('/api/support/templates/'+id+'/history');
+          supportTemplateHistoryData={id,items:data.history};render();
+        }
+      }catch(error){tell(error.message,true);}
+      return;
+    }
     const staffAction=e.target.closest('[data-support-action]');
     if(staffAction){
       const action=staffAction.dataset.supportAction,caseId=staffAction.dataset.supportId;
@@ -1451,6 +1473,57 @@ function formList(raw){
       tell(f.id==='giveaway-create-form'?'Giveaway created and queued for its designated Discord channel.':
         f.id==='giveaway-claim-form'?'Prize claim recorded.':
         f.id==='giveaway-edit-form'?'Giveaway details updated.':'Giveaway destinations saved.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
+  document.addEventListener('change',async e=>{
+    if(e.target.id==='support-template-picker'){
+      supportTemplateId=e.target.value;
+      supportTemplateHistoryData=null;
+      render();
+      return;
+    }
+    const picker=e.target.closest('[data-support-template-insert]');
+    if(!picker||!picker.value)return;
+    const form=picker.closest('form'),textarea=form?.querySelector('textarea[name="message"]');
+    if(!textarea)return;
+    if(textarea.value.trim()&&!confirm('Replace the current unsent reply with this saved reply?')){picker.value='';return;}
+    try{
+      const response=await call('/api/support/templates','POST',{
+        action:'preview',id:picker.value,caseId:picker.dataset.caseId
+      });
+      textarea.value=response.result.body;
+      picker.value='';
+      tell('Saved reply inserted for review; nothing has been sent.');
+    }catch(error){picker.value='';tell(error.message,true);}
+  });
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(f.id!=='support-search-form'&&f.id!=='support-template-form'&&f.id!=='support-feedback-form')return;
+    e.preventDefault();
+    if(demo){tell('Sign into live PhoenixCore to manage support.');return;}
+    const fields=Object.fromEntries(new FormData(f)),button=f.querySelector('button.primary');
+    if(button?.disabled)return;
+    if(button)button.disabled=true;
+    try{
+      if(f.id==='support-search-form'){
+        supportSearchFilters={query:String(fields.query||'').trim(),
+          kind:String(fields.kind||''),status:String(fields.status||'')};
+        supportSearchPage=1;supportSearch=null;
+        await supportSearchLoad();
+        return;
+      }
+      if(f.id==='support-feedback-form'){
+        await call('/api/support/feedback/'+encodeURIComponent(f.dataset.id),'POST',
+          {rating:Number(fields.rating),comment:String(fields.comment||'')});
+        supportData=null;supportDetail=null;supportSearch=null;
+        await supportRefresh();tell('Optional feedback saved.');return;
+      }
+      const payload={action:'save',name:fields.name,body:fields.body};
+      if(f.dataset.id){payload.id=f.dataset.id;payload.revision=Number(f.dataset.revision);}
+      const response=await call('/api/support/templates','POST',payload);
+      supportTemplateId=response.result.id;supportTemplateHistoryData=null;supportData=null;
+      await supportRefresh();tell('Saved reply updated. No message was sent.');
     }catch(error){tell(error.message,true);}
     finally{if(button)button.disabled=false;}
   });
