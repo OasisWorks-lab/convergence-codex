@@ -190,6 +190,7 @@ export async function removeSuggestion(db:Store,actor:CommunityActor,id:string,r
     await q('INSERT INTO pc_suggestion_history(suggestion_id,revision,event,actor_id,detail,occurred_ms) VALUES($1,$2,$3,$4,$5,$6)',
       [id,Number(last.next),'removed',actor.id,textValue(reason,300,'Removal reason'),Date.now()]);
     await q('UPDATE pc_suggestion_posts SET revision=revision+1,retry_at=0 WHERE suggestion_id=$1',[id]);
+    await q("UPDATE pc_community_notifications SET status='suppressed' WHERE suggestion_id=$1 AND status='pending'",[id]);
     return true;
   });
 }
