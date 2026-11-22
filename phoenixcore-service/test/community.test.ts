@@ -6,7 +6,7 @@ import {communityActor,communityEnabled,communitySetModule,saveTag,getTag,tagAli
   proposeTag,pendingTagProposals,reviewTag,createSuggestion,getSuggestion,voteSuggestion,reviewSuggestion,suggestionDisplay} from '../src/community.ts';
 import {communityCommands,communityInteraction} from '../src/community-discord.ts';
 
-const guild='950522987646418964',owner='110000000000000001',member='110000000000000002',helper='110000000000000003',another='110000000000000004',helperRole='123000000000000001';
+const guild='950522987646418964',owner='110000000000000001',member='110000000000000002',helper='110000000000000003',another='110000000000000004',helperRole='1100315893864603649';
 const people={
   owner:communityActor(owner,[],'0',owner,helperRole),
   member:communityActor(member,[],'0',owner,helperRole),
