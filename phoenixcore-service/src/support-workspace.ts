@@ -36,10 +36,14 @@ export async function searchSupportCases(db:Store,actor:StaffIdentity,input:Supp
   if(query){
     const literal='%'+query.replace(/[\\%_]/g,c=>'\\'+c)+'%';
     const term=bind(literal);
+    const ownerEvent=bind(actor.id);
+    const visibleEvent=actor.isHelper?
+      "(e.visibility='member' OR (c.requester_id<>"+ownerEvent+
+        (actor.isOwner?" AND e.visibility IN ('staff','owner')":" AND c.sensitive=0 AND e.visibility IN ('staff','owner')")+"))":
+      "e.visibility='member'";
     clauses.push('(LOWER(c.summary) LIKE '+term+" ESCAPE '\\' OR EXISTS ("+
       'SELECT 1 FROM pc_support_events e WHERE e.case_id=c.id AND '+
-      (actor.isHelper?'1=1':"e.visibility='member'")+
-      ' AND LOWER(e.body) LIKE '+term+" ESCAPE '\\'))");
+      visibleEvent+' AND LOWER(e.body) LIKE '+term+" ESCAPE '\\'))");
   }
   const where=clauses.length?' WHERE '+clauses.join(' AND '):'';
   const [totalRow]=await db.query('SELECT COUNT(*) AS total FROM pc_support_cases c'+where,args);
