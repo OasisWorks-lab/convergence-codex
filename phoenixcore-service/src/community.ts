@@ -158,10 +158,13 @@ export async function reviewSuggestion(db:Store,actor:CommunityActor,id:string,s
     const [row]=await q('SELECT * FROM pc_suggestions WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
     requireThat(row,404,'Suggestion unavailable.');
     const answer=textValue(response,950,'Staff response'),now=Date.now();
+    if(row.status===status&&row.staff_response===answer)return {status,anonymous:Number(row.anonymous)===1,authorId:row.author_id};
     await q('UPDATE pc_suggestions SET status=$1,staff_response=$2,reviewed_by=$3,updated_ms=$4 WHERE id=$5',[status,answer,actor.id,now,id]);
     const [last]=await q('SELECT COALESCE(MAX(revision),0)+1 AS next FROM pc_suggestion_history WHERE suggestion_id=$1',[id]);
     await q('INSERT INTO pc_suggestion_history(suggestion_id,revision,event,actor_id,detail,occurred_ms) VALUES($1,$2,$3,$4,$5,$6)',
       [id,Number(last.next),'status:'+status,actor.id,answer,now]);
+    await q('INSERT INTO pc_community_notifications(id,suggestion_id,user_id,payload,status,not_before) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING',
+      ['suggestion:'+id+':'+Number(last.next),id,row.author_id,JSON.stringify({title:row.title,status,response:answer}), 'pending', now]);
     return {status,anonymous:Number(row.anonymous)===1,authorId:row.author_id};
   });
 }
