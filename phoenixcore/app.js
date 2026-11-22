@@ -109,7 +109,7 @@
     if(demo){banner.innerHTML='<span><b>Practice mode</b> · Fictional players. Refresh to reset.</span><label>View as <select id="persona" aria-label="Practice role"><option value="player">Player</option><option value="judge">Helper</option><option value="owner">Owner</option></select></label>';$('#persona').value=preview.role();}
   }
   function playerCard(p) {
-    const n=state.characters.filter(c=>c.ownerId===p.id).length;
+    const n=state.characters.filter(c=>c.ownerId===p.id&&c.sheet.characterType!=='NPC').length;
     return '<a class="card person" href="#player-'+h(p.id)+'">'+avatar(p.display,p.id,p.avatar)+'<span class="who"><b>'+h(p.display)+'</b><small class="muted">@'+h(p.username)+'</small><small class="subtle">'+n+' character'+(n===1?'':'s')+'</small></span><span class="arrow" aria-hidden="true">↗</span></a>';
   }
   function directory(){
@@ -137,7 +137,7 @@
   }
   function player(id){
     const p=state.players.find(p=>p.id===id);if(!p)return missing();
-    const chars=state.characters.filter(c=>c.ownerId===id).sort(byFavorite);
+    const chars=state.characters.filter(c=>c.ownerId===id&&c.sheet.characterType!=='NPC').sort(byFavorite);
     return breadcrumbs([link('directory','Directory'),h(p.display)])+'<div class="sheet-head">'+avatar(p.display,p.id,p.avatar)+title(p.display,'@'+p.username)+(p.updatesUrl?'<a class="button" href="'+h(p.updatesUrl)+'" target="_blank" rel="noopener">Open OC Updates ↗</a>':'')+'</div>'+
       '<div class="section-head"><h2>Characters</h2>'+(id===state.actor.id&&state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div>'+
       (chars.length?'<div class="grid">'+chars.map(characterCard).join('')+'</div>':'<p class="empty">This player has no approved characters yet.</p>');
@@ -145,7 +145,7 @@
   function sheet(id){
     const c=state.characters.find(c=>c.id===id);if(!c)return missing();
     const s=c.sheet;document.title=s.name+' · PhoenixCore';
-    const own=c.ownerId===state.actor.id,account=(state.economyAccounts||[]).find(a=>a.characterId===id),active=forms.readForms(s.attainedForms).find(f=>f.id===c.activeForm),effective=forms.effectiveSheet(s,active);
+    const own=c.ownerId===state.actor.id&&s.characterType!=='NPC',account=(state.economyAccounts||[]).find(a=>a.characterId===id),active=forms.readForms(s.attainedForms).find(f=>f.id===c.activeForm),effective=forms.effectiveSheet(s,active);
     return breadcrumbs([link('directory','Directory'),(s.characterType==='NPC'?link('npcs','NPC catalog'):link('player-'+c.ownerId,ownerName(c.ownerId))),h(s.name)])+
       '<div class="sheet-head">'+avatar(s.name,c.id,active?.portrait||s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'</code>':'Unassigned')+'</p></div></div>'+
       '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+btn('favorite-character',isFavorite(id)?'★ Remove favorite':'☆ Favorite')+(own?link('edit-'+id,'Propose edit','button primary')+link('forms-'+id,'Add attained transformation','button')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
@@ -157,7 +157,7 @@
        '<div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section></div></div><section class="panel dossier"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section>'+
       (s.progress?.length?'<section class="panel dossier"><h3>Training stats</h3>'+s.progress.filter(x=>x.name.toLowerCase()!=='strength').map(x=>'<div class="stat-row"><span>'+h(x.name)+'</span><strong>'+h(num(x.amount))+'</strong></div>').join('')+'</section>':'')+
       '<div class="stack sheet-dossier">'+formsPanel(c)+displayGroups('create',s,['name','lineage','portrait','tag','bio','bpl','attainedForms',...traits])+'</div>'+
-      (own?posting(c):'')+(state.actor.isOwner?'<section class="panel dossier"><h3>Owner controls</h3>'+btn('remove-character','Remove character from profile','danger')+'</section>':'');
+      (own?posting(c):'')+(state.actor.isOwner&&s.characterType!=='NPC'?'<section class="panel dossier"><h3>Owner controls</h3>'+btn('remove-character','Remove character from profile','danger')+'</section>':'');
   }
   const missing=()=>title('Unavailable','This entry is unavailable for your Discord account.')+link('directory','Back to directory','button');
   const forms=window.PhoenixForms;
@@ -258,7 +258,7 @@ function formList(raw){
   }
   function editor(kind='create',id='',intake=null){
     if(!(state.actor.isPlayer||intake&&state.actor.isJudge) || !Object.hasOwn(forms.forms,kind))return missing();
-    const targeted=kind==='edit'||kind==='training', mine=state.characters.filter(c=>c.ownerId===(intake?.authorId||state.actor.id));
+    const targeted=kind==='edit'||kind==='training', mine=state.characters.filter(c=>c.ownerId===(intake?.authorId||state.actor.id)&&c.sheet.characterType!=='NPC');
     const c=targeted?mine.find(c=>c.id===id):null;
     if(targeted&&id&&!c)return missing();
     const d={...(intake?.native.input.fields||{}),...(intake?.native.input.details||{}),...(intake?{reason:intake.reason}:{}),...(drafts.get(intake?'intake:'+intake.id+':'+id:draftKey(kind,id,c?.version||0))||{})};
@@ -477,7 +477,7 @@ function formList(raw){
   }
   function posting(c){
     const prefs=state.posting;if(!prefs)return '';
-    const own=state.characters.filter(c=>c.ownerId===state.actor.id);
+    const own=state.characters.filter(c=>c.ownerId===state.actor.id&&c.sheet.characterType!=='NPC');
     const selected=prefs.channels.includes(preferenceChannel)?preferenceChannel:prefs.channels[0];
     return '<section class="panel dossier"><h2>Posting preferences</h2><form class="tag-form actions" data-id="'+h(c.id)+'">'+field('tag',c.sheet.name+'’s tag',c.tag,{max:forms.tagLimit,hint:forms.tagHint})+'<button class="primary">Save tag</button></form>'+
       '<h3>Channel defaults</h3><p>Forum defaults apply to its posts. Choose a thread to set an exception. Start a post with <code>//</code> to speak as yourself.</p>'+

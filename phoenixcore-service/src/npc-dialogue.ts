@@ -29,53 +29,56 @@ export function turnIntent(s:Scene):TurnIntent {
   }
   return 'conversation';
 }
-const introduction=/\b(?:call me|my name is|name's|my name's)\s+([\p{L}][\p{L}'’\-]{0,23}(?: [A-Z][\p{L}'’\-]{0,23})?)/u;
-function givenName(text:string){return introduction.exec(text.replace(/[*_]/g,'').replace(/\b(?:Call me|My name is|My name's|Name's)\b/g,v=>v.toLowerCase()))?.[1];}
-export function conversation(s:Scene,sheet:any,king:boolean):string{
+const introduction=/\b(?:call me|my name is|name's|my name's)\s+([\p{L}][\p{L}'’-]{0,23}(?:\s+[\p{L}][\p{L}'’-]{0,23})?)/iu;
+function givenName(text:string){
+  return introduction.exec(text.replace(/[*_~]/g,''))?.[1]?.trim()||'';
+}
+export function introducedName(s:Scene,speaker:string){
+  const current=s.posts.filter(p=>p.name===speaker).map(p=>p.text);
+  const earlier=s.past.flatMap(r=>r.posts).filter(p=>p.name===speaker).map(p=>p.text);
+  return [...current,...earlier].map(givenName).filter(Boolean).at(-1)||'';
+}
+export function conversation(s:Scene,sheet:any,king:boolean):string {
   const last=s.posts.at(-1);if(!last)return '';
   const text=lower(last.text),npc=king?'Azurik':String(sheet.name);
-  const memory=s.past.flatMap(r=>r.posts).filter(p=>p.name===last.name);
-  const newName=givenName(last.text);
-  const name=newName||[...memory].reverse().map(p=>givenName(p.text)).find(Boolean)||last.name;
+  const newName=givenName(last.text),known=introducedName(s,last.name),salutation=known?', '+known:'';
   const previous=s.past.at(-1)?.reply||'';
   const pick=(lines:string[],why:string)=>freshLine(s,lines,why);
   if(/\b(?:just (?:saying|wanted to say|came to say|said) (?:hello|hi|hey)|don't want (?:a |to )(?:fight|spar)|not here to fight|why (?:are|were) you (?:fighting|attacking)|was only (?:saying|trying to say))\b/.test(text))return pick([
-    '“Then a hello it is.” '+npc+' gives '+name+' a rueful smile. “You came over to be kind. I can at least return the courtesy. How has the day treated you?”',
-    npc+' lets out a quiet breath. “I read that badly, '+name+'. Thank you for saying so plainly.” The next smile comes more easily. “I am glad you came to talk.”',
-    '“Of course. You have my attention.” The formality slips out of '+npc+'’s voice. “Call me by my name. It sounded quite natural the first time.”'
+    '“Then a hello it is.” '+npc+' offers a small, apologetic smile. “I mistook your intention. How has the day treated you?”',
+    npc+' eases his stance. “I read that badly. Thank you for correcting me.” He gives the visitor room to speak. “What did you want to talk about?”'
   ],'repair');
   if(newName)return pick([
-    '“'+name+'.” '+npc+' repeats the name once, carefully enough to get it right. “You may call me '+npc+'. I get called a great many other things in a day. That one still suits me best.”',
-    npc+' inclines his head at the introduction. “It is good to meet you, '+name+'. And since you gave me a name instead of a title, let me return the favor. I’m '+npc+'.”'
+    '“'+newName+'.” '+npc+' repeats the introduction once. “A pleasure to meet you. You may call me '+npc+'.”',
+    npc+' inclines his head. “It is good to meet you, '+newName+'. I am '+npc+'. What brings you here?”'
   ],'introduction');
   if(/\b(?:how (?:are|have) you|how (?:has|was|is|goes) (?:your|the) day|how's (?:it going|your day)|how (?:you were|you are|you've been) (?:doing|feeling)|you (?:doing|holding up|all right|alright|okay|well)|what's (?:up|new))\b/.test(text))return pick([
-    '“Better for being asked, '+name+'.” '+npc+' smiles at the small surprise of it. “Most people who ask how I am have a second question waiting behind the first. For once I think someone meant it. How about you?”',
-    npc+' takes the question seriously enough to think before answering. “A little tired. Glad of the company, though. It has been a long day for the title and a fairly good one for the man wearing it.”',
-    '“Honestly? I could use a little company.” A hint of amusement warms '+npc+'’s voice. “I have given quite enough formal answers for one day. Tell me something from yours, '+name+'.”'
+    '“A little tired, if I am being candid.” '+npc+' considers the question. “But I appreciate you asking. How about you?”',
+    npc+' pauses. “It has been a long day for the title, and a fairly good one for the man wearing it.” He offers a faint smile. “And yours?”',
+    '“Well enough to listen.” '+npc+' leaves the question open. “How has your day been?”'
   ],'wellbeing');
   if(king&&/\b(?:father|ziex|dad)\b/.test(text)&&/\bziex\b/i.test(String(sheet.family)+' '+sheet.bio))return pick([
-    '“Ziex. My father’s name was Ziex.” Azurik lets the name sit between them for a moment. “He was my king as well as my father. It took me longer than I like to admit to learn that loving him and obeying him were two different things.”',
-    'Azurik’s hands come together behind his back. “My father was King Ziex. At the Crimson Peaks I asked him to surrender. Of all the things I said to him, that is the one I remember word for word.”',
-    '“I still think of him as my father first,” Azurik admits. “The histories have an easier time of it. They can call him King Ziex and let that stand. A son remembers the voice that answered to the name.”'
+    '“Ziex was my father,” Azurik says quietly. “He was my king as well. It took me longer than I like to admit to learn that loving him and obeying him were different things.”',
+    'Azurik clasps his hands behind his back. “At the Crimson Peaks, I asked King Ziex—my father—to surrender. I still remember that moment.”'
   ],'father');
-  if(king&&/\b(?:how old|your age|what age)\b/.test(text)&&sheet.age)return '“'+sheet.age+'.” Azurik catches himself smiling at how quickly the answer came. “Long enough for someone to call me wise before I have even opened my mouth. I find that a rather generous arrangement.”';
+  if(king&&/\b(?:how old|your age|what age)\b/.test(text)&&sheet.age)return '“'+sheet.age+'.” Azurik lets the number settle. “Long enough to have learned that years alone do not make a person wise.”';
   if(/\b(?:hey|hiya|hi|hello|howdy|greetings|good (?:morning|evening|afternoon)|yo)\b/.test(text)&&tokens(text).length<=10)return pick([
-    '“Hello, '+name+'.” '+npc+' turns at the sound of his name. There is an easy warmth in the answer. “You caught me with a moment to myself. Come, keep me company. Was there something on your mind, or did you simply come to say hello?”',
-    npc+' glances up. “Hey yourself, '+name+'.” The informality seems to please him. “I spend enough of my day answering to a title. It’s good to hear my name once in a while. How are you?”',
-    'At the greeting, '+npc+' gives '+name+' his full attention. “Good to see you. I was rather hoping for an ordinary conversation today.” A small smile follows. “I’ll let you decide where we begin.”',
-    '“There you are.” '+npc+' inclines his head to '+name+'. “For a moment I thought I was about to be addressed as ‘Your Majesty’ again. Azurik will do nicely.” He smiles. “What brings you my way?”'
+    npc+' looks toward the speaker and offers a brief nod. “Hello'+salutation+'. What can I do for you?”',
+    '“Hello.” '+npc+' gives the visitor his attention. “Did you have something you wanted to discuss?”',
+    npc+' answers the greeting with a small smile. “Good day. How can I help?”',
+    '“Hey.” '+npc+' seems happy enough to set formality aside. “What is on your mind?”'
   ],'greeting');
   if(/\b(?:sorry|apologi[sz]e|my mistake|my fault)\b/.test(text))return pick([
-    '“Thank you for telling me.” '+npc+' gives the words a moment to land. “I would rather have an honest correction now than have you carry an awkward silence away with you. We can begin again, '+name+'.”',
-    npc+' shakes his head gently. “I heard you. We needn’t make an ordeal of it.” His expression softens. “What did you mean to tell me before we got sidetracked?”'
+    '“Thank you for telling me.” '+npc+' gives the words a moment to settle. “We can begin again whenever you are ready.”',
+    npc+' shakes his head gently. “I heard you. We need not make an ordeal of it. What did you mean to say?”'
   ],'apology');
   if(/\b(?:thanks|thank you|appreciate it)\b/.test(text)&&tokens(text).length<=14)return pick([
-    '“You’re welcome, '+name+'.” '+npc+' accepts the thanks as simply as it was offered. “If you ever have something difficult to say to me, I hope you remember you can come to me just as easily then.”',
-    npc+' smiles. “Gladly. And if it does help, I’d like to hear how it turns out.” He allows the moment to settle, content to leave the next word to '+name+'.'
+    '“You are welcome'+salutation+'.” '+npc+' accepts the thanks without ceremony.',
+    npc+' nods. “Gladly. If it helps, I would like to hear how things turn out.”'
   ],'thanks');
-  if(previous&&/\b(?:good|great|fine|well|tired|rough|awful|busy)\b/.test(text)&&/how (?:about|are)|your day|day treated|from yours/i.test(previous)&&tokens(text).length<22){
-    if(/tired|rough|awful|busy/.test(text))return '“One of those days.” '+npc+' lets the formality fall away. “We can sit a moment if you like, '+name+'. You can tell me what happened, or we can both have a little quiet. I should be grateful for either.”';
-    return '“I’m glad to hear it.” '+npc+' looks pleased at the answer. “Good days have a habit of slipping by while everybody is busy recording the bad ones. What made this one worth remembering, '+name+'?”';
+  if(previous&&/\b(?:good|great|fine|well|tired|rough|awful|busy)\b/.test(text)&&/how (?:about|are)|your day|day treated|and yours/i.test(previous)&&tokens(text).length<22){
+    if(/tired|rough|awful|busy/.test(text))return '“One of those days.” '+npc+' answers gently. “You can tell me what happened, or we can have a little quiet.”';
+    return '“I am glad to hear it.” '+npc+' gives an approving nod. “What made it a good day?”';
   }
   return '';
 }

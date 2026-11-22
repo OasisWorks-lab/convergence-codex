@@ -3,7 +3,8 @@ import type { Store } from './db.ts';
 import type { Discord } from './discord.ts';
 import { loadNpc } from './npc-catalog.ts';
 import {displayPL} from './npc-scenes.ts';
-import {lockedScene,includeWaiting,order,queueNotice,setClock} from './npc-turns.ts';
+import {lockedScene,includeWaiting,setClock} from './npc-turns.ts';
+import {touchScenePanel} from './npc-panel.ts';
 import { narrate, type Scene,type Speech } from './npc-voice.ts';
 
 export async function sendNpcPost(discord:Discord,s:Scene,move:Speech,retry:boolean,eligible?:(channel:any)=>Promise<boolean>) {
@@ -78,7 +79,7 @@ export async function deliverScene(db:Store,send:(s:Scene,move:Speech,retry:bool
       s.past.push({posts:[...speakers].map(([name,text])=>({name,text:text.trim().slice(-1200)})),reply:move.text});
       s.past=s.past.slice(-4);s.posts=[];s.turn=0;s.round++;s.form=move.form;s.title=sheet.name;
       includeWaiting(s);await setClock(q,s,Date.now());
-      await queueNotice(q,s,'Round '+s.round+'.\n'+order(s));
+      await touchScenePanel(q,s);
       await q('UPDATE pc_rp_scenes SET state=$1,ready_at=0,lease_token=NULL,lease_until=0,speech=NULL,attempts=0,delivery_note=NULL WHERE scene_id=$2',[JSON.stringify(s),s.id]);
     });
   }catch(e:any){

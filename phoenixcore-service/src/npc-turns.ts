@@ -3,6 +3,7 @@ import type {Query,Store} from './db.ts';
 import type {Scene} from './npc-voice.ts';
 
 export const turnWindow=2*60*60*1000;
+export const reminderDelay=30*60*1000;
 export const noMentions={parse:[]};
 export const currentSlot=(s:Scene)=>s.cast[s.turn];
 export const currentWriter=(s:Scene)=>currentSlot(s)?.id;
@@ -26,8 +27,9 @@ export async function lockedScene(q:Query,db:Store,channel:string){
 export async function setClock(q:Query,s:Scene,now:number){
   s.startedAt=now;
   await q('DELETE FROM pc_rp_clocks WHERE scene_id=$1',[s.id]);
-  if(!s.paused&&currentWriter(s)&&!slotHasPost(s)){
-    await q('INSERT INTO pc_rp_clocks(scene_id,due_at) VALUES($1,$2)',[s.id,now+turnWindow]);
+  if(!s.paused&&currentWriter(s)){
+    if(!slotHasPost(s))await q('INSERT INTO pc_rp_clocks(scene_id,due_at) VALUES($1,$2)',[s.id,now+turnWindow]);
+    await queueTurnReminder(q,s,now);
   }
 }
 export async function queueNotice(q:Query,s:Scene,lead:string,options:Record<string,unknown>={}){
@@ -35,6 +37,14 @@ export async function queueNotice(q:Query,s:Scene,lead:string,options:Record<str
   const content=lead+(writer?'\n<@'+writer+'>, it’s your turn.':'');
   const payload={content,allowed_mentions:writer?{parse:[],users:[writer]}:noMentions,components:controls(s),...options};
   await q('INSERT INTO pc_rp_notices(id,scene_id,turn_key,payload,retry_at) VALUES($1,$2,$3,$4,$5)',[randomUUID(),s.id,turnKey(s),JSON.stringify(payload),Date.now()]);
+}
+export async function queueTurnReminder(q:Query,s:Scene,now:number){
+  const writer=currentWriter(s);
+  if(!writer||s.paused)return;
+  const key=turnKey(s),id='reminder:'+s.id+':'+key;
+  const payload={content:'<@'+writer+'>, your character’s turn has been open for 30 minutes. When you finish posting, use /finish-turn. You may also use Pass turn.',allowed_mentions:{parse:[],users:[writer]}};
+  await q('INSERT INTO pc_rp_notices(id,scene_id,turn_key,payload,retry_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING',
+    [id,s.id,key,JSON.stringify(payload),now+reminderDelay]);
 }
 export function includeWaiting(s:Scene) {
   s.cast.push(...(s.waiting||[]));s.waiting=[];
@@ -48,7 +58,8 @@ export async function nextTurn(q:Query,s:Scene,now:number,lead:string){
   }
   await setClock(q,s,now);
   await q('UPDATE pc_rp_scenes SET state=$1,ready_at=$2 WHERE scene_id=$3',[JSON.stringify(s),done&&!s.paused?now:0,s.id]);
-  await queueNotice(q,s,lead+'\n'+order(s));
+  const {touchScenePanel}=await import('./npc-panel.ts');
+  await touchScenePanel(q,s);
 }
 export async function resumeTurn(q:Query,s:Scene,writer:string,now:number,characterId?:string){
   const index=s.cast.findIndex(p=>p.id===writer&&(!characterId||p.characterId===characterId));
@@ -56,7 +67,8 @@ export async function resumeTurn(q:Query,s:Scene,writer:string,now:number,charac
   s.cast=[...s.cast.slice(index),...s.cast.slice(0,index)];s.turn=0;s.paused=false;
   await setClock(q,s,now);
   await q('UPDATE pc_rp_scenes SET state=$1 WHERE scene_id=$2',[JSON.stringify(s),s.id]);
-  await queueNotice(q,s,'Round '+s.round+' resumed.\n'+order(s));
+  const {touchScenePanel}=await import('./npc-panel.ts');
+  await touchScenePanel(q,s);
   return true;
 }
 export async function restoreTurnClocks(db:Store,now=Date.now()){
@@ -84,8 +96,8 @@ export async function expireTurn(db:Store,now=Date.now()){
     return true;
   });
 }
-export async function deliverTurnNotice(db:Store,send:(channel:string,payload:any)=>Promise<unknown>){
-  const now=Date.now(),lease=randomUUID();
+export async function deliverTurnNotice(db:Store,send:(channel:string,payload:any)=>Promise<unknown>,now=Date.now()){
+  const lease=randomUUID();
   const job=await db.transaction(async q=>{
     const [n]=await q('SELECT n.*,s.channel_id,s.state FROM pc_rp_notices n JOIN pc_rp_scenes s ON n.scene_id=s.scene_id WHERE n.retry_at<=$1 ORDER BY n.retry_at,n.id LIMIT 1'+(db.dialect==='postgres'?' FOR UPDATE OF n SKIP LOCKED':''),[now]);
     if(!n)return;

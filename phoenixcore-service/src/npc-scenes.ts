@@ -6,7 +6,8 @@ import {actorFor,readSettings} from './domain.ts';
 import {formStats,isAzurik,loadNpc,npcChoices} from './npc-catalog.ts';
 import {aiOptions,openingLine,type Scene} from './npc-voice.ts';
 import {defaultHistory,maxHistory,readSceneHistory,type Memory} from './npc-history.ts';
-import {controls,currentSlot,currentWriter,slotHasPost,lockedScene,nextTurn,noMentions,order,queueNotice,resumeTurn,setClock,turnWindow} from './npc-turns.ts';
+import {controls,currentSlot,currentWriter,slotHasPost,lockedScene,nextTurn,noMentions,order,resumeTurn,setClock,turnWindow} from './npc-turns.ts';
+import {createScenePanel,touchScenePanel} from './npc-panel.ts';
 
 export const sceneCommand=(name:string)=>['roleplay-start','roleplay-join','finish-turn','roleplay-status','roleplay-cancel'].includes(name);
 export const npcCommands=()=>[
@@ -33,7 +34,7 @@ function signedAdmin(body:any,config:Config) {
 const select=(body:any,name:string)=>body.data.options?.find((o:any)=>o.name===name)?.value;
 function sceneOptions(s:Scene,sheet:any,config:Config,note:string) {
   const embed:any={title:s.title+' · Round 1',description:openingLine(isAzurik(s.npc,sheet),s.mode,s.title,!!s.history?.length||!!s.opening),color:0xc76639,
-    fields:[{name:'Turn order',value:order(s)},{name:'On your turn',value:'Write using your character tag or channel default. You can send several posts. Type /finish-turn to pass. An unanswered turn passes after two hours.'},{name:'Opening context',value:note}]};
+    fields:[{name:'Turn order',value:order(s)},{name:'On your turn',value:'Write using your character tag or channel default. You can send several posts. Type /finish-turn to pass. A reminder comes after 30 minutes if your turn remains open. An unanswered turn passes after two hours.'},{name:'Opening context',value:note}]};
   if(s.opening)embed.fields.push({name:'Scene premise',value:s.opening});
   if(s.ai)embed.fields.push({name:'AI dialogue',value:'Selected opening history and participating writers’ turns are shared with OpenAI.'});
   if(sheet.portrait)embed.thumbnail={url:new URL(sheet.portrait,config.dashboard).href};
@@ -136,7 +137,7 @@ export async function sceneInteraction(db:Store,config:Config,body:any,scope:Rol
         if(!saved.length)return reply('Another writer just started a scene here. Use /roleplay-status.');
         await setClock(q,s,s.startedAt!);
         const panel=sceneOptions(s,sheet,config,opening.note);
-        await queueNotice(q,s,'Scene opened with '+s.title+'.',panel);
+        await createScenePanel(q,s,panel.embeds[0]);
         return reply('Scene opened with '+s.title+'. '+opening.note.replace(/\.$/,'')+'.',true,panel);
       }
       if(!row)return reply('There is no active NPC scene here. Use /roleplay-start.');
@@ -165,7 +166,8 @@ export async function sceneInteraction(db:Store,config:Config,body:any,scope:Rol
         const entrant=picked.characterId?picked:actorEntry;
         if(Number(row.ready_at)){(s.waiting??=[]).push(entrant);}else{s.cast.push(entrant);}
         await q('UPDATE pc_rp_scenes SET state=$1 WHERE scene_id=$2',[JSON.stringify(s),s.id]);
-        return reply('<@'+actor+'> joined as '+entrant.name+' '+(Number(row.ready_at)?'for the next round':'in round '+s.round)+'.\n'+order(s),false,{components:controls(s)});
+        await touchScenePanel(q,s);
+        return reply('Joined as '+entrant.name+' '+(Number(row.ready_at)?'for the next round':'in round '+s.round)+'. The scene panel has been updated.\n'+order(s),true);
       }
       if(component&&(Number(component[2])!==s.round||component[4]!==undefined&&Number(component[4])!==s.turn))return privateState();
       if(action==='write'||action==='submit')return reply('Write directly in this channel using your character tag, then type /finish-turn.');

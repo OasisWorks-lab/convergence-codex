@@ -5,7 +5,8 @@ import {openSqlite,openPostgres,initialize,defaultSettings} from '../src/db.ts';
 import {Discord,handleInteraction} from '../src/discord.ts';
 import {azurikId,loadNpc,npcChoices,seedAzurik} from '../src/npc-catalog.ts';
 import {captureWriterPost} from '../src/posting.ts';
-import {deliverTurnNotice,expireTurn,lockedScene,queueNotice,restoreTurnClocks,setClock,turnWindow} from '../src/npc-turns.ts';
+import {deliverTurnNotice,expireTurn,lockedScene,queueNotice,restoreTurnClocks,setClock,turnWindow,reminderDelay} from '../src/npc-turns.ts';
+import {deliverScenePanel} from '../src/npc-panel.ts';
 import {readSceneHistory} from '../src/npc-history.ts';
 import {guided} from '../src/npc-voice.ts';
 import {replyLength} from '../src/npc-prose.ts';
@@ -192,18 +193,22 @@ test('start defers Discord history, reads the last five in this thread in order,
   assert.equal((await db.query('SELECT 1 FROM pc_rp_scenes')).length,0);
 });
 
-test('native tags and parent defaults feed player identity, join broadcasts the order and handoffs ping only the next writer',async t=>{
+test('native tags and parent defaults feed identities while joins and handoffs silently edit a standing panel',async t=>{
   const {db,start,command,run,event}=await setup(t);
   const a=randomUUID(),b=randomUUID();
   for(const [id,who,name] of [[a,host,'Mira'],[b,guest,'Renn']])await db.query('INSERT INTO pc_characters VALUES($1,$2,1,$3)',[id,who,JSON.stringify({name,characterType:'OC'})]);
   await db.query('INSERT INTO pc_post_tags(owner_id,tag,character_id,tag_key) VALUES($1,$2,$3,$2)',[host,'m-',a]);
   await db.query('INSERT INTO pc_post_defaults VALUES($1,$2,$3)',[guest,channel,b]);
   const first=await start();
-  const notices:any[]=[];
-  const deliver=()=>deliverTurnNotice(db,async(ch,p)=>{assert.equal(ch,thread);notices.push(p);});
-  await deliver();assert.deepEqual(notices[0].allowed_mentions,{parse:[],users:[host]});
+  const notices:any[]=[],panels:any[]=[];
+  const deliver=()=>deliverScenePanel(db,async(ch,p,messageId)=>{assert.equal(ch,thread);panels.push({payload:p,messageId});return {id:post};});
+  await deliver();assert.deepEqual(panels[0].payload.allowed_mentions,{parse:[]});
+  assert.equal(await deliverTurnNotice(db,async(_,p)=>notices.push(p)),false);
   const panel=await run(event(first,'join',guest));assert.match(panel.data.content,new RegExp(host+'[\\s\\S]*'+guest+'[\\s\\S]*King Azurik'));assert.deepEqual(panel.data.allowed_mentions,{parse:[]});
-  assert.equal(panel.data.components[0].components.some((p:any)=>p.label==='Write turn'),false);
+  assert.equal(panel.data.flags,64);
+  await deliver();assert.equal(panels.at(-1).messageId,post);
+  assert.match(panels.at(-1).payload.embeds[0].fields[0].value,new RegExp(guest));
+  assert.equal(panel.data.components,undefined);
   const postAs=(author:string,id:string,content:string)=>captureWriterPost(db,{guild,channel:thread,parent:channel,author,id,roles:[],content},'Account name');
   assert.equal(await postAs(guest,'early','I turn toward the gate.'),undefined);
   assert.equal(await postAs(host,'first','m-The gate is open.'),'added');
@@ -211,17 +216,17 @@ test('native tags and parent defaults feed player identity, join broadcasts the 
   assert.equal(await postAs(host,'second','m-I wait for Renn.'),'added');
   assert.equal((await db.query('SELECT * FROM pc_rp_clocks')).length,0);
   await command('finish-turn');
-  await deliver(); assert.deepEqual(notices.at(-1).allowed_mentions,{parse:[],users:[guest]});
+  await deliver(); assert.equal(notices.length,0);assert.deepEqual(panels.at(-1).payload.allowed_mentions,{parse:[]});
   assert.equal(await postAs(guest,'third','I listen for the signal.'),'added');
   await command('finish-turn',guest);
   const joining=await run(event(first,'join',stranger));
   assert.match(joining.data.content,/next round/);
   await deliverScene(db,async (s,move)=>{
     assert.deepEqual(s.posts.map(p=>[p.name,p.text]),[['Mira','The gate is open.'],['Mira','I wait for Renn.'],['Renn','I listen for the signal.']]);
-    assert.match(move.text,/Mira/);return post;
+    assert.ok(move.text.length>10);return post;
   });
   while(await deliver()){}
-  assert.deepEqual(notices.at(-1).allowed_mentions,{parse:[],users:[host]});
+  assert.equal(notices.length,0);assert.equal(panels.at(-1).messageId,post);
   const status=await command('roleplay-status');assert.match(status.data.content,new RegExp(stranger));assert.match(status.data.content,/Round 2/);
 });
 
@@ -234,8 +239,9 @@ test('silent turns expire once, a quiet round pauses, and a real reply or a rest
   const double=await Promise.all([expireTurn(db,hostDeadline),expireTurn(db,hostDeadline)]);
   assert.equal(double.filter(Boolean).length,1);const guestDeadline=await due();assert.equal(guestDeadline,hostDeadline+turnWindow);
   await restoreTurnClocks(db,guestDeadline-50);assert.equal(await due(),guestDeadline);
-  const delivered:any[]=[];while(await deliverTurnNotice(db,async(_,p)=>{delivered.push(p);})){}
-  assert.match(delivered.at(-1).content,/skipped after two hours/);assert.deepEqual(delivered.at(-1).allowed_mentions.users,[guest]);
+  const delivered:any[]=[];
+  while(await deliverTurnNotice(db,async(_,p)=>{delivered.push(p);},hostDeadline+reminderDelay)){}
+  assert.equal(delivered.length,1);assert.deepEqual(delivered[0].allowed_mentions.users,[guest]);
   assert.equal(await expireTurn(db,guestDeadline),true);
   assert.match((await command('roleplay-status')).data.content,/Paused/);
   assert.equal(await deliverScene(db,async()=>{throw Error('empty round');}),false);
@@ -282,7 +288,8 @@ test('PostgreSQL workers claim each timer and mention once and cascade a cancell
   await Promise.all([deliverTurnNotice(db,send),deliverTurnNotice(db,send)]);assert.equal(sends.length,1);assert.deepEqual(sends[0].allowed_mentions.users,[host]);
   await Promise.all([expireTurn(db,now+turnWindow),expireTurn(db,now+turnWindow)]);
   const saved=await db.transaction(q=>lockedScene(q,db,thread));assert.equal(JSON.parse(saved.state).turn,1);
-  await Promise.all([deliverTurnNotice(db,send),deliverTurnNotice(db,send)]);assert.equal(sends.length,2);assert.deepEqual(sends[1].allowed_mentions.users,[guest]);
+  while(await deliverTurnNotice(db,send,now+turnWindow+reminderDelay)){}
+  assert.equal(sends.length,2);assert.deepEqual(sends[1].allowed_mentions.users,[guest]);
   await db.query('DELETE FROM pc_rp_scenes WHERE scene_id=$1',[s.id]);assert.deepEqual(await db.query('SELECT * FROM pc_rp_clocks'),[]);
 });
 
@@ -295,8 +302,8 @@ test('Azurik greets a writer in every mode, answers the next turn and only respo
       const move=guided(scene,sheet);scene.form=move.form;
       scene.past.push({posts:[{name:'Mira',text}],reply:move.text});scene.round++;return move;
     };
-    const first=say('Hey Azurik');assert.match(first.text,/Mira/);assert.doesNotMatch(first.text,/guard|strike|feint|blow|opponent|fight|gate/i);
-    const second=say('I just wanted to see how you were doing.');assert.match(second.text,/asked|tired|company/);
+    const first=say('Hey Azurik');assert.match(first.text,/hello|hey|good day/i);assert.doesNotMatch(first.text,/Mira|sound of his name|good to see you|there you are|old friend|guard|strike|feint|blow|opponent|fight|gate/i);
+    const second=say('I just wanted to see how you were doing.');assert.match(second.text,/asked|tired|day|listen|appreciate/i);
     const third=say('What was your father’s name?');assert.match(third.text,/Ziex/);
     const denial=say('I don’t want to fight, I just came to say hello.');assert.doesNotMatch(denial.text,/practice lane|feints|Orga Blaster|Galick Gun/);
     assert.equal(new Set([first,second,third,denial].map(m=>m.text.split(/\s+/).slice(0,8).join(' '))).size,4);
@@ -333,4 +340,24 @@ test('one Discord writer can join twice with distinct approved characters and ea
   assert.match((await command('finish-turn',guest)).data.content,/responding/);
   const [done]=await db.query('SELECT state FROM pc_rp_scenes WHERE channel_id=$1',[thread]);
   assert.deepEqual(JSON.parse(done.state).posts.map((p:any)=>p.characterId),[rin,sola]);
+});
+
+
+test('an unintroduced NPC visitor stays a stranger even when Discord identifies the writer',async t=>{
+  const {db}=await setup(t),sheet=await loadNpc(db.query,azurikId);
+  const scene:any={id:'unintroduced',npc:azurikId,title:'King Azurik',mode:'open',form:'',round:1,opening:'',history:[],past:[],posts:[]};
+  const say=(spoken:string,speaker='A Name He Has Never Heard')=>{
+    scene.posts=[{writer:host,name:speaker,text:spoken,source:String(scene.round)}];
+    const reply=guided(scene,sheet).text;
+    scene.past.push({posts:[{name:speaker,text:spoken}],reply});scene.round++;
+    return reply;
+  };
+  const first=say('Hello there!');
+  assert.doesNotMatch(first,/A Name He Has Never Heard|sound of his name|good to see you|there you are|old friend/i);
+  const second=say('How has your day been?');
+  assert.doesNotMatch(second,/A Name He Has Never Heard|sound of his name|remember when we/i);
+  const third=say('My name is Mira.');
+  assert.match(third,/Mira/);
+  const fourth=say('Hey again.');
+  assert.match(fourth,/Mira|Hello|Hey|Good day/);
 });

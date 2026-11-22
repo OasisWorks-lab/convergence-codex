@@ -1,5 +1,6 @@
 import type {Scene} from './npc-voice.ts';
 import type {Memory} from './npc-history.ts';
+import {introducedName} from './npc-dialogue.ts';
 
 const words=(value:string)=>value.match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu)?.length||0;
 export function replyLength(s:Scene) {
@@ -76,11 +77,11 @@ function voices(s:Scene):Memory[]{
 }
 export function expandPost(s:Scene,sheet:any,first:string,combat:boolean,king:boolean){
   const name=king?'Azurik':sheet.name,goal=replyLength(s),cast=voices(s);
-  const beat=relevant(s),last=cast.at(-1),prior=s.past.at(-1)?.posts.at(-1)??s.history?.at(-1);
+  const beat=relevant(s),last=cast.at(-1),prior=s.past.at(-1)?.posts.at(-1);
   const additions:string[]=[];
   if(cast.length>1){
     const other=cast.find(p=>p!==last)!;
-    additions.push(name+' turns to '+other.name+(last?' and then to '+last.name:'')+'. “'+(detail(other.text)?'You gave me another angle when you spoke of ‘'+detail(other.text)+'’. ':'')+'Is there something each of you can see from where you stand that the other might miss?”');
+    additions.push(name+' turns to the first speaker'+(last?' and then to the latest':'')+'. “'+(detail(other.text)?'You gave me another angle when you spoke of ‘'+detail(other.text)+'’. ':'')+'Is there something each of you can see from where you stand that the other might miss?”');
   }
   if(combat){
     additions.push(...(s.round%2?[
@@ -93,7 +94,7 @@ export function expandPost(s:Scene,sheet:any,first:string,combat:boolean,king:bo
   }
   if(combat&&!king)for(let i=cast.length>1?1:0;i<additions.length;i++)additions[i]=npcVoice(additions[i],name,sheet.gender);
   if(prior&&detail(prior.text)&&(!s.past.length||goal>110)){
-    additions.push('“'+prior.name+' spoke of ‘'+detail(prior.text)+'’.” '+name+' considers that detail again in light of what has just happened. “Does that still hold, or have we learned something that changes it?”');
+    additions.push('“Earlier someone spoke of ‘'+detail(prior.text)+'’.” '+name+' considers that detail again in light of what has just happened. “Does that still hold, or have we learned something that changes it?”');
   }
   if(s.opening&&goal>110&&detail(s.opening))additions.push(name+' recalls what first brought them here. “'+detail(s.opening)+'.” It gives the conversation a place to start, even if the decision facing them now turns out to be quite different.');
   if(king){
@@ -105,7 +106,7 @@ export function expandPost(s:Scene,sheet:any,first:string,combat:boolean,king:bo
   }else{
     additions.push(name+' leaves the decision open long enough for the others to speak. “I can offer you my part in this. Tell me where it would count for the most.”');
   }
-  if(last&&detail(last.text))additions.push('“'+last.name+', when you said ‘'+detail(last.text)+'’, what were you hoping I would understand?” '+name+' holds still to hear the answer before choosing the next move.');
+  if(last&&detail(last.text))additions.push('“'+(introducedName(s,last.name)?introducedName(s,last.name)+', ':'')+'when you said ‘'+detail(last.text)+'’, what were you hoping I would understand?” '+name+' holds still to hear the answer before choosing the next move.');
   const used=s.past.map(p=>p.reply).join('\n');
   const parts=[first];
   for(const line of additions.filter(v=>!used.includes(v))){
