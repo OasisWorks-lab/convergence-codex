@@ -92,6 +92,8 @@ const revision=(expected:number,shop:any)=>{
 export async function setShopkeeper(db:Store,actor:Actor,id:string,expected:number,input:any){
   staff(actor);requireId(id,'shop');
   requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Choose an NPC or custom entry.');
+  requireThat(Boolean(input.ownerNpcId)||(typeof input.ownerName==='string'&&!!input.ownerName.trim()),400,
+    'Choose a current NPC or provide a custom shopkeeper name.');
   return db.transaction(async q=>{
     const shop=await shopForWrite(q,db,id);revision(expected,shop);
     const keeper=await resolveShopkeeper(q,input);
