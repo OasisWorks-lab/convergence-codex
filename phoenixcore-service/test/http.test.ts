@@ -355,6 +355,39 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal(afterAuto.policy.revision,1);
   assert.equal(afterAuto.incidents.total,0);
 
+  assert.equal((await get('/api/polls',{headers:{origin}})).status,401);
+  const pollDefinition={receipt:randomUUID(),question:'Choose an RP arena',description:'A safe test poll',
+    choices:['Forest','Sky'],channelId:prizeChannel,mode:'single',
+    anonymous:true,allowChange:true,resultsEarly:false,
+    endsMs:Date.now()+3600000,requiredRoles:[],excludedRoles:[]};
+  assert.equal((await post('/api/polls',{action:'create',poll:pollDefinition},writer)).status,403);
+  const pollCreate=await post('/api/polls',{action:'create',poll:pollDefinition},owner);
+  assert.equal(pollCreate.status,200);
+  const pollId=(await pollCreate.json()).result.id;
+  const ownerPolls=(await (await get('/api/polls',{headers:{authorization:'Bearer '+owner,origin}})).json()).polls;
+  assert.equal(ownerPolls.some((p:any)=>p.id===pollId),true);
+  const publicPolls=(await (await get('/api/polls',{headers:{authorization:'Bearer '+writer,origin}})).json()).polls;
+  assert.equal(publicPolls.some((p:any)=>p.id===pollId),false);
+  assert.equal((await post('/api/polls',{action:'publish',pollId,revision:1},writer)).status,403);
+  assert.equal((await post('/api/polls',{action:'publish',pollId,revision:1},owner)).status,200);
+  const receiptVote=randomUUID();
+  assert.equal((await post('/api/polls',{action:'vote',pollId,selections:['0'],receipt:receiptVote},writer)).status,409);
+  await db.query('UPDATE pc_poll_posts SET message_id=$1 WHERE poll_id=$2',[prizeChannel,pollId]);
+  const voteHttp=await post('/api/polls',{action:'vote',pollId,selections:['0'],receipt:receiptVote},writer);
+  assert.equal(voteHttp.status,200);
+  assert.equal((await voteHttp.json()).result.changed,true);
+  assert.equal((await post('/api/polls',{action:'vote',pollId,selections:['0'],receipt:receiptVote},writer)).status,200);
+  const hiddenPoll=(await (await get('/api/polls/'+pollId,{headers:{authorization:'Bearer '+extra,origin}})).json()).poll;
+  assert.equal(hiddenPoll.counts,null);
+  assert.equal(hiddenPoll.voters,1);
+  assert.equal(JSON.stringify(hiddenPoll).includes(ids.writer),false);
+  assert.equal((await post('/api/polls',{action:'close',pollId,revision:3},writer)).status,403);
+  assert.equal((await post('/api/polls',{action:'close',pollId,revision:3},owner)).status,200);
+  const closedPoll=(await (await get('/api/polls/'+pollId,{headers:{authorization:'Bearer '+extra,origin}})).json()).poll;
+  assert.deepEqual(closedPoll.counts,[1,0]);
+  assert.equal((await get('/api/polls/'+pollId+'/audit',{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+
+
 
   assert.equal((await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,
     title:'Illegal style',description:'',color:456},judge)).status,403);
