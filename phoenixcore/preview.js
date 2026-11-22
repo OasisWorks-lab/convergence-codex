@@ -20,7 +20,7 @@
     const id=ids[role],owner=role==='owner',judge=owner||role==='judge',channels=settings.value.rpChannels.split(/\s+/).filter(Boolean);
     return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:judge},
        economyAccounts:characters.filter(c=>judge||c.ownerId===id).map(c=>({characterId:c.id,currencyId:'zeni',cash:c.sheet.wallet||'0',bank:banks.get(c.id)||'0',revision:1})),
-       favoriteCharacterIds:favorites.filter(f=>f.owner===id).map(f=>f.characterId),players,characters:characters.map(c=>({...c,tag:tags.find(t=>t.characterId===c.id)?.tag||''})),
+       favoriteCharacterIds:favorites.filter(f=>f.owner===id).map(f=>f.characterId),players,characters:characters.map(c=>({...c,sheet:judge||c.ownerId===id?c.sheet:{...c.sheet,wallet:undefined},tag:tags.find(t=>t.characterId===c.id)?.tag||''})),
       scope:{online:true,categories:[{id:'566666666666666666',name:'Roleplay channels below'}],locations:channels.map(id=>({id,name:'Practice scene',type:0})),incomplete:0,scanning:false},
       requests:requests.filter(r=>judge||r.ownerId===id||r.authorId===id).map(r=>({...r,denial:judge?r.denial:null,...(judge?{assessment:{summary:'Ready for staff review',checks:[{label:'Roleplay review',state:'review',detail:'Check the character, requirements and limitations against the server rules.'}]}}:{})})),announcements:owner?embeds:[],
       catalogue:designs,
