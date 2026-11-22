@@ -74,7 +74,8 @@ export async function communityInteraction(db:Store,config:Config,body:any){
       if(!await communityEnabled(db,'suggestions'))return response('Suggestions are disabled.');
       if(!actor.isStaff)return response('Only Owner, Admin or Helper may manage suggestions.');
       const status=staffClick[2]==='approved'?'Approved':staffClick[2]==='denied'?'Denied':'Implemented';
-      await reviewSuggestion(db,actor,staffClick[1],status);
+      const previous=await getSuggestion(db,staffClick[1]);
+      await reviewSuggestion(db,actor,staffClick[1],status,String(previous.staff_response||''));
       const updated=staffReviewPanel(await getSuggestion(db,staffClick[1]));
       return {type:7,data:{...updated.data,flags:undefined,content:'**Staff decision recorded:** '+status+'. The public suggestion will update shortly.'}};
     }
@@ -158,7 +159,9 @@ export async function communityInteraction(db:Store,config:Config,body:any){
         return staffReviewPanel(await getSuggestion(db,String(value('id')||'')));
       }
       if(operation==='review'){
-        const r=await reviewSuggestion(db,actor,String(value('id')||''),String(value('status')) as SuggestionStatus,String(value('response')||''));
+        const id=String(value('id')||''),previous=await getSuggestion(db,id);
+        const answer=value('response')===undefined?String(previous.staff_response||''):String(value('response'));
+        const r=await reviewSuggestion(db,actor,id,String(value('status')) as SuggestionStatus,answer);
         return response('Suggestion status updated to '+r.status+'. Members can view the updated decision using /suggest view.');
       }
     }
