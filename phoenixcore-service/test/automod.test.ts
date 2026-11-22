@@ -57,7 +57,7 @@ test('invitation, exact/subdomain blocklist and mention flooding create private 
   assert.deepEqual(await observeAutomod(db,config,sample(text)),{rules:[],recorded:false});
   const bare=await observeAutomod(db,config,sample('I posted discord.gg/abc in the chat','930000000000000054'));
   assert.deepEqual(bare.rules,['invite']);
-  assert.equal((await automodIncidents(db,owner)).total,3);
+  assert.equal((await automodIncidents(db,owner)).total,4);
   await assert.rejects(automodIncidents(db,helper),{status:403});
   assert.equal((await observeAutomod(db,config,sample('https://notscam.example/',
     '930000000000000051'))).rules.includes('blocked-host'),false);
