@@ -28,9 +28,11 @@ export async function communitySetModule(db:Store,actor:CommunityActor,module:Co
   requireThat(actor.isOwner,403,'Only the owner can change community module switches.');
   requireThat(communityModules.includes(module),400,'Unknown module.');
   await db.transaction(async q=>{
-    const [old]=await q('SELECT revision FROM pc_community_modules WHERE module=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[module]);
+    const [old]=await q('SELECT revision,enabled FROM pc_community_modules WHERE module=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[module]);
     await q('INSERT INTO pc_community_modules(module,enabled,revision,actor_id,updated_ms) VALUES($1,$2,$3,$4,$5) ON CONFLICT(module) DO UPDATE SET enabled=excluded.enabled,revision=excluded.revision,actor_id=excluded.actor_id,updated_ms=excluded.updated_ms',
       [module,enabled?1:0,Number(old?.revision||0)+1,actor.id,Date.now()]);
+    await q('INSERT INTO pc_community_module_history(module,revision,previous_enabled,enabled,actor_id,occurred_ms) VALUES($1,$2,$3,$4,$5,$6)',
+      [module,Number(old?.revision||0)+1,old?Number(old.enabled):null,enabled?1:0,actor.id,Date.now()]);
   });
   return enabled;
 }
