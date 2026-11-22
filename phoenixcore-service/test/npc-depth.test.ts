@@ -10,7 +10,7 @@ const scene=(...texts:string[]):Scene=>({
   id:randomUUID(),channel:'1350000000000000001',host:'111111111111111111',npc:randomUUID(),title:'King Azurik',
   mode:'open',ai:true,memory:'test',cast:[],turn:0,round:1,form:'',opening:'',
   posts:texts.map((s,i)=>character('Player '+i,i,s)),past:[]});
-const natural=(n:number)=>Array.from({length:n},(_,i)=>['A','traveler','from','another','world','approaches','the','king','carefully','to','explain','a','strange','phenomenon','that','occurred','during','their','latest','journey','and','asks','what','he','thinks','about','its','effects','on','the','nearby','town','before','making','any','decision'][i%36]).join(' ');
+const natural=(n:number)=>Array.from({length:n},(_,i)=>(i%3===0?'landmark'+i:['a','traveler','from','another','world','approaches','the','king','carefully','to','explain','a','strange','phenomenon','that','occurred','during','their','latest','journey','and','asks','what','he','thinks','about','its','effects','on','the','nearby','town','before','making','any','decision'][i%36])).join(' ');
 test('short meaningful post targets one or two paragraphs and spam never inflates the target',()=>{
   const hello=replyProfile(scene('"Good evening, your majesty."'));
   assert.deepEqual([hello.depth,hello.minParagraphs,hello.maxParagraphs,hello.targetWords],['brief',1,2,60]);
