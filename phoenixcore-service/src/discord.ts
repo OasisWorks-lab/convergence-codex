@@ -1,4 +1,5 @@
 import { npcCommands, sceneCommand, sceneInteraction } from './npc-scenes.ts';
+import {communityCommand,communityCommands,communityInteraction} from './community-discord.ts';
 import type { RoleplayScope } from './scope.ts';
 import servicePackage from '../package.json' with {type:'json'};
 import {characterCommand} from './characters.ts';
@@ -40,11 +41,12 @@ export class CommandRegistrationError extends Error {
 }
 
 // Discord adds IDs, localizations and default flags to the returned command definitions.
+function commandOption(o:any):any {return {name:o.name,type:o.type,description:o.description,required:o.required??false,autocomplete:o.autocomplete??false,max_length:o.max_length??null,min_value:o.min_value??null,max_value:o.max_value??null,choices:(o.choices||[]).map((c:any)=>[c.name,c.value]),options:(o.options||[]).map((child:any)=>commandOption(child))};}
 function commandShape(command:any) {
   const options=(command.options||[]).map((o:any)=>({
     name:o.name, type:o.type, description:o.description,
     required:o.required??false, autocomplete:o.autocomplete??false, max_length:o.max_length??null, min_value:o.min_value??null, max_value:o.max_value??null,
-    choices:(o.choices||[]).map((c:any)=>[c.name,c.value])
+    choices:(o.choices||[]).map((c:any)=>[c.name,c.value]),options:(o.options||[]).map((child:any)=>commandOption(child))
   }));
   return JSON.stringify([command.name,command.type,command.description||'',options]);
 }
@@ -117,7 +119,7 @@ export class Discord {
       {name:'character',description:'Your character name, posting tag or sheet ID',type:3,required:true,autocomplete:true},
       {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
     specs.push({name:'revert-form',type:1,description:'Return to base or an earlier attained form.',options:[{name:'character',type:3,description:'Your approved character',required:true,autocomplete:true},{name:'form',type:3,description:'Base or an earlier attained form',required:false,autocomplete:true}]});
-    const required=[...npcCommands(),...specs];
+    const required=[...npcCommands(),...communityCommands(),...specs];
     let operation='Listing Convergence commands';
     try {
       const current=await this.call(path);
@@ -213,6 +215,9 @@ export async function handleInteraction(db:Store, config:Config, body:any,discor
       defer(async()=>(await run()).data.content);return {type:5,data:{flags:64}};
     }
     return run();
+  }
+  if((body.type===2&&communityCommand(body.data?.name))||(body.type===3&&String(body.data?.custom_id||'').startsWith('pcs:vote:'))){
+    return communityInteraction(db,config,body);
   }
   if((body.type===2||body.type===4) && ['Character sheet','transform','revert-form'].includes(body.data?.name))return characterCommand(db,config.guild,config.dashboard,body);
   if(body.data?.name==='Catalog submission'||String(body.data?.custom_id||'').startsWith('pc:catalog:')){
