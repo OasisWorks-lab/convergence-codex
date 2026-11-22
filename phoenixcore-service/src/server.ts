@@ -26,7 +26,7 @@ import {deliverSuggestionPost} from './community-posts.ts';
 import {deliverScheduledJob} from './jobs.ts';
 import {closeInactiveSupport,deliverSupportOutbox} from './support-delivery.ts';
 import {advanceGiveaways,deliverGiveawayPost} from './giveaway-delivery.ts';
-import {giveawayChannels,setGiveawayChannels,createGiveaway,giveawayEntry,giveawayPublic,listGiveaways,claimGiveaway,concludeGiveaway,rerollGiveawaySlot,updateGiveawayStatus,confirmManualPrize,manualGiveawayWinner,editGiveaway,extendGiveaway} from './giveaway.ts';
+import {giveawayChannels,setGiveawayChannels,createGiveaway,giveawayEntry,giveawayPublic,listGiveaways,claimGiveaway,concludeGiveaway,rerollGiveawaySlot,updateGiveawayStatus,confirmManualPrize,manualGiveawayWinner,editGiveaway,extendGiveaway,giveawayParticipants} from './giveaway.ts';
 import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
 import {staffIdentity} from './staff.ts';
 import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,supportHistory,supportAnalytics,blockSupportMember} from './support.ts';
@@ -308,6 +308,17 @@ export function application(db:Store, config:Config, discord=new Discord(config)
           result={ok:true};
         }else throw new Problem(400,'Unknown Support Center action.');
         json(res,200,{ok:true,result});wake();return;
+      }
+      const participantRoute=/^\/api\/giveaways\/([\da-f-]{36})\/participants$/.exec(path);
+      if(method==='GET'&&participantRoute){
+        requireThat(actor.id===config.owner,403,'Only the Convergence Owner can view giveaway participants.');
+        requireThat(await communityEnabled(db,'giveaways'),403,'Giveaways are currently disabled.');
+        const page=Number(url.searchParams.get('page')||'1'),
+          filter=url.searchParams.get('filter')||'all';
+        const owner=await liveSupportActor(db,discord,config,actor.id);
+        json(res,200,await giveawayParticipants(db,participantRoute[1],owner,
+          userId=>discord.call('/guilds/'+config.guild+'/members/'+userId),page,filter as any));
+        return;
       }
       if((path==='/api/giveaways'||/^\/api\/giveaways\/[\da-f-]{36}$/.test(path))&&['GET','POST'].includes(String(method))){
         requireThat(await communityEnabled(db,'giveaways'),403,'Giveaways are currently disabled.');
