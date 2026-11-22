@@ -109,7 +109,7 @@
     if(demo){banner.innerHTML='<span><b>Practice mode</b> · Fictional players. Refresh to reset.</span><label>View as <select id="persona" aria-label="Practice role"><option value="player">Player</option><option value="judge">Helper</option><option value="owner">Owner</option></select></label>';$('#persona').value=preview.role();}
   }
   function playerCard(p) {
-    const n=state.characters.filter(c=>c.ownerId===p.id).length;
+    const n=state.characters.filter(c=>c.ownerId===p.id&&c.sheet.characterType!=='NPC').length;
     return '<a class="card person" href="#player-'+h(p.id)+'">'+avatar(p.display,p.id,p.avatar)+'<span class="who"><b>'+h(p.display)+'</b><small class="muted">@'+h(p.username)+'</small><small class="subtle">'+n+' character'+(n===1?'':'s')+'</small></span><span class="arrow" aria-hidden="true">↗</span></a>';
   }
   function directory(){
@@ -137,7 +137,7 @@
   }
   function player(id){
     const p=state.players.find(p=>p.id===id);if(!p)return missing();
-    const chars=state.characters.filter(c=>c.ownerId===id).sort(byFavorite);
+    const chars=state.characters.filter(c=>c.ownerId===id&&c.sheet.characterType!=='NPC').sort(byFavorite);
     return breadcrumbs([link('directory','Directory'),h(p.display)])+'<div class="sheet-head">'+avatar(p.display,p.id,p.avatar)+title(p.display,'@'+p.username)+(p.updatesUrl?'<a class="button" href="'+h(p.updatesUrl)+'" target="_blank" rel="noopener">Open OC Updates ↗</a>':'')+'</div>'+
       '<div class="section-head"><h2>Characters</h2>'+(id===state.actor.id&&state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div>'+
       (chars.length?'<div class="grid">'+chars.map(characterCard).join('')+'</div>':'<p class="empty">This player has no approved characters yet.</p>');
@@ -145,7 +145,7 @@
   function sheet(id){
     const c=state.characters.find(c=>c.id===id);if(!c)return missing();
     const s=c.sheet;document.title=s.name+' · PhoenixCore';
-    const own=c.ownerId===state.actor.id,account=(state.economyAccounts||[]).find(a=>a.characterId===id),active=forms.readForms(s.attainedForms).find(f=>f.id===c.activeForm),effective=forms.effectiveSheet(s,active);
+    const own=c.ownerId===state.actor.id&&s.characterType!=='NPC',account=(state.economyAccounts||[]).find(a=>a.characterId===id),active=forms.readForms(s.attainedForms).find(f=>f.id===c.activeForm),effective=forms.effectiveSheet(s,active);
     return breadcrumbs([link('directory','Directory'),(s.characterType==='NPC'?link('npcs','NPC catalog'):link('player-'+c.ownerId,ownerName(c.ownerId))),h(s.name)])+
       '<div class="sheet-head">'+avatar(s.name,c.id,active?.portrait||s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'</code>':'Unassigned')+'</p></div></div>'+
       '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+btn('favorite-character',isFavorite(id)?'★ Remove favorite':'☆ Favorite')+(own?link('edit-'+id,'Propose edit','button primary')+link('forms-'+id,'Add attained transformation','button')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
