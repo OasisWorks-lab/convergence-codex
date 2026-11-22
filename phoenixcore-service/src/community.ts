@@ -73,7 +73,8 @@ export async function tagAlias(db:Store,actor:CommunityActor,name:string,rawAlia
     requireThat(!(await q('SELECT id FROM pc_info_tags WHERE name=$1',[alias])).length,409,'A tag already uses that name.');
     const [existing]=await q('SELECT tag_id FROM pc_info_tag_aliases WHERE alias=$1',[alias]);
     requireThat(!existing||existing.tag_id===tag.id,409,'Alias belongs to a different tag.');
-    await q('INSERT INTO pc_info_tag_aliases(alias,tag_id) VALUES($1,$2) ON CONFLICT(alias) DO NOTHING',[alias,tag.id]);
+    const inserted=await q('INSERT INTO pc_info_tag_aliases(alias,tag_id) VALUES($1,$2) ON CONFLICT(alias) DO NOTHING RETURNING alias',[alias,tag.id]);
+    if(!inserted.length){const [winner]=await q('SELECT tag_id FROM pc_info_tag_aliases WHERE alias=$1',[alias]);requireThat(winner?.tag_id===tag.id,409,'Alias belongs to another tag.');}
     return tag.name;
   });
 }
@@ -175,8 +176,8 @@ export function suggestionDisplay(row:any){
       {name:'Submitted by',value:author},...(row.staff_response?[{name:'Staff response',value:String(row.staff_response).slice(0,950)}]:[])],
     footer:{text:'PhoenixCore suggestion '+row.id}}],
     components:[{type:1,components:[
-      {type:2,style:3,label:'Upvote',custom_id:'pcs:vote:'+row.id+':up'},
-      {type:2,style:4,label:'Downvote',custom_id:'pcs:vote:'+row.id+':down'},
-      {type:2,style:2,label:'Remove vote',custom_id:'pcs:vote:'+row.id+':remove'}]}],
+      {type:2,style:3,label:'Upvote',custom_id:'pcs:vote:'+row.id+':up',disabled:['Denied','Implemented'].includes(row.status)},
+      {type:2,style:4,label:'Downvote',custom_id:'pcs:vote:'+row.id+':down',disabled:['Denied','Implemented'].includes(row.status)},
+      {type:2,style:2,label:'Remove vote',custom_id:'pcs:vote:'+row.id+':remove',disabled:['Denied','Implemented'].includes(row.status)}]}],
     allowed_mentions:{parse:[]}};
 }
