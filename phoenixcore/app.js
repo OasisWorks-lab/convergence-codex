@@ -780,6 +780,33 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const give=e.target.closest('[data-giveaway-action]');
+    if(give){
+      const action=give.dataset.giveawayAction,id=give.dataset.giveawayId;
+      const payload={action,id};
+      if(action==='reroll'){
+        const value=prompt('Which unclaimed winner slot should be rerolled? Enter its number (1–25).');
+        if(value===null)return;
+        payload.slot=Number(value);
+      }
+      if(action==='manual-winner'){
+        const member=prompt('Discord user ID of the eligible entrant to select MANUALLY (not random):');
+        if(member===null)return;
+        payload.memberId=member.trim();
+      }
+      if(['end','cancel','manual-winner'].includes(action)&&!confirm(action==='manual-winner'?
+        'Add a visibly MANUAL winner? This is not a random draw.':
+        action==='end'?'Close entries and draw the eligible winner(s) now?':
+        'Cancel this giveaway? Entries will be closed.'))return;
+      give.disabled=true;
+      try{
+        await call('/api/giveaways','POST',payload);
+        giveawayData=null;giveawayDetail=null;
+        await giveawayRefresh();tell('Giveaway action recorded.');
+      }catch(error){tell(error.message,true);}
+      finally{give.disabled=false;}
+      return;
+    }
     const staffAction=e.target.closest('[data-support-action]');
     if(staffAction){
       const action=staffAction.dataset.supportAction,caseId=staffAction.dataset.supportId;
@@ -916,6 +943,41 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(!['giveaway-channels-form','giveaway-create-form','giveaway-claim-form'].includes(f.id))return;
+    e.preventDefault();
+    if(demo){tell('Practice mode cannot modify real giveaways.');return;}
+    const values=Object.fromEntries(new FormData(f));
+    let payload;
+    if(f.id==='giveaway-channels-form')payload={action:'channels',revision:giveawayData.channelRevision,
+      channels:String(values.channels||'').split(/[\s,]+/).map(v=>v.trim()).filter(Boolean)};
+    else if(f.id==='giveaway-claim-form')payload={action:'claim',id:f.dataset.id,
+      characterId:values.characterId||undefined};
+    else {
+      if(!f.dataset.receipt)f.dataset.receipt=crypto.randomUUID();
+      payload={action:'create',receipt:f.dataset.receipt,
+        title:values.title,description:values.description,channelId:values.channelId,
+        prizeKind:values.prizeKind,amountOrPrize:values.amountOrPrize,
+        durationMinutes:Number(values.durationMinutes),claimMinutes:Number(values.claimMinutes),
+        winnerCount:Number(values.winnerCount),startInMinutes:Number(values.startInMinutes),
+        retentionDays:Number(values.retentionDays),
+        requiredRoles:String(values.requiredRoles||'').split(/[\s,]+/).filter(Boolean),
+        excludedRoles:String(values.excludedRoles||'').split(/[\s,]+/).filter(Boolean)};
+    }
+    const button=f.querySelector('button.primary');
+    if(button?.disabled)return;
+    if(button)button.disabled=true;
+    try{
+      const result=await call('/api/giveaways','POST',payload);
+      delete f.dataset.receipt;giveawayData=null;giveawayDetail=null;
+      if(f.id==='giveaway-create-form'&&result.result?.id)location.hash='giveaway-'+result.result.id;
+      await giveawayRefresh();
+      tell(f.id==='giveaway-create-form'?'Giveaway created and queued for its designated Discord channel.':
+        f.id==='giveaway-claim-form'?'Prize claim recorded.':'Giveaway destinations saved.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;
     if(f.id!=='support-open-form'&&!f.classList.contains('support-message-form'))return;
