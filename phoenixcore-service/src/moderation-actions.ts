@@ -200,6 +200,25 @@ export async function expireModerationSanction(db:Store,discord:Pick<Discord,'ca
   return {status:state,changed};
 }
 
+export async function reconcileUnconfirmedSanctions(db:Store,now=Date.now()){
+  const stale=await db.query("SELECT case_id FROM pc_mod_sanctions WHERE status='applying' AND updated_ms<=$1",
+    [now-120000]);
+  let changed=0;
+  for(const row of stale){
+    await db.transaction(async q=>{
+      const [candidate]=await q('SELECT status,updated_ms FROM pc_mod_sanctions WHERE case_id=$1'+
+        (db.dialect==='postgres'?' FOR UPDATE':''),[row.case_id]);
+      if(candidate?.status!=='applying'||Number(candidate.updated_ms)>now-120000)return;
+      await q("UPDATE pc_mod_sanctions SET status='needs-review',last_error=$1,updated_ms=$2 WHERE case_id=$3",
+        ['Bot restarted or lost confirmation during the Discord operation. Verify manually before taking any new action.',now,row.case_id]);
+      await q('INSERT INTO pc_mod_case_events(id,case_id,actor_id,event,detail,occurred_ms) VALUES($1,$2,$3,$4,$5,$6)',
+        [randomUUID(),row.case_id,'system','delivery-unconfirmed','An interrupted action requires human review; no retry was sent.',now]);
+      changed++;
+    });
+  }
+  return changed;
+}
+
 export async function moderationWorkspace(db:Store,actor:StaffIdentity,targetId='',page=1){
   requireModerator(actor);
   requireThat(!targetId||discordId.test(targetId),400,'Choose an exact Discord member ID.');
@@ -208,8 +227,10 @@ export async function moderationWorkspace(db:Store,actor:StaffIdentity,targetId=
   const [total]=await db.query('SELECT COUNT(*) AS n FROM pc_mod_cases c'+where,args);
   const rows=await db.query(`SELECT c.id,c.target_id,c.actor_id,c.kind,c.reason,c.created_ms,c.active,
     c.removed_by,c.removed_ms,c.source_message_id,c.posted_message_id,c.character_id,
-    s.status AS sanction_status,s.until_ms,s.applied_ms,s.ended_ms,s.last_error
-    FROM pc_mod_cases c LEFT JOIN pc_mod_sanctions s ON s.case_id=c.id`+where+
+    s.status AS sanction_status,s.until_ms,s.applied_ms,s.ended_ms,s.last_error,
+    j.status AS expiry_job_status,j.last_error AS expiry_job_error
+    FROM pc_mod_cases c LEFT JOIN pc_mod_sanctions s ON s.case_id=c.id
+    LEFT JOIN pc_core_jobs j ON j.id=('mod-expire:' || c.id)`+where+
     ' ORDER BY c.created_ms DESC,c.id DESC LIMIT 25 OFFSET $'+(args.length+1),
     [...args,(page-1)*25]);
   return {total:Number(total.n),page,pages:Math.max(1,Math.ceil(Number(total.n)/25)),cases:rows,
