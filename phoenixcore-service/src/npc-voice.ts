@@ -149,7 +149,7 @@ export async function narrate(db:Store,scene:Scene,sheet:any,fetcher=fetch):Prom
     activeForm:formStats(sheet,decision.form).form?.name||'Base',currentPowerLevel:decision.pl};
   try{
     const prose=await npcCompletion(options,instructions,input,target,fetcher);
-    if(prose&&prose.length<=5800&&!repeatsOpening(scene,prose)&&prose.split(/\\s+/).length>=Math.min(8,Math.ceil(target/6)))
+    if(prose&&prose.length<=5800&&!repeatsOpening(scene,prose)&&prose.split(/\s+/).length>=Math.min(8,Math.ceil(target/6)))
       return {...decision,text:prose,source:'AI'};
   }catch{/* The optional AI provider may be unavailable; this turn uses a brief, safe guided fallback. */}
   return decision;
