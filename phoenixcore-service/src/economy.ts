@@ -99,6 +99,33 @@ export async function bankAction(db:Store,actor:Actor,input:any){
     return {id:input.id,cash:afterCash,bank:afterBank,replayed:false};
   });
 }
+
+export async function giveawayBankCredit(q:Query,db:Store,recipientId:string,characterId:string,prizeId:string,amountText:string){
+  requireThat(uuid.test(characterId)&&uuid.test(prizeId),400,'Choose a valid winning character and reward ID.');
+  const amount=balance(amountText);
+  requireThat(amount>0n,400,'A bank prize must be greater than zero.');
+  const id='giveaway:'+prizeId,reason='Convergence giveaway prize',fingerprint=digest([recipientId,characterId,amountText,prizeId]);
+  const [old]=await q('SELECT fingerprint FROM pc_economy_transactions WHERE id=$1',[id]);
+  if(old){
+    requireThat(old.fingerprint===fingerprint,409,'Giveaway payout already belongs to a different character or amount.');
+    return {id,replayed:true};
+  }
+  const [character]=await q('SELECT owner_id,sheet FROM pc_characters WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[characterId]);
+  requireThat(character&&character.owner_id===recipientId&&JSON.parse(character.sheet).characterType!=='NPC',403,
+    'Choose one of your approved player characters for the prize.');
+  await ensureAccount(q,characterId,JSON.parse(character.sheet));
+  const [account]=await q('SELECT cash,bank FROM pc_economy_accounts WHERE character_id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[characterId]);
+  requireThat(account,409,'The selected character has no valid economy account.');
+  const next=money(BigInt(account.bank)+amount);
+  await q('UPDATE pc_economy_accounts SET bank=$1,revision=revision+1 WHERE character_id=$2',[next,characterId]);
+  const recorded=await q('INSERT INTO pc_economy_transactions(id,actor_id,kind,reason,amount,currency_id,fingerprint,created_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id) DO NOTHING RETURNING id',
+    [id,'system','giveaway_prize',reason,amountText,economyCurrencyId,fingerprint,Date.now()]);
+  requireThat(recorded.length===1,409,'Giveaway payout was concurrently recorded.');
+  await q('INSERT INTO pc_economy_entries(transaction_id,character_id,cash_before,cash_after,bank_before,bank_after) VALUES($1,$2,$3,$4,$5,$6)',
+    [id,characterId,account.cash,account.cash,account.bank,next]);
+  return {id,replayed:false,bank:next};
+}
+
 export async function visibleAccounts(db:Store,actor:Actor){
   const rows=await db.query('SELECT a.character_id,a.currency_id,a.cash,a.bank,a.revision,c.owner_id FROM pc_economy_accounts a JOIN pc_characters c ON c.id=a.character_id ORDER BY a.character_id');
   return rows.filter(r=>actor.isJudge||r.owner_id===actor.id).map(r=>({characterId:r.character_id,currencyId:r.currency_id,cash:r.cash,bank:r.bank,revision:Number(r.revision)}));
