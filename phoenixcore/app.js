@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false,moderationData=null,moderationLoading=false,moderationMember='',moderationPageNumber=1,moderationCase=null;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|moderation|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['shops','Shops & Inventory'],['roles','Role Panels']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['shops','Shops & Inventory'],['roles','Role Panels'],...(state?.canModerate||state?.actor.isOwner?[['moderation','Moderation']]:[])]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -1050,6 +1050,70 @@ function formList(raw){
       (!data.enabled?'<section class="panel"><p>Role panel interactions are disabled by the Owner.</p></section>':'')+
       '<section class="stack"><h2>Configured role panels</h2>'+(cards||'<p>No role panels are published yet.</p>')+'</section>'+owner;
   }
+
+  async function moderationRefresh(){
+    if(moderationLoading||demo||!session||!state?.canModerate&&!state?.actor?.isOwner)return;
+    moderationLoading=true;
+    try{
+      const args=new URLSearchParams({page:String(moderationPageNumber)});
+      if(moderationMember)args.set('member',moderationMember);
+      moderationData=await call('/api/moderation?'+args.toString());
+      if(route()==='moderation')render();
+    }catch(error){tell(error.message,true);}
+    finally{moderationLoading=false;}
+  }
+  function moderationPage(){
+    if(demo)return title('Moderation','Live Discord actions are disabled in practice mode.')+
+      '<section class="panel"><p>Sign in as the Convergence Owner or a Discord Administrator to manage private cases.</p></section>';
+    if(!state?.canModerate&&!state?.actor?.isOwner)return missing();
+    if(!moderationData){void moderationRefresh();return title('Moderation','Loading private staff history…');}
+    const data=moderationData,formats={warn:'Warning',note:'Private note',timeout:'Timeout',untimeout:'Clear timeout',
+      kick:'Kick',ban:'Ban',unban:'Unban'};
+    const cases=data.cases.map(c=>'<article class="panel dossier">'+
+      '<div class="section-head"><h3>'+h(formats[c.kind]||c.kind)+' · '+h(c.target_id)+'</h3>'+
+      '<span class="pill">'+h(c.sanction_status|| (c.kind==='warn'?(Number(c.active)?'Active':'Inactive'):'Recorded'))+'</span></div>'+
+      '<p class="prewrap">'+h(c.reason||'Unspecified')+'</p>'+
+      '<small class="muted">By '+h(c.actor_id)+' · '+h(new Date(Number(c.created_ms)).toLocaleString())+
+      ' · Case '+h(c.id)+'</small>'+
+      (c.until_ms?'<p>Scheduled end: '+h(new Date(Number(c.until_ms)).toLocaleString())+'</p>':'')+
+      (c.last_error?'<p class="error">Delivery: '+h(c.last_error)+'</p>':'')+
+      (c.source_message_id?'<p class="muted">Source RP message: '+h(c.source_message_id)+
+        (c.character_id?' · Character '+h(c.character_id):'')+'</p>':'')+
+      '<div class="actions"><button type="button" data-moderation-case="'+h(c.id)+'">Inspect audit</button>'+
+      (c.kind==='warn'&&Number(c.active)===1?
+        '<button type="button" data-moderation-remove="'+h(c.id)+'">Remove warning</button>':'')+
+      (c.sanction_status==='pending'&&c.actor_id===state.actor.id?
+        '<button type="button" data-moderation-apply="'+h(c.id)+'">Apply queued sanction</button>':'')+
+      '</div></article>').join('');
+    const detail=moderationCase&&data.cases.some(c=>c.id===moderationCase.record?.id)?
+      '<section class="panel dossier"><h2>Case audit · '+h(moderationCase.record.id)+'</h2>'+
+      moderationCase.events.map(e=>'<div class="stat-row"><span>'+h(e.event)+' · '+h(e.actor_id)+
+      '</span><small>'+h(new Date(Number(e.occurred_ms)).toLocaleString())+'</small></div>'+
+      '<p class="prewrap">'+h(e.detail)+'</p>').join('')+'</section>':'';
+    const form='<section class="panel dossier"><h2>Record a manual moderation action</h2>'+
+      '<p>Owner/Admin only. Every action checks Discord hierarchy and bot permissions again. Nothing is automatically imposed at five warnings.</p>'+
+      '<form id="moderation-action-form" class="form">'+
+      '<label class="field"><span>Action</span><select name="action" required>'+
+      ['warn','note','timeout','untimeout','kick','ban','unban'].map(k=>
+        '<option value="'+h(k)+'">'+h(formats[k])+'</option>').join('')+'</select></label>'+
+      field('memberId','Real Discord user ID (not a character or webhook)','',{required:true,max:20})+
+      field('reason','Reason or private note','',{area:true,wide:true,max:850})+
+      field('minutes','Duration in minutes (timeout requires 1–40320; ban 0 = permanent)','0',{max:6,numeric:true})+
+      field('proxyPost','Optional PhoenixCore RP message ID','',{max:24})+
+      '<button class="primary">Review and submit manual action</button></form></section>';
+    return title('Moderation','Private Convergence sanctions, warning history and audit controls.')+
+      form+'<section class="panel dossier"><h2>Find member history</h2>'+
+      '<form id="moderation-search-form" class="form">'+
+      field('member','Exact Discord user ID (blank = all recent cases)',moderationMember,{max:20})+
+      '<button class="primary">Search cases</button></form></section>'+
+      '<section class="stack"><div class="section-head"><h2>Recent moderation cases</h2>'+
+      '<span class="muted">'+h(data.total)+' recorded</span></div>'+
+      (cases||'<p>No cases match this member.</p>')+
+      '<div class="actions"><button type="button" data-moderation-page="-1"'+(data.page<=1?' disabled':'')+
+      '>Previous</button><span>Page '+h(data.page)+' of '+h(data.pages)+'</span>'+
+      '<button type="button" data-moderation-page="1"'+(data.page>=data.pages?' disabled':'')+
+      '>Next</button></div></section>'+detail;
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
@@ -1061,6 +1125,7 @@ function formList(raw){
     else if(r==='giveaways'||/^giveaway-[\da-f-]{36}$/i.test(r))view.innerHTML=giveawayPage();
     else if(r==='shops'||/^shop-[\da-f-]{36}$/i.test(r))view.innerHTML=shopPage();
     else if(r==='roles'||/^roles-[\da-f-]{36}$/i.test(r))view.innerHTML=rolePanelPage();
+    else if(r==='moderation')view.innerHTML=moderationPage();
     else if(r==='requests'||r==='archived')view.innerHTML=requestList(r==='archived');
     else if(r==='settings')view.innerHTML=settings();
     else if(r==='new'||r.startsWith('new-'))view.innerHTML=editor(r==='new'?'create':r.slice(4));
@@ -1295,6 +1360,32 @@ function formList(raw){
       }catch(error){tell(error.message,true);}
       return;
     }
+    const modPage=e.target.closest('[data-moderation-page]');
+    if(modPage){
+      moderationPageNumber=Math.max(1,Math.min(moderationData?.pages||1,
+        moderationPageNumber+Number(modPage.dataset.moderationPage)));
+      moderationData=null;await moderationRefresh();return;
+    }
+    const modCase=e.target.closest('[data-moderation-case]');
+    if(modCase){
+      try{moderationCase=await call('/api/moderation/case/'+modCase.dataset.moderationCase);render();}
+      catch(error){tell(error.message,true);}
+      return;
+    }
+    const modRemove=e.target.closest('[data-moderation-remove]');
+    const modApply=e.target.closest('[data-moderation-apply]');
+    if(modRemove||modApply){
+      const caseId=modRemove?.dataset.moderationRemove||modApply?.dataset.moderationApply;
+      if(!confirm(modRemove?'Deactivate this warning while preserving its audit history?':
+        'Execute this queued Discord sanction? Confirm the case details and target first.'))return;
+      try{
+        const result=await call('/api/moderation','POST',{
+          action:modRemove?'remove-warning':'apply',caseId});
+        moderationData=null;moderationCase=null;await moderationRefresh();
+        tell('Moderation action recorded: '+(result.result?.status|| (result.result?.changed?'updated':'unchanged'))+'.');
+      }catch(error){tell(error.message,true);}
+      return;
+    }
     const staffAction=e.target.closest('[data-support-action]');
     if(staffAction){
       const action=staffAction.dataset.supportAction,caseId=staffAction.dataset.supportId;
@@ -1431,6 +1522,40 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;if(!['moderation-action-form','moderation-search-form'].includes(f.id))return;
+    e.preventDefault();
+    const fields=Object.fromEntries(new FormData(f)),button=f.querySelector('button.primary');
+    if(f.id==='moderation-search-form'){
+      const member=String(fields.member||'').trim();
+      if(member&&!/^\\d{17,20}$/.test(member)){tell('Enter a valid Discord member ID.',true);return;}
+      moderationMember=member;moderationPageNumber=1;moderationCase=null;moderationData=null;
+      await moderationRefresh();return;
+    }
+    const action=String(fields.action),memberId=String(fields.memberId||'').trim();
+    const minutes=Number(fields.minutes||0);
+    if(!/^\\d{17,20}$/.test(memberId)||!Number.isSafeInteger(minutes)||minutes<0){
+      tell('Enter a valid Discord member ID and whole-number duration.',true);return;
+    }
+    if(action==='timeout'&&(minutes<1||minutes>40320)){
+      tell('A timeout needs 1 to 40,320 minutes.',true);return;
+    }
+    if(action==='ban'&&minutes>525600){tell('Bans can be permanent or last up to one year.',true);return;}
+    const reason=String(fields.reason||'');
+    if(action==='note'&&!reason.trim()){tell('A private staff note requires content.',true);return;}
+    if(!confirm('Confirm a real Discord '+action+' for user '+memberId+
+      '? This may change server access immediately and the result is auditable.'))return;
+    if(button)button.disabled=true;
+    if(!f.dataset.receipt)f.dataset.receipt=crypto.randomUUID();
+    try{
+      const result=await call('/api/moderation','POST',{
+        action,memberId,reason,minutes,receipt:f.dataset.receipt,proxyPost:fields.proxyPost||''});
+      delete f.dataset.receipt;moderationData=null;moderationCase=null;
+      await moderationRefresh();tell('Moderation recorded: '+(result.result?.status||
+        (result.result?.created?'new case':'existing case'))+'. Inspect the case history for details.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;
     if(!['rolepanel-create-form','rolepanel-add-form','rolepanel-style-form','rolepanel-emoji-form'].includes(f.id))return;
