@@ -33,7 +33,6 @@ function configured(env:NodeJS.ProcessEnv,provider:NpcProvider,cap:number,lite=f
   };
   const model=modelName(models[provider]);
   if(!model)return null;
-  // Avoid accidentally selecting a paid OpenRouter model.
   if(provider==='openrouter'&&model!=='openrouter/free'&&!model.endsWith(':free'))return null;
   const dayKey=lite?'PHOENIX_NPC_GEMINI_LITE_DAILY_REPLIES':{
     openai:'PHOENIX_NPC_OPENAI_DAILY_REPLIES',
@@ -102,7 +101,7 @@ export async function npcCompletionResult(config:NpcAiConfig,instructions:string
       response=await fetcher(config.provider==='groq'?'https://api.groq.com/openai/v1/chat/completions':'https://openrouter.ai/api/v1/chat/completions',{
         method:'POST',signal:AbortSignal.timeout(11500),headers:{Authorization:'Bearer '+config.key,'Content-Type':'application/json'},
         body:JSON.stringify({model:config.model,messages:[{role:'system',content:instructions},{role:'user',content:JSON.stringify(input)}],
-          max_tokens:limit,temperature:0.85,stream:false})});
+          max_tokens:limit,temperature:0.85,stream:false,...(config.provider==='groq'&&config.model.startsWith('openai/gpt-oss-')?{reasoning_effort:'low',include_reasoning:false}:{})})});
     }
   }catch{return {status:'unavailable',retryMs:45000};}
   if(!response.ok){
