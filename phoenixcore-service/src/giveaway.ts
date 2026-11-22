@@ -3,7 +3,7 @@ import {Problem,requireThat,textValue,discordId} from './domain.ts';
 import type {Store,Query} from './db.ts';
 import type {StaffIdentity} from './staff.ts';
 import {balance,giveawayBankCredit} from './economy.ts';
-import {DiscordFailure} from './discord.ts';
+import {DiscordFailure,accountAvatar} from './discord.ts';
 
 export const giveawayStatuses=['scheduled','active','paused','ended','cancelled'] as const;
 export type GiveawayStatus=typeof giveawayStatuses[number];
@@ -325,6 +325,69 @@ export async function extendGiveaway(db:Store,id:string,who:StaffIdentity,expect
     await dirty(q,id);
     return {id,endsMs:ends,version:expectedVersion+1};
   });
+}
+
+
+export type GiveawayParticipantFilter='all'|'active'|'withdrawn';
+
+export async function giveawayParticipants(db:Store,id:string,who:StaffIdentity,
+  fetchMember:(userId:string)=>Promise<any>,page=1,filter:GiveawayParticipantFilter='all'){
+  requireThat(who.isOwner,403,'Only the Convergence Owner can view giveaway participant identities.');
+  giveawayId(id);
+  requireThat(Number.isSafeInteger(page)&&page>=1&&page<=100000,400,'Choose a valid participant page.');
+  requireThat(['all','active','withdrawn'].includes(filter),400,'Choose all, active or withdrawn participants.');
+  const g=await getGiveaway(db,id),pageSize=25;
+  const counts=await db.query('SELECT active,COUNT(*) AS total FROM pc_giveaway_entries WHERE giveaway_id=$1 GROUP BY active',[id]);
+  const active=Number(counts.find(x=>Number(x.active)===1)?.total||0),
+    withdrawn=Number(counts.find(x=>Number(x.active)===0)?.total||0),
+    total=filter==='active'?active:filter==='withdrawn'?withdrawn:active+withdrawn,
+    pages=Math.max(1,Math.ceil(total/pageSize));
+  requireThat(page<=pages,400,'This participant page no longer exists. Refresh the list.');
+  const statusClause=filter==='active'?' AND active=1':filter==='withdrawn'?' AND active=0':'';
+  const entries=await db.query('SELECT user_id,active,joined_ms,updated_ms FROM pc_giveaway_entries WHERE giveaway_id=$1'+
+    statusClause+' ORDER BY joined_ms,user_id LIMIT $2 OFFSET $3',[id,pageSize,(page-1)*pageSize]);
+  const [initial]=await db.query('SELECT snapshot FROM pc_giveaway_draws WHERE giveaway_id=$1 AND round=1',[id]);
+  const snapshot=new Map<string,{tickets:number;eligible:boolean}>();
+  if(initial){
+    for(const row of JSON.parse(initial.snapshot) as any[]){
+      if(typeof row.userId==='string')snapshot.set(row.userId,{tickets:Number(row.tickets)||0,eligible:row.eligible===true});
+    }
+  }
+  const winners=await db.query('SELECT user_id,status,slot,draw_round FROM pc_giveaway_winners WHERE giveaway_id=$1',[id]);
+  const winnerMap=new Map<string,any[]>();
+  for(const row of winners)winnerMap.set(row.user_id,[...(winnerMap.get(row.user_id)||[]),
+    {status:row.status,slot:Number(row.slot),round:Number(row.draw_round)}]);
+  const participants:any[]=[];
+  for(let offset=0;offset<entries.length;offset+=5){
+    const part=await Promise.all(entries.slice(offset,offset+5).map(async row=>{
+      let member:any=null,memberStatus:'current'|'left'|'unavailable'='current';
+      try{
+        member=await fetchMember(row.user_id);
+        if(member?.user?.id!==row.user_id||member?.user?.bot){member=null;memberStatus='unavailable';}
+      }catch(error){
+        memberStatus=error instanceof DiscordFailure&&error.status===404?'left':'unavailable';
+      }
+      const eligible=member?giveawayEligibleMember(row.user_id,member,g):null;
+      const activeEntry=Number(row.active)===1,draw=snapshot.get(row.user_id);
+      return {
+        userId:row.user_id,
+        username:member?String(member.user.username||'').slice(0,80):null,
+        displayName:member?String(member.nick||member.user.global_name||member.user.username||'').slice(0,100):null,
+        avatarUrl:member?accountAvatar(member.user):null,
+        memberStatus,active:activeEntry,
+        joinedMs:Number(row.joined_ms),updatedMs:Number(row.updated_ms),
+        booster:member?!!member.premium_since:null,
+        currentEligible:eligible?eligible.eligible:null,
+        currentTickets:eligible?(activeEntry&&eligible.eligible?(eligible.booster?3:1):0):null,
+        drawTickets:draw?draw.tickets:null,
+        drawEligible:draw?draw.eligible:null,
+        wins:winnerMap.get(row.user_id)||[]
+      };
+    }));
+    participants.push(...part);
+  }
+  return {giveawayId:id,filter,page,pages,pageSize,total,active,withdrawn,participants,
+    hasDrawSnapshot:!!initial};
 }
 
 export async function giveawayPublic(db:Store,id:string){
