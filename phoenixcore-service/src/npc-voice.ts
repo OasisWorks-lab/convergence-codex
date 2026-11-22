@@ -93,6 +93,7 @@ export function guided(scene:Scene,sheet:any):Speech {
         'Azurik acknowledges the words with a small nod. “I understand. What would you like to discuss?”',
         '“I hear you.” The king leaves the moment open rather than guessing at what was meant.'
       ],'unrecognized-conversation');
+    }
   } else if(last) {
     const beat=String(sheet.personality||'').split(/[.!?\n]/).find((p:string)=>p.trim())?.trim();
     line=(beat?'*'+beat.slice(0,190)+'.* ':'')+sheet.name+' takes in the words. “'+detail(last.text)+'… What would you ask of me?”';
