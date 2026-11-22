@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {openSqlite,openPostgres,initialize} from '../src/db.ts';
 import {staffIdentity} from '../src/staff.ts';
 import {setGiveawayChannels,createGiveaway,giveawayEntry,secureWeightedSelection,concludeGiveaway,rerollGiveawaySlot,
-  claimGiveaway,manualGiveawayWinner,confirmManualPrize,giveawayPublic,updateGiveawayStatus,giveawayChannels} from '../src/giveaway.ts';
+  claimGiveaway,manualGiveawayWinner,confirmManualPrize,giveawayPublic,updateGiveawayStatus,giveawayChannels,editGiveaway,extendGiveaway} from '../src/giveaway.ts';
 import {advanceGiveaways,deliverGiveawayPost,giveawayMessage} from '../src/giveaway-delivery.ts';
 import {giveawayCommands,giveawayButton} from '../src/giveaway-discord.ts';
 
@@ -197,6 +197,49 @@ test('unclaimed and pending-manual awards block retention deletion until claim/r
   assert.equal(await advanceGiveaways(db,discord,config,now+60001+8*86400000),true);
   assert.equal((await db.query('SELECT id FROM pc_giveaways WHERE id=$1',[g.id])).length,0);
 });
+
+test('staff edits open giveaway details with optimistic revisions, audited public message refresh and no prize mutation',async t=>{
+  const db=await setup(t),now=Date.now(),created=await createGiveaway(db,helper,input(now));
+  const id=created.id,initial=await giveawayPublic(db,id);
+  assert.equal(initial.version,1);
+  await assert.rejects(editGiveaway(db,id,memberStaff,1,{title:'Unauthorized'},now+1000),/Owner, Admin and Helper/);
+  await assert.rejects(editGiveaway(db,id,helper,1,{},now+1000),/Specify a title or description/);
+  const updated=await editGiveaway(db,id,helper,1,{title:'Community Celebration',description:'A revised description'},now+1000);
+  assert.equal(updated.version,2);assert.equal(updated.changed,true);
+  const displayed=await giveawayPublic(db,id);
+  assert.equal(displayed.title,'Community Celebration');assert.equal(displayed.description,'A revised description');
+  assert.equal(displayed.prizeKind,'zeni');assert.equal(displayed.zeniAmount,'750');
+  assert.equal((await editGiveaway(db,id,helper,2,{title:'Community Celebration'},now+1000)).changed,false);
+  await assert.rejects(editGiveaway(db,id,helper,1,{description:'Stale editor'},now+2000),/Refresh before editing/);
+  assert.ok((await db.query("SELECT event FROM pc_giveaway_events WHERE giveaway_id=$1 AND event='edited'",[id])).length===1);
+  const [post]=await db.query('SELECT revision,delivered_revision FROM pc_giveaway_posts WHERE giveaway_id=$1',[id]);
+  assert.equal(Number(post.revision),2);assert.equal(Number(post.delivered_revision),0);
+  await concludeGiveaway(db,id,helperId,lookup,now+60001);
+  await assert.rejects(editGiveaway(db,id,helper,3,{description:'Too late'},now+60002),/closed or drawn/);
+});
+
+test('staff extensions respect one-year limit, revision conflicts and paused clock semantics',async t=>{
+  const db=await setup(t),now=Date.now(),g=await createGiveaway(db,helper,input(now));
+  await assert.rejects(extendGiveaway(db,g.id,memberStaff,1,5,now+1000),/Owner, Admin and Helper/);
+  await assert.rejects(extendGiveaway(db,g.id,helper,1,0,now+1000),/Extend by/);
+  const extension=await extendGiveaway(db,g.id,helper,1,30,now+1000);
+  assert.equal(extension.version,2);assert.equal(extension.endsMs,now+31*60000);
+  await assert.rejects(extendGiveaway(db,g.id,helper,1,5,now+2000),/Refresh before extending/);
+  await updateGiveawayStatus(db,g.id,helper,'pause',now+3000);
+  const paused=await db.query('SELECT updated_ms,version FROM pc_giveaways WHERE id=$1',[g.id]);
+  const pauseClock=Number(paused[0].updated_ms);
+  const edit=await editGiveaway(db,g.id,helper,Number(paused[0].version),{description:'Edited while paused'},now+13000);
+  const extended=await extendGiveaway(db,g.id,helper,edit.version,15,now+23000);
+  assert.equal(extended.endsMs,now+46*60000);
+  assert.equal(Number((await db.query('SELECT updated_ms FROM pc_giveaways WHERE id=$1',[g.id]))[0].updated_ms),pauseClock);
+  await updateGiveawayStatus(db,g.id,helper,'resume',now+33000);
+  assert.equal((await giveawayPublic(db,g.id)).endsMs,now+46*60000+30000);
+  await assert.rejects(extendGiveaway(db,g.id,helper,5,525600,now+34000),/longer than one year/);
+  assert.equal((await db.query("SELECT event FROM pc_giveaway_events WHERE giveaway_id=$1 AND event='extended'",[g.id])).length,2);
+  await updateGiveawayStatus(db,g.id,helper,'cancel',now+35000);
+  await assert.rejects(extendGiveaway(db,g.id,helper,5,1,now+36000),/closed or drawn/);
+});
+
 test('PostgreSQL concurrent draws, claims and receipts never multiply winners or bank credits',{skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
   const url=new URL(process.env.PHOENIX_TEST_DATABASE_URL!),root=await openPostgres(url.href);
   const schema='giveaway_'+randomUUID().replaceAll('-','');
