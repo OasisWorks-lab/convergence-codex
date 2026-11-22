@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {openSqlite,openPostgres,initialize} from '../src/db.ts';
 import {staffIdentity} from '../src/staff.ts';
 import {setGiveawayChannels,createGiveaway,giveawayEntry,secureWeightedSelection,concludeGiveaway,rerollGiveawaySlot,
-  claimGiveaway,manualGiveawayWinner,confirmManualPrize,giveawayPublic,updateGiveawayStatus,giveawayChannels,editGiveaway,extendGiveaway} from '../src/giveaway.ts';
+  claimGiveaway,manualGiveawayWinner,confirmManualPrize,giveawayPublic,updateGiveawayStatus,giveawayChannels,editGiveaway,extendGiveaway,giveawayParticipants} from '../src/giveaway.ts';
 import {advanceGiveaways,deliverGiveawayPost,giveawayMessage} from '../src/giveaway-delivery.ts';
 import {giveawayCommands,giveawayButton} from '../src/giveaway-discord.ts';
 
@@ -239,6 +239,67 @@ test('staff extensions respect one-year limit, revision conflicts and paused clo
   assert.equal((await db.query("SELECT event FROM pc_giveaway_events WHERE giveaway_id=$1 AND event='extended'",[g.id])).length,2);
   await updateGiveawayStatus(db,g.id,helper,'cancel',now+35000);
   await assert.rejects(extendGiveaway(db,g.id,helper,afterResume.version+1,1,now+36000),/closed or drawn/);
+});
+
+
+test('only Owner can inspect entrant identities, with accurate booster, withdrawal and original draw information',async t=>{
+  const db=await setup(t),now=Date.now(),g=await createGiveaway(db,helper,input(now));
+  await giveawayEntry(db,g.id,memberId,people[memberId],true,now+1000);
+  await giveawayEntry(db,g.id,boosterId,people[boosterId],true,now+1100);
+  await giveawayEntry(db,g.id,extraId,people[extraId],true,now+1200);
+  await giveawayEntry(db,g.id,extraId,people[extraId],false,now+1300);
+  const members:any={...people,
+    [memberId]:{...people[memberId],nick:'Rin Writer',user:{...people[memberId].user,username:'rin-player',global_name:'Rin'}}};
+  const resolve=async(id:string)=>members[id]||null;
+  await assert.rejects(giveawayParticipants(db,g.id,helper,resolve),/Only the Convergence Owner/);
+  await assert.rejects(giveawayParticipants(db,g.id,memberStaff,resolve),/Only the Convergence Owner/);
+  await assert.rejects(giveawayParticipants(db,g.id,owner,resolve,0),/valid participant page/);
+  await assert.rejects(giveawayParticipants(db,g.id,owner,resolve,1,'not-allowed' as any),/Choose all, active or withdrawn/);
+  const roster=await giveawayParticipants(db,g.id,owner,resolve);
+  assert.equal(roster.total,3);assert.equal(roster.active,2);assert.equal(roster.withdrawn,1);
+  assert.equal(roster.participants.length,3);
+  const rin=roster.participants.find((p:any)=>p.userId===memberId);
+  assert.equal(rin.displayName,'Rin Writer');assert.equal(rin.username,'rin-player');
+  assert.match(rin.avatarUrl,/cdn.discordapp.com/);
+  assert.equal(rin.currentTickets,1);assert.equal(rin.memberStatus,'current');
+  const booster=roster.participants.find((p:any)=>p.userId===boosterId);
+  assert.equal(booster.booster,true);assert.equal(booster.currentTickets,3);
+  const withdrawn=await giveawayParticipants(db,g.id,owner,resolve,1,'withdrawn');
+  assert.deepEqual(withdrawn.participants.map((p:any)=>p.userId),[extraId]);
+  assert.equal(withdrawn.participants[0].active,false);
+  assert.equal(withdrawn.participants[0].currentTickets,0);
+  assert.equal(Object.hasOwn(await giveawayPublic(db,g.id),'participants'),false);
+  await concludeGiveaway(db,g.id,helperId,resolve,now+60001);
+  const drawn=await giveawayParticipants(db,g.id,owner,resolve);
+  assert.equal(drawn.hasDrawSnapshot,true);
+  assert.equal(drawn.participants.find((p:any)=>p.userId===boosterId).drawTickets,3);
+  assert.equal(drawn.participants.find((p:any)=>p.userId===extraId).drawTickets,0);
+  assert.equal(drawn.participants.reduce((sum:number,p:any)=>sum+p.wins.length,0),2);
+  const missing=await giveawayParticipants(db,g.id,owner,async(id:string)=>{
+    if(id===boosterId)throw new (await import('../src/discord.ts')).DiscordFailure(404);
+    return resolve(id);
+  });
+  assert.equal(missing.participants.find((p:any)=>p.userId===boosterId).memberStatus,'left');
+  assert.equal(missing.participants.find((p:any)=>p.userId===boosterId).drawTickets,3);
+});
+
+test('participant directory pages through all user records without exposing other pages',async t=>{
+  const db=await setup(t),now=Date.now(),g=await createGiveaway(db,helper,input(now,{requiredRoles:[]}));
+  const profiles=new Map<string,any>();
+  for(let i=0;i<30;i++){
+    const id=(BigInt('110000000000000100')+BigInt(i)).toString();
+    const profile={...normal(id),nick:'Participant '+i,
+      user:{id,username:'player'+i,bot:false}};
+    profiles.set(id,profile);
+    await giveawayEntry(db,g.id,id,profile,true,now+1000+i);
+  }
+  const resolve=async(id:string)=>profiles.get(id)||null;
+  const first=await giveawayParticipants(db,g.id,owner,resolve,1,'all');
+  const second=await giveawayParticipants(db,g.id,owner,resolve,2,'all');
+  assert.equal(first.pageSize,25);assert.equal(first.pages,2);
+  assert.equal(first.participants.length,25);assert.equal(second.participants.length,5);
+  assert.equal(new Set([...first.participants,...second.participants].map(p=>p.userId)).size,30);
+  await assert.rejects(giveawayParticipants(db,g.id,owner,resolve,3),/no longer exists/);
 });
 
 test('PostgreSQL concurrent draws, claims and receipts never multiply winners or bank credits',{skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
