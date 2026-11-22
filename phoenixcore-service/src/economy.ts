@@ -100,11 +100,11 @@ export async function bankAction(db:Store,actor:Actor,input:any){
   });
 }
 
-export async function giveawayBankCredit(q:Query,db:Store,recipientId:string,characterId:string,prizeId:string,amountText:string){
+export async function giveawayBankCredit(q:Query,db:Store,recipientId:string,characterId:string,prizeId:string,amountText:string,giveawayId:string){
   requireThat(uuid.test(characterId)&&uuid.test(prizeId),400,'Choose a valid winning character and reward ID.');
   const amount=balance(amountText);
   requireThat(amount>0n,400,'A bank prize must be greater than zero.');
-  const id='giveaway:'+prizeId,reason='Convergence giveaway prize',fingerprint=digest([recipientId,characterId,amountText,prizeId]);
+  const id='giveaway:'+prizeId,reason='Convergence giveaway '+giveawayId+' prize',fingerprint=digest([recipientId,characterId,amountText,prizeId]);
   const [old]=await q('SELECT fingerprint FROM pc_economy_transactions WHERE id=$1',[id]);
   if(old){
     requireThat(old.fingerprint===fingerprint,409,'Giveaway payout already belongs to a different character or amount.');
