@@ -249,7 +249,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         const result=await bankAction(db,actor,parse(await rawBody(req)));
         json(res,200,result);return;
       }
-      const statementMatch=new RegExp('^/api/economy/characters/([0-9a-f-]{36})/statement
+      const statementMatch=new RegExp('^/api/economy/characters/([0-9a-f-]{36})/statement$').exec(path);
       if(method==='GET'&&statementMatch){
         json(res,200,{transactions:await statement(db,actor,statementMatch[1])});return;
       }
