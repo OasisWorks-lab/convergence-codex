@@ -535,7 +535,7 @@ function formList(raw){
       '<select id="support-template-picker"><option value="">New template</option>'+
       available.map(t=>'<option value="'+h(t.id)+'"'+(selected?.id===t.id?' selected':'')+'>'+
         h(t.name)+(t.active?'':' (archived)')+'</option>').join('')+'</select></label>';
-    const history=supportTemplateHistoryData?.id===selected?.id?
+    const history=supportTemplateHistoryData&&selected&&supportTemplateHistoryData.id===selected.id?
       '<section class="stack"><h3>Revision history</h3>'+
       supportTemplateHistoryData.items.map(x=>'<div class="stat-row"><span>Revision '+h(x.revision)+
         ' · '+h(x.active?'Active':'Archived')+' · '+h(new Date(x.changedMs).toLocaleString())+
