@@ -37,6 +37,20 @@ test('story-scene encounters survive scene cancellation, are character-scoped an
  assert.equal(await db.transaction(q=>clearPair(q,azurikId,a)),1);
  assert.equal((await remembered(db,azurikId,[a]))[a].length,0);
 });
+test('the first introduction survives after many later exchanges without mixing another character',async t=>{
+  const {db,a,b}=await prepare(t);
+  const s=scene(a,'story');
+  for(let round=1;round<=12;round++){
+    s.round=round;s.posts[0].text=round===1?'My name is Rin. I am here to introduce myself.':'I returned to discuss day '+round+'.';
+    await db.transaction(q=>writeEncounters(q,s,'Azurik responds about day '+round+'.',1000+round));
+  }
+  const history=await remembered(db,azurikId,[a,b],5);
+  assert.equal(history[a].length,5);
+  assert.match(history[a][0].spoken,/My name is Rin/);
+  assert.match(history[a].at(-1)!.spoken,/day 12/);
+  assert.deepEqual(history[b],[]);
+});
+
 test('OpenAI and Gemini configurations use independent provider credentials and respect reply caps',async()=>{
  const cap='5',text='Azurik raises an eyebrow, then listens without interrupting. “A bridge, you say? Tell me what happened there and what you saw yourself.”';
  const open=aiOptions({PHOENIX_NPC_OPENAI_KEY:'open-private',PHOENIX_NPC_AI_DAILY_REPLIES:cap} as NodeJS.ProcessEnv)!;
