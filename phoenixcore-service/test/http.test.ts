@@ -99,6 +99,23 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await post('/api/community',{action:'tag-review',id:proposalId,decision:'approve'},judge)).status,200);
   const tagList=await (await get('/api/community',{headers:{authorization:'Bearer '+writer,origin}})).json();
   assert.ok(tagList.tags.some((item:any)=>item.name==='rules'));
+  assert.equal((await post('/api/community',{action:'tag-style',name:'rules',revision:0,
+    title:'Unauthorized styling',color:77},writer)).status,403);
+  const styled=await post('/api/community',{action:'tag-style',name:'rules',revision:0,
+    title:'Code of Convergence',imageUrl:'https://example.org/policy.png',color:0xabc123,
+    buttons:[{label:'Codex','url':'https://example.org/codex'}]},judge);
+  assert.equal(styled.status,200);
+  assert.equal((await styled.json()).result.presentationRevision,1);
+  const tagged=(await (await get('/api/community',{headers:{authorization:'Bearer '+writer,origin}})).json())
+    .tags.find((t:any)=>t.name==='rules');
+  assert.equal(tagged.title,'Code of Convergence');
+  assert.equal(tagged.presentationRevision,1);
+  assert.equal(tagged.buttons[0].url,'https://example.org/codex');
+  assert.equal((await post('/api/community',{action:'tag-style',name:'rules',revision:0,
+    title:'Stale'},judge)).status,409);
+  const tagHistory=await post('/api/community',{action:'tag-style-history',name:'rules'},judge);
+  assert.equal((await tagHistory.json()).result.history[0].presentationRevision,1);
+
   const suggestionRes=await post('/api/community',{action:'suggest-create',title:'A new arena',content:'A neutral practice location.',anonymous:true},writer);
   assert.equal(suggestionRes.status,200);
   const suggestionId=(await suggestionRes.json()).result.id;
@@ -272,6 +289,19 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   const publicPanels=await (await get(roleUrl,{headers:{authorization:'Bearer '+writer,origin}})).json();
   assert.equal(publicPanels.panels.length,0);
   assert.equal((await post(roleUrl,{action:'publish',panelId:rolePanelId,revision:1,active:true},owner)).status,409);
+  assert.equal((await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,
+    title:'Illegal style',description:'',color:456},judge)).status,403);
+  const styledPanel=await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,
+    title:'Community Choice Roles',description:'Pick your badge',color:0x123456,
+    imageUrl:'https://example.org/badges.png'},owner);
+  assert.equal(styledPanel.status,200);
+  assert.equal((await styledPanel.json()).result.revision,2);
+  const afterStyle=(await (await get(roleUrl,{headers:{authorization:'Bearer '+owner,origin}})).json()).panels[0];
+  assert.equal(afterStyle.title,'Community Choice Roles');
+  assert.equal(afterStyle.imageUrl,'https://example.org/badges.png');
+  assert.equal((await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,
+    title:'Stale',color:123},owner)).status,409);
+
   const publicGiveaways=await get('/api/giveaways',{headers:{authorization:'Bearer '+writer,origin}});
   assert.equal(publicGiveaways.status,200);
   assert.equal((await publicGiveaways.json()).staff,false);
