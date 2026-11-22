@@ -18,6 +18,7 @@ import {bankAction,visibleAccounts,statement} from './economy.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
 import { aiOptions } from './npc-voice.ts';
 import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
+import {deliverScenePanel} from './npc-panel.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -342,6 +343,11 @@ async function start() {
     checkingTurns=true;
     try{
       for(let i=0;i<8;i++)if(!await expireTurn(db))break;
+      for(let i=0;i<8;i++)if(!await deliverScenePanel(db,async(id,payload,messageId)=>{
+        const channel=await discord.guildChannel(id);
+        if(!await eligibleNpcChannel(channel))throw new Error('Outside current RP scope');
+        return discord.call('/channels/'+id+'/messages'+(messageId?'/'+messageId:''),{method:messageId?'PATCH':'POST',body:JSON.stringify(payload)});
+      }))break;
       for(let i=0;i<8;i++)if(!await deliverTurnNotice(db,async(id,payload)=>{
         const channel=await discord.guildChannel(id);
         if(!await eligibleNpcChannel(channel))throw new Error('Outside current RP scope');
@@ -374,7 +380,7 @@ async function start() {
         try {
           await discord.registerCommands();
           scope.npcCommandsReady=true;
-          console.log('Verified /roleplay-start, /finish-turn, /roleplay-status, /roleplay-cancel and character commands in Convergence.');
+          console.log('Verified /roleplay-start, /roleplay-join, /finish-turn, /roleplay-status, /roleplay-cancel and character commands in Convergence.');
         } catch(error) {
           const retryMs=error instanceof CommandRegistrationError && error.retryMs ? error.retryMs+500 : 15000;
           console.warn('Guild command registration: '+(error instanceof CommandRegistrationError?error.message:'unavailable')+'; retry in '+Math.ceil(retryMs/1000)+'s.');
