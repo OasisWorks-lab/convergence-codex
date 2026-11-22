@@ -38,7 +38,7 @@ import {searchSupportCases,listSupportTemplates,saveSupportTemplate,archiveSuppo
 import {staffIdentity,requireModerator,verifyModerationTarget,hasNativeAdmin} from './staff.ts';
 import {queueSanction,executeQueuedSanction,moderationWorkspace,reconcileUnconfirmedSanctions} from './moderation-actions.ts';
 import {automodPolicy,setAutomodPolicy,automodPolicyHistory,automodIncidents,previewAutomod,cleanupAutomodObservations} from './automod.ts';
-import {createPoll,editPoll,transitionPoll,getPoll,listPolls,pollAudit,advancePolls,deliverPoll} from './polls.ts';
+import {createPoll,editPoll,transitionPoll,getPoll,listPolls,pollAudit,votePoll,advancePolls,deliverPoll} from './polls.ts';
 import {recordCase,caseEvents,removeWarning,proxyEvidence} from './moderation.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
@@ -543,6 +543,44 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         json(res,200,{ok:true,result});wake();return;
       }
 
+      const pollPath=/^\/api\/polls\/([a-f\d-]{36})(?:\/(audit))?$/.exec(path);
+      if((path==='/api/polls'||pollPath)&&['GET','POST'].includes(String(method))){
+        if(method==='GET'){
+          if(pollPath){
+            requireThat(!pollPath[2]||actor.isOwner,403,'Only the Convergence Owner can inspect poll audit records.');
+            if(pollPath[2])json(res,200,{events:await pollAudit(db,actor,pollPath[1])});
+            else json(res,200,{poll:await getPoll(db,pollPath[1],actor),
+              moduleEnabled:await communityEnabled(db,'polls')});
+          }else json(res,200,{polls:await listPolls(db,actor),
+            moduleEnabled:await communityEnabled(db,'polls'),owner:actor.isOwner,guild:config.guild});
+          return;
+        }
+        requireThat(path==='/api/polls',404,'Unknown poll action.');
+        const input=parse(await rawBody(req,12000));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Choose a poll operation.');
+        if(input.action==='vote'){
+          requireThat(await communityEnabled(db,'polls'),403,'Poll voting is disabled.');
+          const poll=await getPoll(db,String(input.pollId||''));
+          requireThat(poll.status==='active'&&poll.messageId,409,'Wait for the poll to be publicly posted before voting.');
+          const response=await votePoll(db,String(input.pollId||''),actor.id,member.roles,
+            input.selections,String(input.receipt||''));
+          json(res,200,{ok:true,result:response});wake();return;
+        }
+        requireThat(actor.isOwner,403,'Only the Convergence Owner can create or manage polls.');
+        let result:any;
+        if(input.action==='create'||input.action==='edit'){
+          const source=input.poll;
+          requireThat(source&&typeof source==='object',400,'Choose complete poll settings.');
+          const location=await discord.guildChannel(String(source.channelId||''));
+          requireThat(location?.guild_id===config.guild&&[0,5].includes(Number(location.type)),
+            403,'Choose a Convergence text or announcement channel.');
+          if(input.action==='create')result=await createPoll(db,actor,source);
+          else result=await editPoll(db,actor,String(input.pollId||''),Number(input.revision),source);
+        }else if(['publish','close','cancel'].includes(input.action)){
+          result=await transitionPoll(db,actor,String(input.pollId||''),Number(input.revision),input.action);
+        }else throw new Problem(400,'Unknown poll action.');
+        json(res,200,{ok:true,result});wake();return;
+      }
       if(path==='/api/automod'&&['GET','POST'].includes(String(method))){
         const currentRoles=actor.isOwner?[]:await discord.call('/guilds/'+config.guild+'/roles');
         requireThat(actor.isOwner||Array.isArray(currentRoles),503,'Unable to verify Convergence staff roles.');
