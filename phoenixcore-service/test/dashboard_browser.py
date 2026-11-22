@@ -255,6 +255,21 @@ with sync_playwright() as p:
                     "isStaff":False,"sensitive":False,"assignedId":None},
                     "events":[{"type":"opened","text":"Could you explain the guideline?",
                                "createdMs":1700000000000,"authorId":"writer"}]})
+            elif url.path=="/api/economy/shops":
+                if route.request.method=="GET":
+                    route.fulfill(json={"staff":owner,"owner":owner,"items":[{
+                        "id":"e21c01cb-3f65-4b16-9178-c9d247de983e","name":"Guardian Potion",
+                        "description":"<img src=x onerror=window.unsafeShop=true>",
+                        "kind":"consumable","basePrice":"100","revision":1}],
+                        "shops":[{"id":"f21c01cb-3f65-4b16-9178-c9d247de983e",
+                        "name":"Portal Store","description":"A traveling merchant.",
+                        "ownerName":"The Keeper","kind":"general","status":"open","revision":3,"channels":[],
+                        "stock":[{"itemId":"e21c01cb-3f65-4b16-9178-c9d247de983e","price":"125","remaining":7}]}]})
+                else:
+                    assert owner, "Only approved staff should save shop definitions."
+                    route.fulfill(json={"ok":True,"result":{"id":"f21c01cb-3f65-4b16-9178-c9d247de983e"}})
+            elif url.path.startswith("/api/economy/inventory/"):
+                route.fulfill(json={"characterId":url.path.split("/")[-1],"items":[]})
             elif url.path=="/api/giveaways":
                 if route.request.method=="GET":
                     route.fulfill(json={"staff":owner,"owner":owner,"guild":"950522987646418964",
@@ -388,6 +403,13 @@ with sync_playwright() as p:
     again.get_by_role("link",name="A rules clarification",exact=False).click()
     expect(again.get_by_role("heading",name="SupportCase",exact=False)).to_be_visible()
     expect(again.get_by_text("Could you explain the guideline?")).to_be_visible()
+    again.goto("https://codex.test/phoenixcore/index.html#shops")
+    expect(again.get_by_role("heading",name="Shops & Inventory",exact=True)).to_be_visible()
+    again.get_by_role("link",name="Portal Store",exact=False).click()
+    expect(again.get_by_role("heading",name="Portal Store",exact=True)).to_be_visible()
+    expect(again.get_by_text("125 Zeni",exact=False)).to_be_visible()
+    assert again.get_by_role("heading",name="Staff controls").count()==0
+    assert again.locator('img[src="x"]').count()==0
     again.goto("https://codex.test/phoenixcore/index.html#giveaways")
     expect(again.get_by_role("heading",name="Giveaways",exact=True)).to_be_visible()
     expect(again.get_by_text("An Autumn Celebration",exact=False)).to_be_visible()
@@ -411,6 +433,13 @@ with sync_playwright() as p:
     expect(owner_dashboard.get_by_text("Page 1 of 1")).to_be_visible()
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"giveaway-owner-participants-mobile.png")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#shops")
+    expect(owner_dashboard.get_by_role("heading",name="Staff: create a shop")).to_be_visible()
+    owner_dashboard.get_by_role("link",name="Portal Store",exact=False).click()
+    expect(owner_dashboard.get_by_role("heading",name="Staff controls")).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Add stock or update price")).to_be_visible()
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"shop-owner-mobile.png")
     assert not problems,problems
     browser.close()
     print("Desktop and mobile verified, including templates, judgments, attained forms, archives, forum preferences, public atlas links, role-gated editing and all 30 themes.")
