@@ -490,7 +490,7 @@ function formList(raw){
       '<button type="button" data-community-proposal="decline" data-proposal-id="'+h(p.id)+'">Decline</button></div></article>').join(''):'';
     return title('Community','Share server knowledge and vote on ideas without replacing character roleplay tags.')+
       (owner?'<section class="panel dossier"><h2>Module switches</h2><p>Changes are owner-only and do not delete existing records.</p>'+
-        ['tags','suggestions','moderation','reminders','support'].map(m=>'<label class="field"><span>'+h(m)+' enabled</span><input type="checkbox" data-community-toggle="'+m+'"'+(active[m]?' checked':'')+'></label>').join('')+'</section>':'')+
+        ['tags','suggestions','moderation','reminders','support','giveaways'].map(m=>'<label class="field"><span>'+h(m)+' enabled</span><input type="checkbox" data-community-toggle="'+m+'"'+(active[m]?' checked':'')+'></label>').join('')+'</section>':'')+
       (active.tags?'<section class="stack"><h2>Informational tags</h2><p>Published answers, guides and server references.</p>'+
         '<label class="field"><span>Search tags</span><input id="community-search" type="search" placeholder="Find a topic…"></label>'+
         (tags||'<section class="panel"><p>No information tags have been published yet.</p></section>')+
