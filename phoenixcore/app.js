@@ -721,6 +721,23 @@ function formList(raw){
     }catch(e){tell(e.message,true);}
     finally{shopsLoading=false;}
   }
+
+  function shopkeeperControls(data,selected='',customName=''){
+    const current=String(selected||''),custom=current==='custom';
+    const npcs=(data.npcOptions||[]);
+    return '<label class="field"><span>Shopkeeper · approved NPC or Custom Entry *</span>'+
+      '<select name="shopkeeperChoice" data-shopkeeper-choice required>'+
+      '<option value=""'+(!current?' selected':'')+'>Choose a shopkeeper…</option>'+
+      npcs.map(n=>'<option value="'+h(n.id)+'"'+(current===n.id?' selected':'')+'>'+h(n.name)+'</option>').join('')+
+      '<option value="custom"'+(custom?' selected':'')+'>Custom Entry — enter a new name</option>'+
+      '</select><small>NPC choices come from current approved NPC records. A custom name does not create an NPC.</small></label>'+
+      '<label class="field" data-shopkeeper-custom'+(custom?'':' hidden')+'><span>Custom shopkeeper name *</span>'+
+      '<input name="ownerName" maxlength="100" value="'+h(custom?customName:'')+'"'+(custom?' required':'')+'>'+
+      '</label>';
+  }
+  const shopkeeperSelection=fields=>fields.shopkeeperChoice==='custom'?
+    {ownerNpcId:null,ownerName:fields.ownerName,shopkeeperMode:'custom'}:
+    {ownerNpcId:fields.shopkeeperChoice};
   function shopPage(){
     if(demo)return title('Shops & Inventory','Staff-approved merchandise and character-owned possessions')+
       '<section class="panel">Live shops and purchases require Discord sign-in. Practice mode never spends Zeni.</section>';
