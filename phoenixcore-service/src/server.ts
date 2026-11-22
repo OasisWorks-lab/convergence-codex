@@ -231,6 +231,19 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       if(method==='GET' && path.startsWith('/api/posting/lookup/')){
         json(res,200,await lookupAuthor(db,actor,decodeURIComponent(path.slice('/api/posting/lookup/'.length)),config.guild));return;
       }
+      if(method==='POST'&&path==='/api/favorites'){
+        const input=parse(await rawBody(req));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input)&&typeof input.characterId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.characterId)&&typeof input.favorite==='boolean',400,'Choose a character and favorite status.');
+        requireThat(Object.keys(input).every(key=>['characterId','favorite'].includes(key)),400,'Unsupported favorite change.');
+        await db.transaction(async q=>{
+          if(input.favorite){
+            const [c]=await q('SELECT id FROM pc_characters WHERE id=$1',[input.characterId]);
+            requireThat(c,404,'The character was removed.');
+            await q('INSERT INTO pc_character_favorites(user_id,character_id,created_ms) VALUES($1,$2,$3) ON CONFLICT(user_id,character_id) DO NOTHING',[actor.id,input.characterId,Date.now()]);
+          }else await q('DELETE FROM pc_character_favorites WHERE user_id=$1 AND character_id=$2',[actor.id,input.characterId]);
+        });
+        json(res,200,{ok:true});return;
+      }
       const roster=(await discord.members()).filter(m=>!settings.value.playerRole||m.roles.includes(settings.value.playerRole));
       const active=new Set(roster.map(m=>m.user.id));
       const completion=/^\/api\/requests\/([\da-f-]{36})\/complete$/.exec(path);
@@ -253,18 +266,18 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       }
       requireThat(method==='GET' && path==='/api/state',404,'Unknown route.');
       const inventory=await scope.inventory(settings.value,actor);
-      const [sheets,requests,designs,posting,threads,races,embeds,nick,pathEntries]=await Promise.all([
+      const [sheets,requests,designs,posting,threads,races,embeds,nick,pathEntries,favorites]=await Promise.all([
         db.query('SELECT c.*,t.tag,a.form_key FROM pc_characters c LEFT JOIN pc_active_forms a ON a.character_id=c.id LEFT JOIN pc_post_tags t ON c.id=t.character_id AND c.owner_id=t.owner_id ORDER BY c.id'),
         db.query('SELECT r.*,a.request_id AS archived,p.channel_id AS review_channel,p.message_id AS review_message,n.source_id,n.channel_id AS source_channel,n.raw_text,n.input AS native_input,n.attachments,d.helper,d.decision_key,d.note AS denial_note,d.dm_message FROM pc_requests r LEFT JOIN pc_native n ON n.id=r.id LEFT JOIN pc_denials d ON d.request_id=r.id LEFT JOIN pc_archives a ON a.request_id=r.id LEFT JOIN pc_review_posts p ON p.request_id=r.id '+(actor.isJudge?'':'WHERE r.author_id=$1 OR r.owner_id=$1 ')+'ORDER BY r.created_ms DESC,r.id',actor.isJudge?[]:[actor.id]),
         db.query("SELECT id,kind,fields AS after_sheet,author_id FROM pc_designs ORDER BY id"),
         actor.isPlayer?preferences(db,actor,settings.value,inventory.locations.map(c=>c.id)):null,
         db.query("SELECT subject,thread_id FROM pc_forum_threads WHERE forum_id=$1 AND thread_id IS NOT NULL AND subject LIKE 'player:%'"+(actor.isJudge?'':' AND subject=$2'),actor.isJudge?[settings.value.updatesForum]:[settings.value.updatesForum,'player:'+actor.id]),
-        racePaths(db.query),actor.isOwner?db.query('SELECT * FROM pc_announcements'):[],actor.isOwner?db.query('SELECT status FROM pc_bot_profile WHERE slot=1'):[],member.roles.includes(editorRole)?published(db):[]
+        racePaths(db.query),actor.isOwner?db.query('SELECT * FROM pc_announcements'):[],actor.isOwner?db.query('SELECT status FROM pc_bot_profile WHERE slot=1'):[],member.roles.includes(editorRole)?published(db):[],db.query('SELECT character_id FROM pc_character_favorites WHERE user_id=$1',[actor.id])
       ]);
       const king=sheets.find(row=>isAzurik(row.id,JSON.parse(row.sheet)));
       if(king)king.sheet=JSON.stringify(await ruleSheet(db.query,king.id,JSON.parse(king.sheet)));
       const forumLinks=new Map(threads.map(t=>[t.subject,'https://discord.com/channels/'+config.guild+'/'+t.thread_id]));
-      json(res,200,{actor,races,canEditPaths:member.roles.includes(editorRole),pathRevisions:Object.fromEntries(pathEntries.map(x=>[x.key,x.revision])),announcements:embeds.map(e=>({kind:e.kind,revision:Number(e.revision),draft:JSON.parse(e.draft),url:e.message_id?'https://discord.com/channels/'+config.guild+'/'+e.channel_id+'/'+e.message_id:null})),nicknameStatus:nick[0]?.status,players:roster.map(m=>({id:m.user.id,username:m.user.username,updatesUrl:forumLinks.get('player:'+m.user.id),avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
+      json(res,200,{actor,races,favoriteCharacterIds:favorites.map(row=>row.character_id),canEditPaths:member.roles.includes(editorRole),pathRevisions:Object.fromEntries(pathEntries.map(x=>[x.key,x.revision])),announcements:embeds.map(e=>({kind:e.kind,revision:Number(e.revision),draft:JSON.parse(e.draft),url:e.message_id?'https://discord.com/channels/'+config.guild+'/'+e.channel_id+'/'+e.message_id:null})),nicknameStatus:nick[0]?.status,players:roster.map(m=>({id:m.user.id,username:m.user.username,updatesUrl:forumLinks.get('player:'+m.user.id),avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
         characters:sheets.filter(s=>active.has(s.owner_id)||JSON.parse(s.sheet).characterType==='NPC').map(s=>({id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',activeForm:s.form_key||'',sheet:JSON.parse(s.sheet)})),
         posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(r=>({...visibleRequest(r),...(r.source_id?{native:{source:'https://discord.com/channels/'+config.guild+'/'+r.source_channel+'/'+r.source_id,text:r.raw_text,input:JSON.parse(r.native_input),attachments:JSON.parse(r.attachments)}}:{}),...(actor.isJudge?{assessment:assess(visibleRequest(r),settings.value),denial:r.helper?{helper:r.helper,key:r.decision_key,note:r.denial_note,delivered:!!r.dm_message}:null}:{}),reviewUrl:r.review_message?'https://discord.com/channels/'+config.guild+'/'+r.review_channel+'/'+r.review_message:undefined})),currency:settings.value.currency,settings:actor.isOwner?settings:null});
     } catch(e) {
