@@ -6,6 +6,7 @@ import {giveawayCommand,giveawayCommands,giveawayInteraction,giveawayButton} fro
 import {shopCommand,shopCommands,shopInteraction,shopComponent,shopAutocomplete} from './shop-discord.ts';
 import {roleCommand,roleCommands,roleInteraction,roleComponent} from './role-panels-discord.ts';
 import {pollCommand,pollCommands,pollInteraction,pollComponent} from './poll-discord.ts';
+import {isScheduleCommand,scheduleCommands,scheduleInteraction} from './schedule-discord.ts';
 import type { RoleplayScope } from './scope.ts';
 import servicePackage from '../package.json' with {type:'json'};
 import {characterCommand} from './characters.ts';
@@ -125,7 +126,7 @@ export class Discord {
       {name:'character',description:'Your character name, posting tag or sheet ID',type:3,required:true,autocomplete:true},
       {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
     specs.push({name:'revert-form',type:1,description:'Return to base or an earlier attained form.',options:[{name:'character',type:3,description:'Your approved character',required:true,autocomplete:true},{name:'form',type:3,description:'Base or an earlier attained form',required:false,autocomplete:true}]});
-    const required=[...npcCommands(),...communityCommands(),...operationCommands(),...supportCommands(),...giveawayCommands(),...shopCommands(),...roleCommands(),...pollCommands(),...specs];
+    const required=[...npcCommands(),...communityCommands(),...operationCommands(),...supportCommands(),...giveawayCommands(),...shopCommands(),...roleCommands(),...pollCommands(),...scheduleCommands(),...specs];
     let operation='Listing Convergence commands';
     try {
       const current=await this.call(path);
@@ -257,6 +258,14 @@ export async function handleInteraction(db:Store, config:Config, body:any,discor
     const work=()=>body.type===2?pollInteraction(db,config,body,discord):pollComponent(db,config,body);
     if(defer&&body.type===2&&String(body.data?.options?.[0]?.name||'').startsWith('admin-')){
       defer(async()=>String((await work()).data?.content||'Poll operation completed.'));
+      return {type:5,data:{flags:64}};
+    }
+    return work();
+  }
+  if(body.type===2&&isScheduleCommand(body.data?.name)){
+    const work=()=>scheduleInteraction(db,config,body,discord);
+    if(defer){
+      defer(async()=>String((await work()).data?.content||'Schedule operation completed.'));
       return {type:5,data:{flags:64}};
     }
     return work();
