@@ -20,6 +20,7 @@ export async function recordCase(db:Store,actor:StaffIdentity,kind:ModerationKin
   requireThat(/^[\w-]{8,100}$/.test(receipt),400,'A valid unique Discord interaction receipt is required.');
   const content=textValue(reason,kind==='warn'?900:1800,kind==='warn'?'Warning reason':'Private note',kind==='note');
   return db.transaction(async q=>{
+    if(db.dialect==='postgres')await q('SELECT pg_advisory_xact_lock(hashtext($1))',[targetId]);
     const id=randomUUID(),active=kind==='warn'?1:0;
     const inserted=await q('INSERT INTO pc_mod_cases(id,receipt_id,target_id,actor_id,kind,reason,created_ms,source_message_id,posted_message_id,source_channel_id,character_id,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(receipt_id) DO NOTHING RETURNING id',
       [id,receipt,targetId,actor.id,kind,content,now,evidence?.sourceMessageId||null,evidence?.postedMessageId||null,evidence?.sourceChannelId||null,evidence?.characterId||null,active]);
