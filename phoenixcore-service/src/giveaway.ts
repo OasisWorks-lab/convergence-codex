@@ -236,7 +236,7 @@ export async function claimGiveaway(db:Store,id:string,userId:string,characterId
     requireThat(winner.status==='awaiting_claim'&&Number(winner.claim_deadline_ms)>now,409,'Your claim deadline has expired.');
     if(g.prize_kind==='zeni'){
       requireThat(typeof characterId==='string'&&uuid.test(characterId),400,'Select an approved character for the Zeni bank prize.');
-      const granted=await giveawayBankCredit(q,db,userId,characterId,winner.id,g.zeni_amount);
+      const granted=await giveawayBankCredit(q,db,userId,characterId,winner.id,g.zeni_amount,id);
       await q("UPDATE pc_giveaway_winners SET status='claimed',character_id=$1,transaction_id=$2,claimed_ms=$3 WHERE id=$4",
         [characterId,granted.id,now,winner.id]);
       await record(q,id,userId,'zeni-claimed','Credited '+g.zeni_amount+' Zeni to chosen approved character bank.',now);
