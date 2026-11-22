@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {openSqlite,openPostgres,initialize} from '../src/db.ts';
 import {staffIdentity} from '../src/staff.ts';
 import {recordCase,activeWarnings} from '../src/moderation.ts';
-import {queueSanction,executeQueuedSanction,expireModerationSanction,moderationWorkspace} from '../src/moderation-actions.ts';
+import {queueSanction,executeQueuedSanction,expireModerationSanction,moderationWorkspace,reconcileUnconfirmedSanctions} from '../src/moderation-actions.ts';
 import {deliverScheduledJob} from '../src/jobs.ts';
 import {operationCommands,operationInteraction} from '../src/operations-discord.ts';
 import {DiscordFailure} from '../src/discord.ts';
@@ -137,6 +137,21 @@ test('unconfirmed network results stay needs-review; no automatic replay of a po
   assert.equal((await moderationWorkspace(db,owner,userId)).cases[0].sanction_status,'needs-review');
   assert.equal((await db.query('SELECT event FROM pc_mod_case_events WHERE case_id=$1 ORDER BY occurred_ms DESC',[entry.caseId]))
     .some(x=>x.event==='delivery-unconfirmed'),true);
+});
+test('restart detects orphaned applying actions without retrying a punitive call',async t=>{
+  const db=await fresh(t),api=fakeDiscord(),now=Date.now();
+  const queued=await queueSanction(db,api.discord,config,admin,{
+    action:'ban',targetId:userId,receipt:randomUUID(),minutes:30},now-200000);
+  await db.query("UPDATE pc_mod_sanctions SET status='applying',updated_ms=$1 WHERE case_id=$2",
+    [now-180000,queued.caseId]);
+  await initialize(db,guild);
+  assert.equal(await reconcileUnconfirmedSanctions(db,now),1);
+  assert.equal(await reconcileUnconfirmedSanctions(db,now+1000),0);
+  const report=await moderationWorkspace(db,owner,userId);
+  assert.equal(report.cases[0].sanction_status,'needs-review');
+  assert.equal(api.operations.filter(x=>['PUT','PATCH','DELETE'].includes(x.method)).length,0);
+  const [event]=await db.query("SELECT COUNT(*) AS n FROM pc_mod_case_events WHERE case_id=$1 AND event='delivery-unconfirmed'",[queued.caseId]);
+  assert.equal(Number(event.n),1);
 });
 test('five warning threshold stays review-only even after sanctioned members use explicit actions',async t=>{
   const db=await fresh(t),api=fakeDiscord();
