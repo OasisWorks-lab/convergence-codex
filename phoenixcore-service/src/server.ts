@@ -23,6 +23,7 @@ import {freeProviderStatus} from './npc-ai-router.ts';
 import {communityActor,communityModules,communityEnabled,communitySetModule,saveTag,tagAlias,tagRollback,proposeTag,pendingTagProposals,reviewTag,createSuggestion,voteSuggestion,reviewSuggestion,listSuggestions,removeSuggestion,restoreSuggestion,suggestionChannelId,type CommunityModule} from './community.ts';
 import {deliverCommunityNotice} from './community-delivery.ts';
 import {deliverSuggestionPost} from './community-posts.ts';
+import {deliverScheduledJob} from './jobs.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -180,7 +181,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         requireThat(checkSignature(raw,String(req.headers['x-signature-ed25519']??''),String(req.headers['x-signature-timestamp']??''),config.publicKey),401,'Invalid Discord signature.');
         const action=parse(raw);
         const deferred=(work:()=>Promise<string>)=>setImmediate(async()=>{
-          let content;try{content=await work();wake();}catch{content=action.data?.name==='roleplay-start'?'PhoenixCore could not open this scene. Try /roleplay-start again.':'PhoenixCore could not catalog this post. Open the original message and try again.';}
+          let content;try{content=await work();wake();}catch{content=action.data?.name==='roleplay-start'?'PhoenixCore could not open this scene. Try /roleplay-start again.':action.data?.name==='mod'?'Staff action could not be verified. No change was applied.':'PhoenixCore could not complete this interaction. Please try again.';}
           try{await discord.call('/webhooks/'+config.clientId+'/'+encodeURIComponent(action.token)+'/messages/@original',{method:'PATCH',body:JSON.stringify({content,components:[],allowed_mentions:{parse:[]}})});}catch{console.warn('Discord could not display the interaction result.');}
         });
         json(res,200,await handleInteraction(db,config,action,discord,deferred,scope));if(action.type===3)wake();return;
@@ -383,6 +384,7 @@ async function start() {
       for(let i=0;i<8;i++) if(!await deliverNext(db,discord)) break;
       for(let i=0;i<4;i++) if(!await deliverCommunityNotice(db,discord)) break;
       for(let i=0;i<8;i++) if(!await deliverSuggestionPost(db,discord)) break;
+      for(let i=0;i<8;i++) if(!await deliverScheduledJob(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}
