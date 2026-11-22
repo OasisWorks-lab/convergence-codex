@@ -1077,6 +1077,7 @@ function formList(raw){
       ' · Case '+h(c.id)+'</small>'+
       (c.until_ms?'<p>Scheduled end: '+h(new Date(Number(c.until_ms)).toLocaleString())+'</p>':'')+
       (c.last_error?'<p class="error">Delivery: '+h(c.last_error)+'</p>':'')+
+      (c.expiry_job_status==='undeliverable'?'<p class="error">Expiry requires staff attention: '+h(c.expiry_job_error||'Discord unban could not be confirmed')+'</p>':'')+
       (c.source_message_id?'<p class="muted">Source RP message: '+h(c.source_message_id)+
         (c.character_id?' · Character '+h(c.character_id):'')+'</p>':'')+
       '<div class="actions"><button type="button" data-moderation-case="'+h(c.id)+'">Inspect audit</button>'+
