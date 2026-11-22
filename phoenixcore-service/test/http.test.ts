@@ -19,11 +19,11 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   const members=Object.entries(ids).filter(([k])=>['writer','owner','judge','extra'].includes(k)).map(([k,id])=>({user:{id,username:k,global_name:k.toUpperCase()},roles:k==='judge'?[ids.role]:[]}));
   const fixture=new ReviewFixture(config);
   const botModeratorRole='800000000000000077';
-  const issuedBans=new Set<string>();
+  const issuedBans=new Set<string>(),discordPaths:string[]=[];
   const prizeChannel='1573908218260885614';
   fixture.channels.set(prizeChannel,{id:prizeChannel,type:0,guild_id:ids.guild,flags:0});
   const discord=new Discord(config,async(u,init)=>{
-    const path=new URL(String(u)).pathname;
+    const path=new URL(String(u)).pathname;discordPaths.push(path);
     if(path.endsWith('/oauth2/token')) return Response.json({access_token:new URLSearchParams(String(init?.body)).get('code')});
     if(path.endsWith('/users/@me')) return Response.json({id:new Headers(init?.headers).get('Authorization')!.slice(7)});
     if(path.endsWith('/members'))return Response.json(members);
@@ -313,7 +313,7 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
     reason:'Cannot record this'},judge)).status,403);
   const warning=await post('/api/moderation',{action:'warn',memberId:ids.writer,receipt:randomUUID(),
     reason:'Follow the RP guidelines'},owner);
-  assert.equal(warning.status,200);
+  assert.equal(warning.status,200,JSON.stringify({response:await warning.clone().json(),recentDiscordPaths:discordPaths.slice(-15)}));
   const warningId=(await warning.json()).result.caseId;
   const audit=await get('/api/moderation/case/'+warningId,{headers:{authorization:'Bearer '+owner,origin}});
   assert.equal(audit.status,200);
