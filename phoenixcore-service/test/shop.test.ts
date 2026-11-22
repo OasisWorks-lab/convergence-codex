@@ -206,9 +206,9 @@ test('staff can switch existing shopkeepers between NPC and a custom name, not i
   assert.equal((await listShopCatalog(db)).shops[0].ownerName,'The Mysterious Trader');
   assert.equal((await shopNpcOptions(db)).length,1);
   await assert.rejects(setShopkeeper(db,helper,shop.id,1,{ownerNpcId:npcId}),{status:409});
-  const second=await setShopkeeper(db,boss,shop.id,2,{ownerNpcId:npcId});
+  const second=await setShopkeeper(db,owner,shop.id,2,{ownerNpcId:npcId});
   assert.equal(second.ownerName,'King Azurik');
-  const unchanged=await setShopkeeper(db,boss,shop.id,3,{ownerNpcId:npcId});
+  const unchanged=await setShopkeeper(db,owner,shop.id,3,{ownerNpcId:npcId});
   assert.equal(unchanged.changed,false);
   assert.equal(unchanged.revision,3);
   const custom=await createShop(db,helper,{name:'Another Shop',kind:'location',ownerName:'Custom Keeper',shopkeeperMode:'custom'});
