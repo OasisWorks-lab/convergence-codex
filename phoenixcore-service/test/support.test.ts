@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {openSqlite,openPostgres,initialize} from '../src/db.ts';
 import {staffIdentity} from '../src/staff.ts';
-import {createSupportCase,addSupportMessage,transitionSupport,supportHistory,listSupportCases,blockSupportMember,supportAnalytics,eligibleAssignee} from '../src/support.ts';
+import {createSupportCase,addSupportMessage,transitionSupport,supportHistory,listSupportCases,blockSupportMember,supportAnalytics,eligibleAssignee,supportIdleMs} from '../src/support.ts';
 import {closeInactiveSupport,deliverSupportOutbox} from '../src/support-delivery.ts';
 import {receiveSupportDm} from '../src/support-dm.ts';
 import {supportCommands,supportInteraction} from '../src/support-discord.ts';
