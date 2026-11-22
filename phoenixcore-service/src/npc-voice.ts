@@ -101,7 +101,7 @@ export function guided(scene:Scene,sheet:any):Speech {
   if(!line)line='*'+sheet.name+' waits for the group to speak.*';
   if(repeatsOpening(scene,line)&&intent==='conversation'){
     line=freshLine(scene,[
-      '“Give me a moment with that, '+(last?.name||'my friend')+'.” '+name+' turns the thought over. “What would change for you if the answer were yes?”',
+      '“Give me a moment with that.” '+name+' turns the thought over. “What would change for you if the answer were yes?”',
       name+' lets the silence stretch just long enough to reconsider. “I was looking at that from my side. Tell me what you noticed first.”',
       '“I think I answered a different question a moment ago.” '+name+' meets the speaker’s eyes again. “Let me hear you out this time.”'
     ],'follow-up');
