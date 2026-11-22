@@ -4,13 +4,15 @@ import type {Scene} from './npc-voice.ts';
 
 export const turnWindow=2*60*60*1000;
 export const noMentions={parse:[]};
-export const currentWriter=(s:Scene)=>s.cast[s.turn]?.id;
-export const turnKey=(s:Scene)=>[s.round,s.turn,s.paused?'paused':currentWriter(s)||'npc'].join(':');
+export const currentSlot=(s:Scene)=>s.cast[s.turn];
+export const currentWriter=(s:Scene)=>currentSlot(s)?.id;
+export const slotHasPost=(s:Scene,slot=currentSlot(s))=>!!slot&&s.posts.some(p=>p.writer===slot.id&&(!slot.characterId||p.characterId===slot.characterId));
+export const turnKey=(s:Scene)=>[s.round,s.turn,s.paused?'paused':currentSlot(s)?.characterId||currentWriter(s)||'npc'].join(':');
 
 export function order(s:Scene){
-  const list=s.cast.map((p,i)=>(i+1)+'. <@'+p.id+'>'+(s.paused?'':i===s.turn?' ← **up now**':i<s.turn?' ✓':''));
+  const list=s.cast.map((p,i)=>(i+1)+'. <@'+p.id+'>'+(p.characterId?' · '+p.name:'')+(s.paused?'':i===s.turn?' ← **up now**':i<s.turn?' ✓':''));
   list.push((list.length+1)+'. '+s.title+(!s.paused&&s.turn>=s.cast.length?' ← **responding**':''));
-  if(s.waiting?.length)list.push('Joining next round: '+s.waiting.map(p=>'<@'+p.id+'>').join(', '));
+  if(s.waiting?.length)list.push('Joining next round: '+s.waiting.map(p=>'<@'+p.id+'>'+(p.characterId?' · '+p.name:'')).join(', '));
   return list.join('\n');
 }
 export function controls(s:Scene) {
@@ -24,7 +26,7 @@ export async function lockedScene(q:Query,db:Store,channel:string){
 export async function setClock(q:Query,s:Scene,now:number){
   s.startedAt=now;
   await q('DELETE FROM pc_rp_clocks WHERE scene_id=$1',[s.id]);
-  if(!s.paused&&currentWriter(s)&&!s.posts.some(p=>p.writer===currentWriter(s))){
+  if(!s.paused&&currentWriter(s)&&!slotHasPost(s)){
     await q('INSERT INTO pc_rp_clocks(scene_id,due_at) VALUES($1,$2)',[s.id,now+turnWindow]);
   }
 }
@@ -77,7 +79,7 @@ export async function expireTurn(db:Store,now=Date.now()){
     const [timer]=await q('SELECT due_at FROM pc_rp_clocks WHERE scene_id=$1',[row.scene_id]);
     if(!timer||Number(timer.due_at)>now)return false;
     const s:Scene=JSON.parse(row.state),writer=currentWriter(s);
-    if(!writer||s.paused||s.posts.some(p=>p.writer===writer)){await q('DELETE FROM pc_rp_clocks WHERE scene_id=$1',[s.id]);return true;}
+    if(!writer||s.paused||slotHasPost(s)){await q('DELETE FROM pc_rp_clocks WHERE scene_id=$1',[s.id]);return true;}
     await nextTurn(q,s,now,'<@'+writer+'> was skipped after two hours without an in-character post.');
     return true;
   });
