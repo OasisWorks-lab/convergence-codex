@@ -21,6 +21,7 @@ import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
 import {deliverScenePanel} from './npc-panel.ts';
 import {freeProviderStatus} from './npc-ai-router.ts';
 import {communityActor,communityModules,communityEnabled,communitySetModule,saveTag,tagAlias,tagRollback,proposeTag,pendingTagProposals,reviewTag,createSuggestion,voteSuggestion,reviewSuggestion,listSuggestions,type CommunityModule} from './community.ts';
+import {deliverCommunityNotice} from './community-delivery.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -377,6 +378,7 @@ async function start() {
       await nicknameJob(db,discord);
       await provisionNext(db,discord,value.updatesForum);
       for(let i=0;i<8;i++) if(!await deliverNext(db,discord)) break;
+      for(let i=0;i<4;i++) if(!await deliverCommunityNotice(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}
