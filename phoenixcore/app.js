@@ -758,9 +758,12 @@ function formList(raw){
       if(!shop)return title('Shop not found','The shop may have been removed.');
       const lines=shop.stock.map(stock=>{
         const item=itemMap.get(stock.itemId);
-        return item?'<div class="stat-row"><span><b>'+h(item.name)+'</b> · '+h(item.kind)+
+        return item?'<div class="stat-row shop-stock-row"><span><b>'+h(item.name)+'</b> · '+h(item.kind)+
           '<small class="muted">'+h(item.description)+'</small></span>'+
-          '<span>'+money(stock.price)+' · '+h(stock.remaining===null?'Unlimited':stock.remaining+' available')+'</span></div>':'';
+          '<span>'+money(stock.price)+' · '+h(stock.remaining===null?'Unlimited':stock.remaining+' available')+'</span>'+
+          (data.staff?'<button type="button" data-shop-action="unlist" data-shop-id="'+h(shop.id)+'"'+
+            ' data-shop-revision="'+h(shop.revision)+'" data-shop-item="'+h(item.id)+'">Remove from shop</button>':'')+
+          '</div>':'';
       }).join('');
       const admin=data.staff?'<section class="panel dossier"><h2>Staff controls</h2>'+
         '<p>Shop revision '+h(shop.revision)+' · Only approved Helpers or Owner can save changes.</p>'+
@@ -779,6 +782,7 @@ function formList(raw){
       return breadcrumbs([link('shops','Shops & Inventory'),h(shop.name)])+title(shop.name,shop.description)+
         '<section class="panel dossier"><p><b>'+h(shop.status.toUpperCase())+'</b> · '+h(shop.kind==='general'?'Available in eligible RP channels':'Restricted to configured RP locations')+
         ' · Shopkeeper: '+h(shop.ownerName||'Unlisted')+'</p>'+
+        (shop.ownerPortrait?artwork(shop.ownerPortrait,shop.ownerName+' shopkeeper portrait'):'')+
         '<p>Purchases must be made through /shop in an eligible in-character Discord RP channel. The dashboard cannot bypass location rules.</p>'+
         (shop.kind==='location'?'<p>Location channel IDs: '+h(shop.channels.join(', ')||'Not configured')+'</p>':'')+
         (lines||'<p>No merchandise listed yet.</p>')+'</section>'+admin+ownInventory;
@@ -786,7 +790,7 @@ function formList(raw){
     const create=data.staff?'<section class="panel dossier"><h2>Staff: create a shop</h2>'+
       '<form id="shop-create-form" class="form">'+field('name','Shop name','',{required:true,max:100})+
       field('description','Description','',{area:true,wide:true,max:1200})+
-      field('ownerName','Shopkeeper display name','',{max:100})+
+      shopkeeperControls(data)+
       '<label class="field"><span>Location type</span><select name="kind">'+
       '<option value="general">General Store (all eligible RP channels)</option>'+
       '<option value="location">Restricted shop (specific channels/threads)</option></select></label>'+
