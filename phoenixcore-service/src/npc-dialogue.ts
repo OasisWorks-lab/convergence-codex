@@ -59,7 +59,7 @@ export function conversation(s:Scene,sheet:any,king:boolean):string {
   ],'wellbeing');
   if(king&&/\b(?:father|ziex|dad)\b/.test(text)&&/\bziex\b/i.test(String(sheet.family)+' '+sheet.bio))return pick([
     '“Ziex was my father,” Azurik says quietly. “He was my king as well. It took me longer than I like to admit to learn that loving him and obeying him were different things.”',
-    'Azurik clasps his hands behind his back. “At the Crimson Peaks, I asked my father to surrender. I still remember that moment.”'
+    'Azurik clasps his hands behind his back. “At the Crimson Peaks, I asked King Ziex—my father—to surrender. I still remember that moment.”'
   ],'father');
   if(king&&/\b(?:how old|your age|what age)\b/.test(text)&&sheet.age)return '“'+sheet.age+'.” Azurik lets the number settle. “Long enough to have learned that years alone do not make a person wise.”';
   if(/\b(?:hey|hiya|hi|hello|howdy|greetings|good (?:morning|evening|afternoon)|yo)\b/.test(text)&&tokens(text).length<=10)return pick([
