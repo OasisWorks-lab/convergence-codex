@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import type {Query,Store} from './db.ts';
-import {Problem,requireThat,type Actor} from './domain.ts';
+import {requireThat,type Actor} from './domain.ts';
 
 export const economyCurrencyId='zeni';
 export const startingZeni:Record<string,string>={Low:'1000',Middle:'2000',High:'4000',Noble:'8000'};
@@ -16,7 +16,8 @@ const money=(amount:bigint)=>{
 };
 export function openingCash(sheet:any){
   const old=String(sheet?.wallet??'0');
-  return /^(0|[1-9][0-9]{0,59})$/.test(old)?old:'0';
+  requireThat(/^(0|[1-9][0-9]{0,59})$/.test(old),409,'An existing character wallet contains an unsupported value; correct it before migration.');
+  return old;
 }
 type Account={character_id:string;cash:string;bank:string;revision:number};
 const digest=(parts:unknown[])=>createHash('sha256').update(JSON.stringify(parts)).digest('hex');
