@@ -4,7 +4,7 @@ import type {Store} from './db.ts';
 import type {Config} from './discord.ts';
 import {communityActor,communityEnabled,communityModules,communitySetModule,
   saveTag,getTag,listTags,tagAlias,tagHistory,tagRollback,proposeTag,pendingTagProposals,reviewTag,
-  createSuggestion,getSuggestion,listSuggestions,voteSuggestion,reviewSuggestion,suggestionDisplay,
+  createSuggestion,getSuggestion,listSuggestions,voteSuggestion,reviewSuggestion,suggestionDisplay,suggestionPost,suggestionChannelId,
   type CommunityModule,type SuggestionStatus} from './community.ts';
 
 const text=(name:string,description:string,required=true,max_length?:number)=>({type:3,name,description,required,...(max_length?{max_length}:{})});
@@ -28,16 +28,31 @@ export const communityCommands=()=>[
     sub('list','List recent suggestions.'),
     sub('view','View a suggestion and its current votes.',[idOption]),
     sub('vote','Cast, change or remove your vote.',[idOption,{type:3,name:'choice',description:'Your ballot',required:true,choices:[{name:'Upvote',value:'up'},{name:'Downvote',value:'down'},{name:'Remove vote',value:'remove'}]}]),
-    sub('review','Staff: set status and post an official response.',[idOption,{type:3,name:'status',description:'Staff decision',required:true,choices:['Pending','Under Review','Approved','Denied','Implemented'].map(s=>({name:s,value:s}))},text('response','Optional public staff explanation',false,950)])
+    sub('manage','Staff: open private decision buttons for a suggestion.',[idOption]),
+    sub('review','Staff: open private buttons or set status with an explanation.',[idOption,{type:3,name:'status',description:'Optional decision; omit for private buttons',required:false,choices:['Pending','Under Review','Approved','Denied','Implemented'].map(s=>({name:s,value:s}))},text('response','Optional public staff explanation',false,950)])
   ]},
+  {type:1,name:'pc-tag-show',description:'PhoenixCore: display a public informational tag.',options:[nameOption]},
+  {type:1,name:'pc-tag-save',description:'PhoenixCore staff: publish or update an informational tag.',options:[nameOption,text('content','Published text',true,1600)]},
   {type:1,name:'community-module',description:'Owner-only community module switches.',options:[
     sub('status','Show enabled or disabled modules.'),
     sub('set','Enable or disable a community module.',[{type:3,name:'module',description:'Module',required:true,choices:communityModules.map(m=>({name:m,value:m}))},{type:5,name:'enabled',description:'Desired status',required:true}])
   ]}
 ];
-export const communityCommand=(name:string)=>['tag','suggest','community-module'].includes(name);
+export const communityCommand=(name:string)=>['tag','pc-tag-show','pc-tag-save','suggest','community-module'].includes(name);
 const response=(content:string,privateMessage=true)=>({type:4,data:{content:content.slice(0,1930),...(privateMessage?{flags:64}:{}),allowed_mentions:{parse:[]}}});
 const pick=(options:any[],name:string)=>options.find((o:any)=>o.name===name)?.value;
+
+function staffReviewPanel(row:any){
+  const base=suggestionDisplay(row),status=String(row.status);
+  return {type:4,data:{flags:64,embeds:base.embeds,allowed_mentions:{parse:[]},
+    content:'**Private staff review** · Only you can see these controls. The public suggestion stays in the designated channel.',
+    components:[{type:1,components:[
+      {type:2,style:3,label:'Approved',custom_id:'pcs:staff:'+row.id+':approved',disabled:status==='Approved'},
+      {type:2,style:4,label:'Denied',custom_id:'pcs:staff:'+row.id+':denied',disabled:status==='Denied'},
+      {type:2,style:1,label:'Implemented',custom_id:'pcs:staff:'+row.id+':implemented',disabled:status==='Implemented'}
+    ]}]}};
+}
+
 export async function communityInteraction(db:Store,config:Config,body:any){
   const group=String(body.data?.name||''),actorId=String(body.member?.user?.id||'');
   if(body.guild_id!==config.guild||!actorId)return response('This feature is only available to Convergence members.');
@@ -49,7 +64,19 @@ export async function communityInteraction(db:Store,config:Config,body:any){
       if(!await communityEnabled(db,'suggestions'))return response('Suggestions are currently disabled.');
       const value=vote[2]==='up'?1:vote[2]==='down'?-1:0;
       await voteSuggestion(db,actor,vote[1],value);
-      return {type:7,data:suggestionDisplay(await getSuggestion(db,vote[1]))};
+      const canonical=await suggestionPost(db,vote[1]);
+      if(canonical?.message_id===body.message?.id&&canonical?.channel_id===body.channel_id)
+        return {type:7,data:suggestionDisplay(await getSuggestion(db,vote[1]))};
+      return response('Vote saved. The voting embed in <#'+suggestionChannelId+'> will update shortly.');
+    }
+    const staffClick=/^pcs:staff:([0-9a-f-]{36}):(approved|denied|implemented)$/.exec(String(body.data?.custom_id||''));
+    if(staffClick){
+      if(!await communityEnabled(db,'suggestions'))return response('Suggestions are disabled.');
+      if(!actor.isStaff)return response('Only Owner, Admin or Helper may manage suggestions.');
+      const status=staffClick[2]==='approved'?'Approved':staffClick[2]==='denied'?'Denied':'Implemented';
+      await reviewSuggestion(db,actor,staffClick[1],status);
+      const updated=staffReviewPanel(await getSuggestion(db,staffClick[1]));
+      return {type:7,data:{...updated.data,flags:undefined,content:'**Staff decision recorded:** '+status+'. The public suggestion will update shortly.'}};
     }
     const operation=String(body.data?.options?.[0]?.name||''),options=body.data?.options?.[0]?.options||[];
     const value=(name:string)=>pick(options,name);
@@ -64,9 +91,9 @@ export async function communityInteraction(db:Store,config:Config,body:any){
       const states=await Promise.all(communityModules.map(async m=>m+': '+(await communityEnabled(db,m)?'enabled':'disabled')));
       return response(states.join('\n'));
     }
-    if(group==='tag'){
+    if(['pc-tag-show','pc-tag-save','tag'].includes(group)){
       if(!await communityEnabled(db,'tags'))return response('Informational tags are disabled.');
-      if(operation==='show'){
+      if(operation==='show'||group==='pc-tag-show'){
         const r=await getTag(db,String(value('name')||''),{userId:actor.id,channelId:body.channel_id});
         return response('**'+r.name+'**\n'+r.text,false);
       }
@@ -78,7 +105,7 @@ export async function communityInteraction(db:Store,config:Config,body:any){
         const id=await proposeTag(db,actor,String(value('name')||''),String(value('content')||''));
         return response('Proposal submitted to staff. ID: '+id);
       }
-      if(operation==='save'){
+      if(operation==='save'||group==='pc-tag-save'){
         const r=await saveTag(db,actor,String(value('name')||''),String(value('content')||''));
         return response('Published '+r.name+' revision '+r.revision+'.');
       }
@@ -107,18 +134,26 @@ export async function communityInteraction(db:Store,config:Config,body:any){
       if(!await communityEnabled(db,'suggestions'))return response('Suggestions are disabled.');
       if(operation==='create'){
         const id=await createSuggestion(db,actor,String(value('title')||''),String(value('content')||''),value('anonymous')===true);
-        return {type:4,data:suggestionDisplay(await getSuggestion(db,id))};
+        return response('Suggestion received and queued for <#'+suggestionChannelId+'>. Its voting embed will appear there shortly.\nReference: `'+id+'`.');
       }
       if(operation==='list'){
         const rows=await listSuggestions(db);
         return response(rows.map(s=>s.id+' · '+s.title+' · '+s.status+' · +'+Number(s.upvotes)+' / -'+Number(s.downvotes)).join('\n')||'No suggestions yet.');
       }
-      if(operation==='view')return {type:4,data:suggestionDisplay(await getSuggestion(db,String(value('id')||'')))};
+      if(operation==='view'){
+        const id=String(value('id')||''),item=await getSuggestion(db,id),post=await suggestionPost(db,id);
+        const preview=suggestionDisplay(item),url=post?.message_id?'https://discord.com/channels/'+config.guild+'/'+post.channel_id+'/'+post.message_id:'';
+        return {type:4,data:{flags:64,embeds:preview.embeds,content:url?'Original public suggestion: '+url:'The suggestion is awaiting posting to <#'+suggestionChannelId+'>.',allowed_mentions:{parse:[]}}};
+      }
       if(operation==='vote'){
         const choice=value('choice')==='up'?1:value('choice')==='down'?-1:0;
         await voteSuggestion(db,actor,String(value('id')||''),choice);
         const s=await getSuggestion(db,String(value('id')||''));
         return response('Vote saved. 👍 '+Number(s.upvotes)+' · 👎 '+Number(s.downvotes)+'.');
+      }
+      if(operation==='manage'||(operation==='review'&&!value('status'))){
+        if(!actor.isStaff)return response('Only Owner, Admin or Helper may manage suggestions.');
+        return staffReviewPanel(await getSuggestion(db,String(value('id')||'')));
       }
       if(operation==='review'){
         const r=await reviewSuggestion(db,actor,String(value('id')||''),String(value('status')) as SuggestionStatus,String(value('response')||''));
