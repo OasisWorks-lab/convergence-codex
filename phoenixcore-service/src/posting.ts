@@ -87,7 +87,7 @@ export function captureWriterPost(db:Store,source:IncomingPost,displayName:strin
   return captureTurn(db,source.channel,source.author,source.id,async q=>{
     const speaker=await resolveWriter(q,source);
     const name=speaker?.form?speaker.character.name+' ('+speaker.form.name+')':speaker?.character?.name||displayName;
-    return {text:speaker?.content||'',name};
+    return {text:speaker?.content||'',name,characterId:speaker?.sheet?.id};
   },createdAt);
 }
 export async function relay(db:Store,config:Config,source:IncomingPost,send:(post:CharacterPost)=>Promise<string>,remove:()=>Promise<void>,inScope?:(settings:Settings)=>boolean,settings?:Settings){
