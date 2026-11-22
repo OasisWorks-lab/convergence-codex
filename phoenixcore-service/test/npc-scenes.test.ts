@@ -208,7 +208,7 @@ test('native tags and parent defaults feed identities while joins and handoffs s
   assert.equal(panel.data.flags,64);
   await deliver();assert.equal(panels.at(-1).messageId,post);
   assert.match(panels.at(-1).payload.embeds[0].fields[0].value,new RegExp(guest));
-  assert.equal(panel.data.components[0].components.some((p:any)=>p.label==='Write turn'),false);
+  assert.equal(panel.data.components,undefined);
   const postAs=(author:string,id:string,content:string)=>captureWriterPost(db,{guild,channel:thread,parent:channel,author,id,roles:[],content},'Account name');
   assert.equal(await postAs(guest,'early','I turn toward the gate.'),undefined);
   assert.equal(await postAs(host,'first','m-The gate is open.'),'added');
