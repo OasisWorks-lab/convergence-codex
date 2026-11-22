@@ -36,8 +36,8 @@ function validateInput(input:PollInput,now:number){
   for(const field of ['anonymous','allowChange','resultsEarly'] as const)
     requireThat(typeof input[field]==='boolean',400,'Choose whether '+field+' is enabled.');
   requireThat(discordId.test(String(input.channelId||'')),400,'Choose a Convergence text channel.');
-  requireThat(Number.isSafeInteger(input.endsMs)&&input.endsMs>=now+60000&&input.endsMs<=now+oneMonth,
-    400,'Poll closing time must be between 1 minute and 30 days from now.');
+  requireThat(Number.isSafeInteger(input.endsMs)&&input.endsMs>=now+30000&&input.endsMs<=now+oneMonth+15000,
+    400,'Poll closing time must be between approximately 1 minute and 30 days from now.');
   const requiredRoles=roleIds(input.requiredRoles||[],'Required roles'),
     excludedRoles=roleIds(input.excludedRoles||[],'Excluded roles');
   requireThat(!requiredRoles.some(x=>excludedRoles.includes(x)),400,'A role cannot both qualify and exclude a voter.');
@@ -246,7 +246,8 @@ export async function deliverPoll(db:Store,discord:Pick<Discord,'call'>,now=Date
     const status=String(entry.status),id=String(entry.id);
     const poll=await getPoll(db,id,{id:entry.creator_id,isOwner:true,isJudge:false,isPlayer:false});
     const enabled=await communityEnabled(db,'polls');
-    const {embeds,components,allowed_mentions}=pollMessage(poll,enabled);
+    const publicPoll=poll.status==='active'&&!poll.resultsEarly?{...poll,counts:null}:poll;
+    const {embeds,components,allowed_mentions}=pollMessage(publicPoll,enabled);
     const nonce=createHash('sha256').update('phoenixcore-poll:'+id).digest('base64url').slice(0,24);
     const endpoint='/channels/'+entry.channel_id+'/messages'+(entry.message_id?'/'+entry.message_id:'');
     const message=await discord.call(endpoint,{method:entry.message_id?'PATCH':'POST',
