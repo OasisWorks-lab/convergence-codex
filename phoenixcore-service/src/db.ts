@@ -122,6 +122,13 @@ const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_mod_case_events (id TEXT PRIMARY KEY,case_id TEXT NOT NULL REFERENCES pc_mod_cases(id) ON DELETE CASCADE,actor_id TEXT NOT NULL,event TEXT NOT NULL,detail TEXT NOT NULL,occurred_ms BIGINT NOT NULL)',
   'CREATE INDEX IF NOT EXISTS pc_mod_case_events_case ON pc_mod_case_events(case_id,occurred_ms)',
   'CREATE TABLE IF NOT EXISTS pc_mod_sanctions (case_id TEXT PRIMARY KEY REFERENCES pc_mod_cases(id) ON DELETE CASCADE,action TEXT NOT NULL,status TEXT NOT NULL,until_ms BIGINT,applied_ms BIGINT,ended_ms BIGINT,last_error TEXT NOT NULL DEFAULT \'\',updated_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_automod_policy (slot INTEGER PRIMARY KEY,revision INTEGER NOT NULL,policy TEXT NOT NULL,actor_id TEXT NOT NULL,updated_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_automod_policy_history (revision INTEGER PRIMARY KEY,actor_id TEXT NOT NULL,before_policy TEXT NOT NULL,after_policy TEXT NOT NULL,changed_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_automod_observations (message_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,channel_id TEXT NOT NULL,digest TEXT NOT NULL,created_ms BIGINT NOT NULL)',
+  'CREATE INDEX IF NOT EXISTS pc_automod_observations_window ON pc_automod_observations(user_id,channel_id,digest,created_ms)',
+  'CREATE TABLE IF NOT EXISTS pc_automod_hits (id TEXT PRIMARY KEY,message_id TEXT NOT NULL,user_id TEXT NOT NULL,channel_id TEXT NOT NULL,rule TEXT NOT NULL,excerpt TEXT NOT NULL,created_ms BIGINT NOT NULL,UNIQUE(message_id,rule))',
+  'CREATE INDEX IF NOT EXISTS pc_automod_hits_recent ON pc_automod_hits(created_ms,id)',
+
   'CREATE INDEX IF NOT EXISTS pc_mod_sanctions_due ON pc_mod_sanctions(status,until_ms)',
 
   'CREATE TABLE IF NOT EXISTS pc_support_cases (id TEXT PRIMARY KEY,receipt_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,requester_id TEXT NOT NULL,status TEXT NOT NULL,sensitive INTEGER NOT NULL DEFAULT 0,anonymous INTEGER NOT NULL DEFAULT 0,summary TEXT NOT NULL,assigned_id TEXT,linked_mod_case_id TEXT,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL,activity_ms BIGINT NOT NULL,closed_ms BIGINT,close_reason TEXT NOT NULL DEFAULT \'\',revision INTEGER NOT NULL DEFAULT 1,container_id TEXT)',

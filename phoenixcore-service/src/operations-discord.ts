@@ -6,6 +6,7 @@ import {staffIdentity,requireModerator,verifyModerationTarget} from './staff.ts'
 import {recordCase,removeWarning,proxyEvidence,moderationHistory,caseEvents,activeWarnings} from './moderation.ts';
 import {createReminder,listReminders,cancelReminder,maxReminderMinutes} from './jobs.ts';
 import {queueSanction,executeQueuedSanction,type SanctionAction} from './moderation-actions.ts';
+import {automodPolicy,automodIncidents,previewAutomod} from './automod.ts';
 
 const input=(name:string,description:string,required=true,max_length?:number)=>({type:3,name,description,required,...(max_length?{max_length}:{})});
 const member={type:6,name:'member',description:'Discord member (not an NPC or webhook)',required:true};
@@ -31,7 +32,11 @@ export const operationCommands=()=>[
       input('reason','Optional reason',false,850),input('proxy-post','Optional attributable RP post ID',false,24)]),
     sub('unban','Manually revoke a ban; enter the banned user ID.',[
       input('user-id','Banned Discord user ID',true,24),input('reason','Optional reason',false,850)]),
-    sub('apply','Explicitly apply an unfinished queued sanction (same moderator).',[caseId])
+    sub('apply','Explicitly apply an unfinished queued sanction (same moderator).',[caseId]),
+    sub('automod-status','See private audit-only automod rule state and incident total.'),
+    sub('automod-test','Owner: preview rule matches without saving, deleting or warning.',[
+      input('sample','Sample message text, never posted or recorded',true,1500),
+      {type:7,name:'channel',description:'Simulated Convergence text channel',required:true}])
   ]},
   {type:1,name:'remind',description:'Schedule a private reminder for yourself.',options:[
     sub('me','Send me a reminder after a number of minutes.',[
@@ -67,6 +72,28 @@ export async function operationInteraction(db:Store,config:Config,body:any,disco
     if(group==='mod'){
       requireModerator(who);
       requireThat(await communityEnabled(db,'moderation'),403,'Moderation records are disabled by the Owner.');
+      if(operation==='automod-status'){
+        const [state,incidents]=await Promise.all([automodPolicy(db),automodIncidents(db,who)]);
+        return respond('**Automod audit-only settings**\n'+
+          'Enabled: '+(state.policy.enabled?'yes':'no')+
+          ' · Owner alerts: '+(state.policy.ownerAlerts?'on':'off')+
+          '\nInvite filter: '+(state.policy.invites?'on':'off')+
+          ' · Blocklisted hosts: '+state.policy.blockedHosts.length+
+          ' · Repeated-post threshold: '+state.policy.duplicateThreshold+
+          ' · Mention threshold: '+state.policy.mentionThreshold+
+          '\nRecorded incident matches: '+incidents.total+
+          '\nNo automated deletions or punitive actions are available in this milestone.');
+      }
+      if(operation==='automod-test'){
+        requireThat(who.isOwner,403,'Only the Owner may test private automod settings.');
+        const result=await previewAutomod(db,who,{
+          id:'000000000000000001',guildId:config.guild,
+          userId:who.id,channelId:String(value('channel')||''),
+          roles:[],content:String(value('sample')||'')});
+        return respond('**Automod preview — no action taken**\n'+
+          (result.rules.length?'Would match: '+result.rules.join(', '):'No configured rules matched.')+
+          '\nNo log, warning, deletion or DM was created.');
+      }
       if(operation==='warn'||operation==='note'){
         const target=String(value('member')||'');
         await verifyModerationTarget(discord,config,who,target);

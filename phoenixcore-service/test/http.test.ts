@@ -337,6 +337,25 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal(issuedBans.has(ids.writer),false);
   assert.equal((await post('/api/moderation',{action:'remove-warning',caseId:warningId},owner)).status,200);
 
+  assert.equal((await get('/api/automod',{headers:{origin}})).status,401);
+  assert.equal((await get('/api/automod',{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+  const initialAuto=await get('/api/automod',{headers:{authorization:'Bearer '+owner,origin}});
+  assert.equal(initialAuto.status,200);
+  assert.equal((await initialAuto.json()).policy.revision,0);
+  const rulePolicy={enabled:true,ownerAlerts:false,invites:true,blockedHosts:['scam.example'],
+    duplicateThreshold:0,duplicateWindowSeconds:0,mentionThreshold:0,excludedChannels:[],excludedRoles:[]};
+  assert.equal((await post('/api/automod',{action:'configure',revision:0,policy:rulePolicy},writer)).status,403);
+  assert.equal((await post('/api/automod',{action:'configure',revision:0,policy:rulePolicy},owner)).status,200);
+  assert.equal((await post('/api/automod',{action:'configure',revision:0,policy:rulePolicy},owner)).status,409);
+  const previewAuto=await post('/api/automod',{action:'preview',channelId:prizeChannel,
+    content:'Join https://discord.gg/realistic-example'},owner);
+  assert.equal(previewAuto.status,200);
+  assert.deepEqual((await previewAuto.json()).result.rules,['invite']);
+  const afterAuto=await (await get('/api/automod',{headers:{authorization:'Bearer '+owner,origin}})).json();
+  assert.equal(afterAuto.policy.revision,1);
+  assert.equal(afterAuto.incidents.total,0);
+
+
   assert.equal((await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,
     title:'Illegal style',description:'',color:456},judge)).status,403);
   const styledPanel=await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,
