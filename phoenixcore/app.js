@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false,moderationData=null,moderationLoading=false,moderationMember='',moderationPageNumber=1,moderationCase=null;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false,moderationData=null,moderationLoading=false,moderationMember='',moderationPageNumber=1,moderationCase=null,automodData=null,automodLoading=false,automodPageNumber=1,automodPreview=null;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|moderation|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|moderation|automod|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['shops','Shops & Inventory'],['roles','Role Panels'],...(state?.canModerate||state?.actor.isOwner?[['moderation','Moderation']]:[])]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['shops','Shops & Inventory'],['roles','Role Panels'],...(state?.canModerate||state?.actor.isOwner?[['moderation','Moderation'],['automod','AutoMod']]:[])]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -1115,6 +1115,65 @@ function formList(raw){
       '<button type="button" data-moderation-page="1"'+(data.page>=data.pages?' disabled':'')+
       '>Next</button></div></section>'+detail;
   }
+
+  async function automodRefresh(){
+    if(automodLoading||demo||!session||!state?.canModerate&&!state?.actor?.isOwner)return;
+    automodLoading=true;
+    try{
+      automodData=await call('/api/automod?page='+encodeURIComponent(automodPageNumber));
+      if(route()==='automod')render();
+    }catch(error){tell(error.message,true);}
+    finally{automodLoading=false;}
+  }
+  function automodPage(){
+    if(demo)return title('AutoMod','Live audit settings are unavailable in practice mode.')+
+      '<section class="panel">Sign into the service to view private automod incident records.</section>';
+    if(!state?.canModerate&&!state?.actor?.isOwner)return missing();
+    if(!automodData){void automodRefresh();return title('AutoMod','Loading audit-only policy and incidents…');}
+    const data=automodData,p=data.policy.policy,revision=data.policy.revision;
+    const fieldSwitch=(name,description,checked)=>'<label class="field"><span><input type="checkbox" name="'+
+      h(name)+'"'+(checked?' checked':'')+'> '+h(description)+'</span></label>';
+    const lines=arr=>(arr||[]).join('\\n');
+    const configure=data.owner?'<section class="panel dossier"><h2>Owner: detection policy</h2>'+
+      '<p>Audit only. Enabling these checks never deletes messages, warns members or times anyone out. Owner identity is always exempt.</p>'+
+      '<form id="automod-policy-form" class="form" data-revision="'+h(revision)+'">'+
+      fieldSwitch('enabled','Enable observation of genuine server messages',p.enabled)+
+      fieldSwitch('ownerAlerts','Send private owner DM summaries for matches',p.ownerAlerts)+
+      fieldSwitch('invites','Flag Discord invitation links',p.invites)+
+      field('blockedHosts','Blocklisted hostnames (one per line)',lines(p.blockedHosts),{area:true,wide:true,max:2600})+
+      field('duplicateThreshold','Repeated identical posts threshold (0 disables)',String(p.duplicateThreshold),{max:3,numeric:true})+
+      field('duplicateWindowSeconds','Repeat time window in seconds (0 if disabled)',String(p.duplicateWindowSeconds),{max:3,numeric:true})+
+      field('mentionThreshold','Distinct member mention threshold (0 disables)',String(p.mentionThreshold),{max:3,numeric:true})+
+      field('excludedChannels','Ignored channel IDs (one per line)',lines(p.excludedChannels),{area:true,wide:true,max:1100})+
+      field('excludedRoles','Ignored role IDs (one per line)',lines(p.excludedRoles),{area:true,wide:true,max:1100})+
+      '<button class="primary">Save audit-only detection policy</button></form></section>'+
+      '<section class="panel dossier"><h2>Owner: test a sample safely</h2>'+
+      '<p>Test a message with the current saved policy without posting it or creating a record.</p>'+
+      '<form id="automod-preview-form" class="form">'+
+      field('channelId','Sample Convergence channel ID','',{required:true,max:20})+
+      field('content','Sample message', '',{area:true,wide:true,required:true,max:1500})+
+      '<button class="primary">Preview matches</button></form>'+
+      (automodPreview?'<p class="prewrap"><strong>Simulation:</strong> '+
+        h(automodPreview.rules.length?automodPreview.rules.join(', '):'No configured rule matched')+
+        '. Nothing was recorded or enforced.</p>':'')+'</section>'+
+      '<section class="panel dossier"><h2>Policy revision history</h2>'+
+      (data.history||[]).map(row=>'<p>Revision '+h(row.revision)+' · '+h(row.actor_id)+' · '+
+        h(new Date(Number(row.changed_ms)).toLocaleString())+'</p>').join('')+'</section>':'';
+    const hits=data.incidents.hits.map(x=>'<article class="panel dossier">'+
+      '<h3>'+h(x.rule)+' · '+h(x.user_id)+'</h3>'+
+      '<p class="prewrap">'+h(x.excerpt||'No excerpt recorded')+'</p>'+
+      '<small class="muted">Channel '+h(x.channel_id)+' · Message '+h(x.message_id)+
+      ' · '+h(new Date(Number(x.created_ms)).toLocaleString())+'</small></article>').join('');
+    return title('AutoMod','Observe possible abuse safely before choosing any enforcement policy.')+
+      '<section class="panel"><p><strong>Audit-only monitoring:</strong> '+h(p.enabled?'Enabled':'Disabled')+
+      ' · '+h(data.incidents.total)+' recorded matches. This module cannot issue punitive actions.</p></section>'+
+      configure+'<section class="stack"><h2>Private incident history</h2>'+
+      (hits||'<p>No incidents recorded.</p>')+
+      '<div class="actions"><button type="button" data-automod-page="-1"'+
+      (data.incidents.page<=1?' disabled':'')+'>Previous</button><span>Page '+h(data.incidents.page)+
+      ' of '+h(data.incidents.pages)+'</span><button type="button" data-automod-page="1"'+
+      (data.incidents.page>=data.incidents.pages?' disabled':'')+'>Next</button></div></section>';
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
@@ -1127,6 +1186,7 @@ function formList(raw){
     else if(r==='shops'||/^shop-[\da-f-]{36}$/i.test(r))view.innerHTML=shopPage();
     else if(r==='roles'||/^roles-[\da-f-]{36}$/i.test(r))view.innerHTML=rolePanelPage();
     else if(r==='moderation')view.innerHTML=moderationPage();
+    else if(r==='automod')view.innerHTML=automodPage();
     else if(r==='requests'||r==='archived')view.innerHTML=requestList(r==='archived');
     else if(r==='settings')view.innerHTML=settings();
     else if(r==='new'||r.startsWith('new-'))view.innerHTML=editor(r==='new'?'create':r.slice(4));
@@ -1361,6 +1421,12 @@ function formList(raw){
       }catch(error){tell(error.message,true);}
       return;
     }
+    const automodPage=e.target.closest('[data-automod-page]');
+    if(automodPage){
+      automodPageNumber=Math.max(1,Math.min(automodData?.incidents?.pages||1,
+        automodPageNumber+Number(automodPage.dataset.automodPage)));
+      automodData=null;await automodRefresh();return;
+    }
     const modPage=e.target.closest('[data-moderation-page]');
     if(modPage){
       moderationPageNumber=Math.max(1,Math.min(moderationData?.pages||1,
@@ -1523,6 +1589,33 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;if(!['automod-policy-form','automod-preview-form'].includes(f.id))return;
+    e.preventDefault();
+    const values=Object.fromEntries(new FormData(f)),button=f.querySelector('button.primary');
+    if(button?.disabled)return;if(button)button.disabled=true;
+    try{
+      if(f.id==='automod-preview-form'){
+        const result=await call('/api/automod','POST',{
+          action:'preview',channelId:values.channelId,content:values.content});
+        automodPreview=result.result;render();
+        tell('Automod preview completed. No moderation action was taken.');
+      }else{
+        const lines=key=>String(values[key]||'').split(/[\\s,]+/).filter(Boolean);
+        const policy={enabled:values.enabled==='on',ownerAlerts:values.ownerAlerts==='on',
+          invites:values.invites==='on',blockedHosts:lines('blockedHosts'),
+          duplicateThreshold:Number(values.duplicateThreshold),
+          duplicateWindowSeconds:Number(values.duplicateWindowSeconds),
+          mentionThreshold:Number(values.mentionThreshold),
+          excludedChannels:lines('excludedChannels'),excludedRoles:lines('excludedRoles')};
+        await call('/api/automod','POST',{action:'configure',
+          revision:Number(f.dataset.revision),policy});
+        automodPreview=null;automodData=null;await automodRefresh();
+        tell('Audit-only automod policy saved with a new revision.');
+      }
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;if(!['moderation-action-form','moderation-search-form'].includes(f.id))return;
     e.preventDefault();
