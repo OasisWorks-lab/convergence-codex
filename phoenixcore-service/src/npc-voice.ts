@@ -87,11 +87,12 @@ export function guided(scene:Scene,sheet:any):Speech {
     if(match)line=match.lines.find(l=>!scene.past.slice(-3).some(p=>p.reply.includes(l)))||match.lines[(scene.round-1)%match.lines.length];
     else if(/\b(hello|greetings|majesty|salute\w*|bow\w*)\b/i.test(current)&&scene.round===1)line='Azurik acknowledges the greeting with a slight inclination of his head. “You have my attention. Speak to me as you would to the man who has to live with the answer.”';
     else if(last){
-      const subject=detail(last.text);
-      const earlier=scene.past.at(-1)?.posts.at(-1);
-      line=scene.round%2 && subject?'Azurik considers the words. “'+subject+'…” He lets the thought settle. “What would you have me do about it, and who would that decision touch?”'
-        :earlier?'The king draws his hands from behind his back. “Earlier you spoke of ‘'+detail(earlier.text)+'’. How does what you tell me now change that?”':'“Tell me what this looks like from where you stand.” Azurik leaves the floor to his visitor.';
-    }
+      line=freshLine(scene,[
+        'Azurik considers the last remark without rushing to answer. “Go on. I am listening.”',
+        '“All right.” Azurik gives the visitor his attention. “Tell me what you have in mind.”',
+        'Azurik acknowledges the words with a small nod. “I understand. What would you like to discuss?”',
+        '“I hear you.” The king leaves the moment open rather than guessing at what was meant.'
+      ],'unrecognized-conversation');
   } else if(last) {
     const beat=String(sheet.personality||'').split(/[.!?\n]/).find((p:string)=>p.trim())?.trim();
     line=(beat?'*'+beat.slice(0,190)+'.* ':'')+sheet.name+' takes in the words. “'+detail(last.text)+'… What would you ask of me?”';
