@@ -3,6 +3,7 @@ import {communityCommand,communityCommands,communityInteraction} from './communi
 import {operationCommand,operationCommands,operationInteraction} from './operations-discord.ts';
 import {isSupportCommand,supportCommands,supportInteraction} from './support-discord.ts';
 import {giveawayCommand,giveawayCommands,giveawayInteraction,giveawayButton} from './giveaway-discord.ts';
+import {shopCommand,shopCommands,shopInteraction,shopComponent} from './shop-discord.ts';
 import type { RoleplayScope } from './scope.ts';
 import servicePackage from '../package.json' with {type:'json'};
 import {characterCommand} from './characters.ts';
@@ -122,7 +123,7 @@ export class Discord {
       {name:'character',description:'Your character name, posting tag or sheet ID',type:3,required:true,autocomplete:true},
       {name:'form',description:'Choose an attained form or base',type:3,required:true,autocomplete:true}]}];
     specs.push({name:'revert-form',type:1,description:'Return to base or an earlier attained form.',options:[{name:'character',type:3,description:'Your approved character',required:true,autocomplete:true},{name:'form',type:3,description:'Base or an earlier attained form',required:false,autocomplete:true}]});
-    const required=[...npcCommands(),...communityCommands(),...operationCommands(),...supportCommands(),...giveawayCommands(),...specs];
+    const required=[...npcCommands(),...communityCommands(),...operationCommands(),...supportCommands(),...giveawayCommands(),...shopCommands(),...specs];
     let operation='Listing Convergence commands';
     try {
       const current=await this.call(path);
@@ -227,6 +228,15 @@ export async function handleInteraction(db:Store, config:Config, body:any,discor
       return {type:5,data:{flags:64}};
     }
     return run();
+  }
+  if((body.type===2&&shopCommand(body.data?.name))||
+     (body.type===3&&String(body.data?.custom_id||'').startsWith('pcshop:'))){
+    const work=()=>body.type===2?shopInteraction(db,config,body,discord,scope):shopComponent(db,config,body,discord,scope);
+    if(defer&&body.type===2&&['buy','admin-item','admin-create','admin-stock','admin-open','admin-location'].includes(String(body.data?.options?.[0]?.name))){
+      defer(async()=>String((await work()).data?.content||'Shop operation completed.'));
+      return {type:5,data:{flags:64}};
+    }
+    return work();
   }
   if(body.type===2&&isSupportCommand(body.data?.name)){
     const work=()=>supportInteraction(db,config,body,discord);
