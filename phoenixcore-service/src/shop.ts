@@ -36,20 +36,49 @@ export async function createShopItem(db:Store,actor:Actor,data:any){
   });
   return {id,name,kind:data.kind,basePrice};
 }
+type Shopkeeper={ownerNpcId:string|null;ownerName:string};
+async function resolveShopkeeper(q:Query,data:any):Promise<Shopkeeper>{
+  const selected=data?.ownerNpcId;
+  if(selected!==undefined&&selected!==null&&selected!==''){
+    requireThat(typeof selected==='string'&&uuid.test(selected),400,'Choose a valid approved NPC.');
+    requireThat(!data.ownerName,400,'Choose either an approved NPC or a custom shopkeeper name.');
+    const [row]=await q('SELECT sheet FROM pc_characters WHERE id=$1',[selected]);
+    requireThat(row,404,'That NPC no longer exists. Refresh the current NPC list.');
+    const sheet=JSON.parse(row.sheet);
+    requireThat(sheet.characterType==='NPC',409,'Only an approved NPC can be selected as a shopkeeper.');
+    const name=textValue(sheet.name,100,'NPC name',true);
+    return {ownerNpcId:selected,ownerName:name};
+  }
+  return {ownerNpcId:null,ownerName:textValue(data?.ownerName??'',100,'Custom shopkeeper name',data?.shopkeeperMode==='custom')};
+}
+async function npcShopkeepers(q:Query) {
+  const rows=await q('SELECT id,sheet FROM pc_characters ORDER BY id');
+  return rows.flatMap(row=>{
+    const sheet=JSON.parse(row.sheet);
+    if(sheet.characterType!=='NPC'||typeof sheet.name!=='string'||!sheet.name.trim())return [];
+    return [{id:String(row.id),name:String(sheet.name).trim(),portrait:typeof sheet.portrait==='string'?sheet.portrait:''}];
+  }).sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+}
+export async function shopNpcOptions(db:Store){
+  return npcShopkeepers(db.query);
+}
+
 export async function createShop(db:Store,actor:Actor,data:any){
   staff(actor);
   requireThat(data&&typeof data==='object'&&!Array.isArray(data),400,'Provide a shop.');
   const name=textValue(data.name,100,'Shop name',true),
-    description=textValue(data.description||'',1200,'Shop description'),
-    ownerName=textValue(data.ownerName||'',100,'Shopkeeper name');
+    description=textValue(data.description||'',1200,'Shop description');
   requireThat(['general','location'].includes(data.kind),400,'Choose general or location-restricted shop.');
   const id=randomUUID();
-  await db.transaction(async q=>{
-    await q("INSERT INTO pc_shops(id,name,description,owner_name,kind,status,created_by,created_ms) VALUES($1,$2,$3,$4,$5,'closed',$6,$7)",
-      [id,name,description,ownerName,data.kind,actor.id,Date.now()]);
-    await audit(q,actor.id,'shop-created',id,name);
+  const shopkeeper=await db.transaction(async q=>{
+    const keeper=await resolveShopkeeper(q,data);
+    await q("INSERT INTO pc_shops(id,name,description,owner_name,owner_npc_id,kind,status,created_by,created_ms) VALUES($1,$2,$3,$4,$5,$6,'closed',$7,$8)",
+      [id,name,description,keeper.ownerName,keeper.ownerNpcId,data.kind,actor.id,Date.now()]);
+    await audit(q,actor.id,'shop-created',id,null===keeper.ownerNpcId?
+      name+' · custom keeper '+keeper.ownerName:name+' · linked NPC '+keeper.ownerNpcId);
+    return keeper;
   });
-  return {id,name,status:'closed',revision:1};
+  return {id,name,status:'closed',revision:1,...shopkeeper};
 }
 async function shopForWrite(q:Query,db:Store,id:string){
   const [shop]=await q('SELECT * FROM pc_shops WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
@@ -60,6 +89,22 @@ const revision=(expected:number,shop:any)=>{
   requireThat(Number.isSafeInteger(expected)&&expected>=1,400,'Provide the current shop revision.');
   requireThat(Number(shop.revision)===expected,409,'Shop has changed. Refresh before saving.');
 };
+export async function setShopkeeper(db:Store,actor:Actor,id:string,expected:number,input:any){
+  staff(actor);requireId(id,'shop');
+  requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Choose an NPC or custom entry.');
+  return db.transaction(async q=>{
+    const shop=await shopForWrite(q,db,id);revision(expected,shop);
+    const keeper=await resolveShopkeeper(q,input);
+    if(shop.owner_npc_id===keeper.ownerNpcId&&shop.owner_name===keeper.ownerName)
+      return {id,revision:expected,changed:false,...keeper};
+    await q('UPDATE pc_shops SET owner_npc_id=$1,owner_name=$2,revision=revision+1 WHERE id=$3',
+      [keeper.ownerNpcId,keeper.ownerName,id]);
+    await audit(q,actor.id,'shopkeeper-set',id,keeper.ownerNpcId?
+      'Linked approved NPC '+keeper.ownerNpcId:'Custom shopkeeper '+keeper.ownerName);
+    return {id,revision:expected+1,changed:true,...keeper};
+  });
+}
+
 export async function setShopOpen(db:Store,actor:Actor,id:string,expected:number,open:boolean){
   staff(actor);requireId(id,'shop');requireThat(typeof open==='boolean',400,'Choose open or closed.');
   return db.transaction(async q=>{
@@ -101,17 +146,36 @@ export async function setShopStock(db:Store,actor:Actor,shopId:string,itemId:str
     return {shopId,itemId,price:unit,remaining,revision:expected+1};
   });
 }
+export async function unlistShopItem(db:Store,actor:Actor,shopId:string,itemId:string,expected:number){
+  staff(actor);requireId(shopId,'shop');requireId(itemId,'item');
+  return db.transaction(async q=>{
+    const shop=await shopForWrite(q,db,shopId);revision(expected,shop);
+    const removed=await q('DELETE FROM pc_shop_stock WHERE shop_id=$1 AND item_id=$2 RETURNING item_id',[shopId,itemId]);
+    requireThat(removed.length===1,404,'This item is no longer stocked by this shop.');
+    await q('UPDATE pc_shops SET revision=revision+1 WHERE id=$1',[shopId]);
+    await audit(q,actor.id,'stock-unlisted',shopId,'Unlisted item '+itemId+' without removing character inventories.');
+    return {shopId,itemId,revision:expected+1};
+  });
+}
 export async function listShopCatalog(db:Store){
-  const [shops,items,stock,channels]=await Promise.all([
-    db.query('SELECT id,name,description,owner_name,kind,status,revision FROM pc_shops ORDER BY name,id'),
+  const [shops,items,stock,channels,npcs]=await Promise.all([
+    db.query('SELECT id,name,description,owner_name,owner_npc_id,kind,status,revision FROM pc_shops ORDER BY name,id'),
     db.query('SELECT id,name,description,kind,base_price,revision FROM pc_shop_items ORDER BY name,id'),
     db.query('SELECT shop_id,item_id,price,remaining FROM pc_shop_stock ORDER BY shop_id,item_id'),
-    db.query('SELECT shop_id,channel_id FROM pc_shop_channels ORDER BY shop_id,channel_id')
+    db.query('SELECT shop_id,channel_id FROM pc_shop_channels ORDER BY shop_id,channel_id'),
+    shopNpcOptions(db)
   ]);
-  return {shops:shops.map(s=>({id:s.id,name:s.name,description:s.description,ownerName:s.owner_name,
-    kind:s.kind,status:s.status,revision:Number(s.revision),
-    channels:channels.filter(c=>c.shop_id===s.id).map(c=>c.channel_id),
-    stock:stock.filter(item=>item.shop_id===s.id).map(x=>({itemId:x.item_id,price:x.price,remaining:x.remaining===null?null:Number(x.remaining)}))})),
+  const npcById=new Map(npcs.map(n=>[n.id,n]));
+  return {shops:shops.map(s=>{
+    const linked=s.owner_npc_id?npcById.get(s.owner_npc_id):null;
+    return {id:s.id,name:s.name,description:s.description,ownerName:linked?.name||s.owner_name,
+      ownerNpcId:s.owner_npc_id||null,ownerPortrait:linked?.portrait||'',
+      npcAvailable:!!linked,
+      kind:s.kind,status:s.status,revision:Number(s.revision),
+      channels:channels.filter(c=>c.shop_id===s.id).map(c=>c.channel_id),
+      stock:stock.filter(item=>item.shop_id===s.id).map(x=>({itemId:x.item_id,price:x.price,remaining:x.remaining===null?null:Number(x.remaining)}))};
+    }),
+    npcOptions:npcs,
     items:items.map(i=>({id:i.id,name:i.name,description:i.description,kind:i.kind,basePrice:i.base_price,revision:Number(i.revision)}))};
 }
 export type ShopContext={channelId:string;parentId?:string;rpEligible:boolean};
