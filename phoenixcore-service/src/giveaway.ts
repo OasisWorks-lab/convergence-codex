@@ -98,7 +98,7 @@ export async function giveawayEntry(db:Store,id:string,userId:string,member:any,
     requireThat(g,404,'Giveaway unavailable.');
     requireThat(g.status==='active'&&Number(g.starts_ms)<=now&&Number(g.ends_ms)>now,409,'Giveaway entries are not currently open.');
     const eligibility=giveawayEligibleMember(userId,member,g);
-    requireThat(eligibility.eligible,403,'You are not eligible to enter this giveaway ('+eligibility.reason+').');
+    requireThat(!join||eligibility.eligible,403,'You are not eligible to enter this giveaway ('+eligibility.reason+').');
     const [existing]=await q('SELECT active,joined_ms FROM pc_giveaway_entries WHERE giveaway_id=$1 AND user_id=$2',[id,userId]);
     if(existing&&Number(existing.active)===(join?1:0))return {changed:false,entered:join};
     if(join)await q('INSERT INTO pc_giveaway_entries(giveaway_id,user_id,active,joined_ms,updated_ms) VALUES($1,$2,1,$3,$3) ON CONFLICT(giveaway_id,user_id) DO UPDATE SET active=1,updated_ms=excluded.updated_ms',
