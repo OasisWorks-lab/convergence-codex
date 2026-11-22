@@ -77,7 +77,7 @@ function voices(s:Scene):Memory[]{
 }
 export function expandPost(s:Scene,sheet:any,first:string,combat:boolean,king:boolean){
   const name=king?'Azurik':sheet.name,goal=replyLength(s),cast=voices(s);
-  const beat=relevant(s),last=cast.at(-1),prior=s.past.at(-1)?.posts.at(-1)??s.history?.at(-1);
+  const beat=relevant(s),last=cast.at(-1),prior=s.past.at(-1)?.posts.at(-1);
   const additions:string[]=[];
   if(cast.length>1){
     const other=cast.find(p=>p!==last)!;
