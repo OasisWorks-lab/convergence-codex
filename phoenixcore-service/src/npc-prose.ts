@@ -106,9 +106,9 @@ export function expandPost(s:Scene,sheet:any,first:string,combat:boolean,king:bo
     additions.push(name+' leaves the decision open long enough for the others to speak. “I can offer you my part in this. Tell me where it would count for the most.”');
   }
   if(last&&detail(last.text))additions.push('“'+last.name+', when you said ‘'+detail(last.text)+'’, what were you hoping I would understand?” '+name+' holds still to hear the answer before choosing the next move.');
-  const used=s.past.slice(-1)[0]?.reply||'';
+  const used=s.past.map(p=>p.reply).join('\n');
   const parts=[first];
-  for(const line of [...additions.filter(v=>!used.includes(v)),...additions.filter(v=>used.includes(v))]){
+  for(const line of additions.filter(v=>!used.includes(v))){
     if(words(parts.join(' '))>=goal)break;
     if(!parts.includes(line))parts.push(line);
   }

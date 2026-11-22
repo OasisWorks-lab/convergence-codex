@@ -285,3 +285,23 @@ test('PostgreSQL workers claim each timer and mention once and cascade a cancell
   await Promise.all([deliverTurnNotice(db,send),deliverTurnNotice(db,send)]);assert.equal(sends.length,2);assert.deepEqual(sends[1].allowed_mentions.users,[guest]);
   await db.query('DELETE FROM pc_rp_scenes WHERE scene_id=$1',[s.id]);assert.deepEqual(await db.query('SELECT * FROM pc_rp_clocks'),[]);
 });
+
+test('Azurik greets a writer in every mode, answers the next turn and only responds physically to a present action',async t=>{
+  const {db}=await setup(t),sheet=await loadNpc(db.query,azurikId);
+  for(const mode of ['open','audience','spar']){
+    const scene:any={id:'live-repro',npc:azurikId,title:'King Azurik',mode,form:'',round:1,opening:'A day of training.',history:[{name:'Earlier writer',text:'An old spar ended beside the ruined gate.'}],past:[],posts:[]};
+    const say=(text:string)=>{
+      scene.posts=[{writer:host,name:'Mira',text,source:String(scene.round)}];
+      const move=guided(scene,sheet);scene.form=move.form;
+      scene.past.push({posts:[{name:'Mira',text}],reply:move.text});scene.round++;return move;
+    };
+    const first=say('Hey Azurik');assert.match(first.text,/Mira/);assert.doesNotMatch(first.text,/guard|strike|feint|blow|opponent|fight|gate/i);
+    const second=say('I just wanted to see how you were doing.');assert.match(second.text,/asked|tired|company/);
+    const third=say('What was your father’s name?');assert.match(third.text,/Ziex/);
+    const denial=say('I don’t want to fight, I just came to say hello.');assert.doesNotMatch(denial.text,/practice lane|feints|Orga Blaster|Galick Gun/);
+    assert.equal(new Set([first,second,third,denial].map(m=>m.text.split(/\s+/).slice(0,8).join(' '))).size,4);
+    const neutral=say('Did you fight your father?');assert.equal(neutral.form,'');assert.doesNotMatch(neutral.text,/incoming strike|raises a guard/);
+    const exhibit=say('Could you show me your Super Saiyan form?');assert.ok(exhibit.form);assert.doesNotMatch(exhibit.text,/forearm|opponent/);
+    const defence=say('I throw a punch at Azurik.');assert.match(defence.text,/incoming strike|attack|line of the blow/);
+  }
+});
