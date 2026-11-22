@@ -319,7 +319,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
             db.query('SELECT giveaway_id,active FROM pc_giveaway_entries WHERE user_id=$1',[actor.id]),
             db.query('SELECT id,sheet FROM pc_characters WHERE owner_id=$1 ORDER BY id',[actor.id])
           ]);
-          json(res,200,{giveaways,channels:channels.channels,channelRevision:channels.revision,
+          json(res,200,{giveaways,channels:channels.channels,channelRevision:channels.revision,guild:config.guild,
             staff:actorLive.isHelper,owner:actorLive.isOwner,
             enteredGiveawayIds:entries.filter(e=>Number(e.active)).map(e=>e.giveaway_id),
             characters:characters.filter(c=>JSON.parse(c.sheet).characterType!=='NPC')
