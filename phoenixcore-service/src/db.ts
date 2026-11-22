@@ -85,6 +85,7 @@ const ddl = [
   'CREATE INDEX IF NOT EXISTS pc_rp_delivery ON pc_rp_scenes(ready_at,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_rp_receipts (id TEXT PRIMARY KEY, created_ms BIGINT NOT NULL, result TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_npc_ai_usage (day TEXT PRIMARY KEY, used INTEGER NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_npc_ai_providers (provider_key TEXT PRIMARY KEY,day TEXT NOT NULL,day_used INTEGER NOT NULL DEFAULT 0,minute_bucket BIGINT NOT NULL DEFAULT 0,minute_used INTEGER NOT NULL DEFAULT 0,blocked_until BIGINT NOT NULL DEFAULT 0,last_status TEXT NOT NULL DEFAULT \'new\',last_checked_ms BIGINT NOT NULL DEFAULT 0)',
   'CREATE TABLE IF NOT EXISTS pc_migrations (name TEXT PRIMARY KEY)',
   'CREATE TABLE IF NOT EXISTS pc_denials (request_id TEXT PRIMARY KEY, decision_key TEXT NOT NULL, stage TEXT NOT NULL, helper TEXT NOT NULL, note TEXT NOT NULL, dm_channel TEXT, dm_message TEXT, attempts INTEGER NOT NULL DEFAULT 0, retry_at BIGINT NOT NULL DEFAULT 0)',
   'CREATE TABLE IF NOT EXISTS pc_designs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, author_id TEXT NOT NULL, fields TEXT NOT NULL)',
