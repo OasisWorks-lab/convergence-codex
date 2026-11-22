@@ -84,7 +84,7 @@ const delayFrom=(response:Response,defaultMs=120000)=>{
   return defaultMs;
 };
 export async function npcCompletionResult(config:NpcAiConfig,instructions:string,input:unknown,maxWords:number,fetcher=fetch):Promise<AiAttempt>{
-  const limit=Math.max(300,Math.min(1400,Math.ceil(maxWords*5)));
+  const limit=Math.max(280,Math.min(2400,Math.ceil(maxWords*4.4)));
   let response:Response;
   try{
     if(config.provider==='openai'){
