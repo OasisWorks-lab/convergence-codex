@@ -3,13 +3,43 @@ import type {Memory} from './npc-history.ts';
 import {introducedName} from './npc-dialogue.ts';
 
 const words=(value:string)=>value.match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu)?.length||0;
-export function replyLength(s:Scene) {
-  const totals=new Map<string,number>();
-  for(const post of s.posts)totals.set(post.writer,(totals.get(post.writer)||0)+words(post.text));
-  const sample=totals.size?[...totals.values()]:(s.history||[]).slice(-3).map(p=>words(p.text));
-  const average=sample.length?sample.reduce((a,b)=>a+b,0)/sample.length:70;
-  return Math.max(24,Math.min(230,Math.round(average*0.95+14)));
+export type ReplyDepth='brief'|'conversational'|'detailed'|'immersive';
+export type ReplyProfile={depth:ReplyDepth;minParagraphs:number;maxParagraphs:number;targetWords:number;minWords:number;maxWords:number;substantialWords:number;unintelligiblePosts:number};
+function repetitive(text:string,tokens:string[]){
+  const compact=text.toLowerCase().normalize('NFKC').replace(/[\W_]+/gu,'');
+  if(compact.length<140&&tokens.length<30)return false;
+  const chunks:string[]=[];
+  for(let i=0;i+18<=compact.length;i+=6)chunks.push(compact.slice(i,i+18));
+  const variety=chunks.length?new Set(chunks).size/chunks.length:1;
+  const distinct=tokens.length?new Set(tokens).size/tokens.length:1;
+  return variety<0.47||(tokens.length>=35&&distinct<0.18)||
+    (tokens.length>=12&&tokens.filter(t=>t.length>44).length/tokens.length>0.45);
 }
+export function meaningfulWords(text:string){
+  const cleaned=text.replace(/https?:\/\/\S+|<[@#][^>]*>|[\x60]{3}[\s\S]*?[\x60]{3}/g,' ').trim();
+  const tokens=(cleaned.toLowerCase().normalize('NFKC').match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu)||[]);
+  if(repetitive(cleaned,tokens))return 0;
+  return Math.min(500,tokens.length);
+}
+export function replyProfile(s:Scene):ReplyProfile{
+  const totals=new Map<string,number>();
+  let unintelligiblePosts=0;
+  for(const post of s.posts){
+    const count=meaningfulWords(post.text);
+    if(count===0&&post.text.trim())unintelligiblePosts++;
+    const identity=post.characterId||post.writer;
+    totals.set(identity,Math.min(500,(totals.get(identity)||0)+count));
+  }
+  const ranked=[...totals.values()].sort((a,b)=>b-a);
+  const substantialWords=ranked.length?Math.min(600,ranked[0]+ranked.slice(1).reduce((a,b)=>a+b*0.4,0)):0;
+  const common={substantialWords:Math.round(substantialWords),unintelligiblePosts};
+  if(substantialWords<32)return {depth:'brief',minParagraphs:1,maxParagraphs:2,targetWords:60,minWords:15,maxWords:120,...common};
+  if(substantialWords<80)return {depth:'conversational',minParagraphs:2,maxParagraphs:3,targetWords:165,minWords:65,maxWords:270,...common};
+  if(substantialWords<160)return {depth:'detailed',minParagraphs:4,maxParagraphs:5,targetWords:330,minWords:180,maxWords:470,...common};
+  return {depth:'immersive',minParagraphs:4,maxParagraphs:6,targetWords:420,minWords:230,maxWords:580,...common};
+}
+export function replyLength(s:Scene){return replyProfile(s).targetWords;}
+
 export function detail(value:string) {
   const text=value.replace(/https?:\/\/\S+|<[@#][^>]*>|[*_~\x60@]/g,' ').replace(/\s+/g,' ').trim();
   const quoted=text.match(/[“"]([^"”]{3,170})[”"]/);

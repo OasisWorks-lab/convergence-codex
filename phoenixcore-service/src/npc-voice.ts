@@ -1,7 +1,7 @@
 import { isAzurik, formStats, npcFormArt } from './npc-catalog.ts';
 import type { Store } from './db.ts';
 import {conversation,freshLine,repeatsOpening,turnIntent} from './npc-dialogue.ts';
-import {detail,replyLength,sceneBeat} from './npc-prose.ts';
+import {detail,replyProfile,meaningfulWords,sceneBeat} from './npc-prose.ts';
 import {aiOptions} from './npc-ai.ts';
 import {routeNpcReply} from './npc-ai-router.ts';
 import {remembered} from './npc-memory.ts';
@@ -124,11 +124,14 @@ export async function narrate(db:Store,scene:Scene,sheet:any,fetcher=fetch):Prom
   if(!budget.length)return decision;
   const facts={name:sheet.name,occupation:sheet.occupation,approvedBiography:String(sheet.bio||'').slice(0,7000),
     personality:String(sheet.personality||'').slice(0,2500),family:sheet.family,strengths:sheet.strengths,weaknesses:sheet.weaknesses,techniques:sheet.techniquesItems};
-  const target=replyLength(scene);
+  const profile=replyProfile(scene),target=profile.targetWords;
   const instructions=[
     'You are portraying exactly ONE NPC in a text-based, multi-anime roleplay. Stay in that NPC’s approved personality and biography. Write ONLY the NPC’s visible actions and spoken words, never the player characters’ movements, injuries, dialogue, private thoughts, or choices.',
     'Respond directly to the LATEST actual in-character statements and actions before drawing on earlier events. Do not use a fixed question pattern, mechanically quote fragments of previous messages, reuse stock gestures, narrate filler to meet a word quota, or end every post with a philosophical question.',
     'Match the length and intensity of the players’ writing. A short mundane greeting deserves a short natural reply. A longer detailed exchange can receive substantial, purposeful prose.',
+    'For THIS reply, write '+profile.minParagraphs+' to '+profile.maxParagraphs+' natural RP paragraphs, aiming for roughly '+profile.targetWords+' words (acceptable range '+profile.minWords+'–'+profile.maxWords+'). Separate paragraphs with blank lines. Use paragraph breaks for a change in action, tone, focus, or dialogue, not empty padding.',
+    'If the current scene contains little substance, prefer brevity and leave room for the player. If it contains a substantial, coherent action or discussion, react to its specific details with meaningful physical beats, dialogue, and consequences strictly within this NPC’s own agency. Do not invent extra events, overwrite the players’ decisions, add filler, or multiply repetitive questions just to reach the target.',
+    'If a player posts repetitive or unintelligible spam, do not treat its character count as narrative depth; briefly acknowledge confusion if appropriate and invite clarification. Do not hallucinate a hidden message or quote the garbage string.',
     'Characters in the turn order or speaker labels are OUT-OF-CHARACTER identifiers. The NPC does not know names just because the service supplied them. Use names only if explicitly introduced within witnessed in-world dialogue, or already established by the NPC’s approved family/lore or verified past story encounters.',
     'Opening history is channel backscroll, NOT the NPC’s memory. Never claim to have seen or heard it unless an in-world moment established that. Only witnessed encounters explicitly supplied in verifiedMemories are remembered across scenes. Do not invent shared histories, friendships, titles, or bloodlines.',
     'A greeting, introduction, small talk, or question is not a combat invitation. Do not initiate violence, transformation, or intimidation unless the current encounter provides a reason. Do not force romantic or social relationships.',
@@ -145,7 +148,11 @@ export async function narrate(db:Store,scene:Scene,sheet:any,fetcher=fetch):Prom
   const input={npc:facts,sceneStyle:scene.mode,scenePremise:scene.opening,
     unverifiedChannelBackscroll:history.map(p=>({outOfCharacterLabel:p.name,text:clip(p.text,historyLimit)})),
     verifiedMemories,recentSceneExchanges:scene.past.slice(-4).map(x=>({posts:x.posts.map(p=>({outOfCharacterLabel:p.name,text:clip(p.text,1100)})),npcReply:clip(x.reply,1800)})),
-    currentRound:scene.posts.map(p=>({outOfCharacterLabel:p.name,text:clip(p.text,1800)})),
+    currentRound:scene.posts.map(p=>({outOfCharacterLabel:p.name,
+      text:meaningfulWords(p.text)===0&&p.text.trim()?
+        '[The character produced a long repetitive or unintelligible string; the NPC cannot establish its meaning.]':
+        clip(p.text,Math.min(3300,Math.max(600,Math.floor(9000/Math.max(1,scene.posts.length)))))})),
+    responseDepth:{paragraphs:[profile.minParagraphs,profile.maxParagraphs],targetWords:profile.targetWords,approximateWordRange:[profile.minWords,profile.maxWords],unintelligiblePosts:profile.unintelligiblePosts},
     currentIntent:turnIntent(scene),previousForm:formStats(sheet,scene.form).form?.name||'Base',
     activeForm:formStats(sheet,decision.form).form?.name||'Base',currentPowerLevel:decision.pl};
   try{
