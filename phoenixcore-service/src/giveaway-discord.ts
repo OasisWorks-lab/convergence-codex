@@ -6,7 +6,7 @@ import {communityEnabled} from './community.ts';
 import {liveSupportActor} from './support-auth.ts';
 import {staffIdentity} from './staff.ts';
 import {createGiveaway,giveawayChannels,setGiveawayChannels,giveawayPublic,listGiveaways,giveawayEntry,
-  concludeGiveaway,rerollGiveawaySlot,claimGiveaway,confirmManualPrize,manualGiveawayWinner,updateGiveawayStatus,editGiveaway,extendGiveaway} from './giveaway.ts';
+  concludeGiveaway,rerollGiveawaySlot,claimGiveaway,confirmManualPrize,manualGiveawayWinner,updateGiveawayStatus,editGiveaway,extendGiveaway,giveawayEligibleMember} from './giveaway.ts';
 
 const text=(name:string,description:string,required=true,max_length?:number)=>({type:3,name,description,required,...(max_length?{max_length}:{})});
 const integer=(name:string,description:string,min:number,max:number,required=true)=>({type:4,name,description,min_value:min,max_value:max,required});
@@ -154,16 +154,53 @@ export async function giveawayInteraction(db:Store,config:Config,body:any,discor
     return out('Giveaway action could not be completed. Check Discord permissions and the bot logs.');
   }
 }
+
+async function giveawayClaimPicker(db:Store,id:string,userId:string,member:any){
+  const g=await giveawayPublic(db,id);
+  requireThat(g.status==='ended',409,'This giveaway has not finished drawing winners.');
+  requireThat(giveawayEligibleMember(userId,member,{
+    required_roles:JSON.stringify(g.requiredRoles),excluded_roles:JSON.stringify(g.excludedRoles)
+  }).eligible,403,'You no longer meet this giveaway’s claim eligibility rules.');
+  const winner=g.winners.find((w:any)=>w.user_id===userId);
+  requireThat(winner,403,'Only a selected winner can claim this giveaway prize.');
+  if(winner.status==='claimed'||winner.status==='claim_pending')return out('Your prize claim has already been recorded.');
+  requireThat(winner.status==='awaiting_claim'&&Number(winner.claim_deadline_ms)>Date.now(),409,
+    'Your claim window has closed. The prize may be rerolled.');
+  if(g.prizeKind==='manual'){
+    const result=await claimGiveaway(db,id,userId,undefined,member);
+    return out(result.replayed?'Your claim was already recorded.':
+      'Your manual prize claim is pending staff delivery confirmation.');
+  }
+  const characters=await db.query('SELECT id,sheet FROM pc_characters WHERE owner_id=$1 ORDER BY id',[userId]);
+  const approved=characters.filter(c=>JSON.parse(c.sheet).characterType!=='NPC');
+  requireThat(approved.length,403,'You need an approved player character to claim this Zeni prize.');
+  requireThat(approved.length<=25,409,
+    'You have more than 25 approved characters. Claim using the PhoenixCore website character picker.');
+  const options=approved.map(c=>({label:String(JSON.parse(c.sheet).name||'Character').slice(0,100),value:c.id}));
+  return {type:4,data:{flags:64,allowed_mentions:{parse:[]},
+    content:'Select which approved character receives **'+g.zeniAmount+' Zeni** in their **bank**. This choice cannot be changed after payout.',
+    components:[{type:1,components:[{type:3,custom_id:'pcg:choose:'+id,
+      placeholder:'Choose the winning character',min_values:1,max_values:1,options}]}]}};
+}
+
 export async function giveawayButton(db:Store,config:Config,body:any,discord:Discord){
-  const action=/^pcg:(enter|leave):([0-9a-f-]{36})$/.exec(String(body.data?.custom_id||''));
+  const action=/^pcg:(enter|leave|claim|choose):([0-9a-f-]{36})$/.exec(String(body.data?.custom_id||''));
   if(!action)return out('Unknown giveaway button.');
   if(body.guild_id!==config.guild||!body.member?.user?.id)return out('Use this in Convergence.');
   if(!await communityEnabled(db,'giveaways'))return out('Giveaways are disabled.');
   try{
-    const id=action[2],g=await giveawayPublic(db,id);
-    requireThat(body.channel_id===g.channelId,403,'This giveaway is not active in this channel.');
-    const member=await discord.call('/guilds/'+config.guild+'/members/'+body.member.user.id);
-    const result=await giveawayEntry(db,id,body.member.user.id,member,action[1]==='enter');
+    const id=action[2],g=await giveawayPublic(db,id),userId=String(body.member.user.id);
+    requireThat(body.channel_id===g.channelId,403,'Use the designated giveaway channel to interact with this event.');
+    const member=await discord.call('/guilds/'+config.guild+'/members/'+userId);
+    if(action[1]==='claim')return giveawayClaimPicker(db,id,userId,member);
+    if(action[1]==='choose'){
+      const characterId=body.data?.values?.[0];
+      requireThat(typeof characterId==='string',400,'Choose an approved character from the menu.');
+      const result=await claimGiveaway(db,id,userId,characterId,member);
+      return out(result.replayed?'This prize claim was already recorded.':
+        'Zeni deposited in your chosen approved character’s bank.');
+    }
+    const result=await giveawayEntry(db,id,userId,member,action[1]==='enter');
     return out(action[1]==='enter'?(result.changed?'Your entry was recorded.':'Already entered.'):
       (result.changed?'You have withdrawn your entry.':'Not currently entered.'));
   }catch(error){return out(error instanceof Problem?error.message:'Unable to verify giveaway eligibility.');}
