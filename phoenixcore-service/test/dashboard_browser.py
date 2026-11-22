@@ -391,6 +391,26 @@ with sync_playwright() as p:
                     "zeniAmount":None,"status":"active","entries":4,"winnerCount":1,
                     "startsMs":1700000000000,"endsMs":4700000000000,
                     "channelId":"1573908218260885614","winners":[]}]})
+            elif url.path=="/api/automod":
+                assert owner, "Automod evidence requires staff authorization."
+                if route.request.method=="GET":
+                    route.fulfill(json={"owner":True,"policy":{"revision":2,"policy":{
+                        "enabled":True,"ownerAlerts":False,"invites":True,
+                        "blockedHosts":["scam.example"],"duplicateThreshold":3,
+                        "duplicateWindowSeconds":30,"mentionThreshold":2,
+                        "excludedChannels":[],"excludedRoles":[]}},
+                        "incidents":{"total":1,"page":1,"pages":1,"hits":[{
+                            "id":"e61c01cb-3f65-4b16-9178-c9d247de983e",
+                            "message_id":"930000000000000050","user_id":"930000000000000005",
+                            "channel_id":"930000000000000006","rule":"invite",
+                            "excerpt":"Look at https://discord.gg/example",
+                            "created_ms":1700000000000}]},
+                        "history":[{"revision":2,"actor_id":"owner","changed_ms":1700000000000}]})
+                else:
+                    payload=route.request.post_data_json
+                    if payload.get("action")=="preview":
+                        route.fulfill(json={"ok":True,"result":{"rules":["invite"],"recorded":False,"enforced":False}})
+                    else:route.fulfill(json={"ok":True,"result":{"revision":3}})
             elif url.path=="/api/moderation":
                 assert owner, "Non-moderators must not receive private moderation cases."
                 if route.request.method=="GET":
@@ -532,6 +552,7 @@ with sync_playwright() as p:
     assert again.get_by_role("heading",name="Shop sales report").count()==0
     assert again.locator('img[src="x"]').count()==0
     assert again.get_by_role("link",name="Moderation").count()==0
+    assert again.get_by_role("link",name="AutoMod").count()==0
     again.goto("https://codex.test/phoenixcore/index.html#giveaways")
     expect(again.get_by_role("heading",name="Giveaways",exact=True)).to_be_visible()
     expect(again.get_by_text("An Autumn Celebration",exact=False)).to_be_visible()
@@ -591,6 +612,17 @@ with sync_playwright() as p:
     expect(owner_dashboard.get_by_text("Manual ban confirmed by Discord.")).to_be_visible()
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"moderation-owner-mobile.png")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#automod")
+    expect(owner_dashboard.get_by_role("heading",name="AutoMod",exact=True)).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Owner: detection policy")).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Private incident history")).to_be_visible()
+    expect(owner_dashboard.get_by_text("Look at https://discord.gg/example")).to_be_visible()
+    owner_dashboard.locator('#automod-preview-form input[name="channelId"]').fill("930000000000000006")
+    owner_dashboard.locator('#automod-preview-form textarea[name="content"]').fill("https://discord.gg/example")
+    owner_dashboard.locator('#automod-preview-form button').click()
+    expect(owner_dashboard.get_by_text("Simulation:",exact=False)).to_be_visible()
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"automod-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#shops")
     expect(owner_dashboard.get_by_role("heading",name="Sales overview")).to_be_visible()
     expect(owner_dashboard.get_by_text("625 Zeni",exact=False)).to_be_visible()
