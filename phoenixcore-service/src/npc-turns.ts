@@ -50,8 +50,8 @@ export async function nextTurn(q:Query,s:Scene,now:number,lead:string){
   await q('UPDATE pc_rp_scenes SET state=$1,ready_at=$2 WHERE scene_id=$3',[JSON.stringify(s),done&&!s.paused?now:0,s.id]);
   await queueNotice(q,s,lead+'\n'+order(s));
 }
-export async function resumeTurn(q:Query,s:Scene,writer:string,now:number){
-  const index=s.cast.findIndex(p=>p.id===writer);
+export async function resumeTurn(q:Query,s:Scene,writer:string,now:number,characterId?:string){
+  const index=s.cast.findIndex(p=>p.id===writer&&(!characterId||p.characterId===characterId));
   if(index<0||!s.paused)return false;
   s.cast=[...s.cast.slice(index),...s.cast.slice(0,index)];s.turn=0;s.paused=false;
   await setClock(q,s,now);
