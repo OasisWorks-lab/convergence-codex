@@ -45,7 +45,8 @@ test('one generic SupportCase accepts tickets, duplicate receipts are idempotent
  const [c]=await db.query('SELECT * FROM pc_support_cases WHERE id=$1',[created.id]);
  assert.equal(c.status,'Claimed');assert.equal(c.kind,'ticket');
  assert.ok(!Object.keys(c).includes('priority'));
- assert.equal((await supportHistory(db,member,created.id)).events.length,2);
+ assert.equal((await supportHistory(db,member,created.id)).events.length,1);
+ assert.equal((await supportHistory(db,helper,created.id)).events.length,2);
  assert.equal((await listSupportCases(db,member)).length,1);
  assert.equal((await listSupportCases(db,helper)).length,1);
  assert.equal((await listSupportCases(db,admin)).length,1);
@@ -184,7 +185,7 @@ test('PostgreSQL concurrent case receipts and private message delivery cannot du
  const caseId=results[0].id;
  const receipt=randomUUID();
  await Promise.all(Array.from({length:8},()=>addSupportMessage(db,helper,caseId,receipt,'Sent once.','staff-reply')));
- assert.equal((await db.query('SELECT id FROM pc_support_outbox')).length,1);
+ assert.equal((await db.query('SELECT event_id FROM pc_support_outbox')).length,1);
  const discord=fakeDiscord();
  await Promise.all(Array.from({length:15},()=>deliverSupportOutbox(db,discord as any)));
  assert.equal(discord.calls.filter(x=>x.path.endsWith('/messages')).length,1);
