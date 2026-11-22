@@ -391,6 +391,47 @@ with sync_playwright() as p:
                     "zeniAmount":None,"status":"active","entries":4,"winnerCount":1,
                     "startsMs":1700000000000,"endsMs":4700000000000,
                     "channelId":"1573908218260885614","winners":[]}]})
+            elif url.path=="/api/polls":
+                if route.request.method=="GET":
+                    active={"id":"d21c01cb-3f65-4b16-9178-c9d247de983e",
+                        "question":"Sky Arena Poll","description":"Select the training arena.",
+                        "choices":["Forest Arena","Sky Dome"],"mode":"single",
+                        "anonymous":True,"allowChange":True,"resultsEarly":False,
+                        "requiredRoles":[],"excludedRoles":[],"channelId":"1573908218260885614",
+                        "endsMs":4700000000000,"status":"active","revision":4,
+                        "color":5793266,"imageUrl":"","messageId":"960000000000000009",
+                        "createdMs":1700000000000,"closedMs":None,"voters":3,
+                        "counts":[3,0] if owner else None}
+                    draft={**active,"id":"d31c01cb-3f65-4b16-9178-c9d247de983e",
+                        "question":"Unpublished arena vote","status":"draft","revision":1,
+                        "messageId":None,"voters":0,"counts":[0,0]}
+                    route.fulfill(json={"owner":owner,"guild":"950522987646418964",
+                        "moduleEnabled":True,"polls":[active]+([draft] if owner else [])})
+                else:
+                    assert owner or route.request.post_data_json.get("action")=="vote"
+                    route.fulfill(json={"ok":True,"result":{"id":"d21c01cb-3f65-4b16-9178-c9d247de983e",
+                        "created":True,"changed":True,"revision":5}})
+            elif url.path in [
+                "/api/polls/d21c01cb-3f65-4b16-9178-c9d247de983e",
+                "/api/polls/d31c01cb-3f65-4b16-9178-c9d247de983e"]:
+                draft=url.path.endswith("d31c01cb-3f65-4b16-9178-c9d247de983e")
+                assert owner or not draft, "Unpublished polls must never be visible to players."
+                route.fulfill(json={"moduleEnabled":True,"poll":{
+                    "id":"d31c01cb-3f65-4b16-9178-c9d247de983e" if draft else "d21c01cb-3f65-4b16-9178-c9d247de983e",
+                    "question":"Unpublished arena vote" if draft else "Sky Arena Poll",
+                    "description":"Select the training arena.",
+                    "choices":["Forest Arena","Sky Dome"],"mode":"single","anonymous":True,
+                    "allowChange":True,"resultsEarly":False,
+                    "requiredRoles":[],"excludedRoles":[],"channelId":"1573908218260885614",
+                    "endsMs":4700000000000,"status":"draft" if draft else "active",
+                    "revision":1 if draft else 4,"color":5793266,"imageUrl":"",
+                    "messageId":None if draft else "960000000000000009",
+                    "createdMs":1700000000000,"closedMs":None,"voters":0 if draft else 3,
+                    "counts":[0,0] if draft or owner else None}})
+            elif url.path=="/api/polls/d21c01cb-3f65-4b16-9178-c9d247de983e/audit":
+                assert owner
+                route.fulfill(json={"events":[{"event":"published","actor_id":"owner",
+                    "detail":"Owner published a poll","created_ms":1700000000000}]})
             elif url.path=="/api/automod":
                 assert owner, "Automod evidence requires staff authorization."
                 if route.request.method=="GET":
@@ -553,6 +594,16 @@ with sync_playwright() as p:
     assert again.locator('img[src="x"]').count()==0
     assert again.get_by_role("link",name="Moderation").count()==0
     assert again.get_by_role("link",name="AutoMod").count()==0
+    again.goto("https://codex.test/phoenixcore/index.html#polls")
+    expect(again.get_by_role("heading",name="Polls",exact=True)).to_be_visible()
+    assert again.locator("#poll-editor").count()==0
+    again.get_by_role("link",name="Sky Arena Poll",exact=False).click()
+    expect(again.get_by_role("heading",name="Cast your vote")).to_be_visible()
+    expect(again.get_by_text("Hidden until closed",exact=False).first).to_be_visible()
+    assert again.get_by_role("heading",name="Owner controls").count()==0
+    again.locator('#poll-vote-form select[name="selection"]').select_option("1")
+    again.get_by_role("button",name="Submit ballot").click()
+    expect(again.get_by_text("Your vote was recorded.")).to_be_visible()
     again.goto("https://codex.test/phoenixcore/index.html#giveaways")
     expect(again.get_by_role("heading",name="Giveaways",exact=True)).to_be_visible()
     expect(again.get_by_text("An Autumn Celebration",exact=False)).to_be_visible()
@@ -576,6 +627,18 @@ with sync_playwright() as p:
     expect(owner_dashboard.get_by_text("Page 1 of 1")).to_be_visible()
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"giveaway-owner-participants-mobile.png")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#polls")
+    expect(owner_dashboard.get_by_role("heading",name="Polls",exact=True)).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Create a new poll draft")).to_be_visible()
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#poll-d31c01cb-3f65-4b16-9178-c9d247de983e")
+    expect(owner_dashboard.get_by_role("heading",name="Edit unpublished poll")).to_be_visible()
+    expect(owner_dashboard.get_by_role("button",name="Publish in Discord")).to_be_visible()
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#poll-d21c01cb-3f65-4b16-9178-c9d247de983e")
+    expect(owner_dashboard.get_by_role("heading",name="Owner controls")).to_be_visible()
+    owner_dashboard.get_by_role("button",name="View poll audit").click()
+    expect(owner_dashboard.get_by_text("published · owner",exact=False)).to_be_visible()
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"polls-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#roles")
     expect(owner_dashboard.get_by_role("heading",name="Create a role panel")).to_be_visible()
     owner_dashboard.get_by_role("link",name="Member Badges",exact=False).click()
