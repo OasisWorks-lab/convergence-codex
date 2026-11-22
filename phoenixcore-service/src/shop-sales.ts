@@ -36,8 +36,8 @@ export async function shopSalesReport(db:Store,actor:Actor,shopId?:string,clock=
   for(;;){
     const rows=await db.query(`SELECT id,shop_id,item_id,character_id,payment,quantity,total,unit_price,created_ms
       FROM pc_shop_purchases
-      WHERE ($1 IS NULL OR shop_id=$1) AND (created_ms>$2 OR (created_ms=$2 AND id>$3))
-      ORDER BY created_ms,id LIMIT 500`,[shopId??null,cursorMs,cursorId]);
+      WHERE ($1='' OR shop_id=$1) AND (created_ms>$2 OR (created_ms=$2 AND id>$3))
+      ORDER BY created_ms,id LIMIT 500`,[shopId??'',cursorMs,cursorId]);
     if(!rows.length)break;
     for(const row of rows){
       const bucket=aggregates.get(row.shop_id);
