@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all';
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -577,9 +577,59 @@ function formList(raw){
       giveawayData=await call('/api/giveaways');
       const selected=/^giveaway-([\da-f-]{36})$/i.exec(route());
       giveawayDetail=selected?await call('/api/giveaways/'+selected[1]):null;
+      if(selected&&giveawayData.owner){
+        const id=selected[1];
+        if(giveawayRosterEvent!==id){
+          giveawayRosterEvent=id;giveawayRosterPage=1;giveawayRosterFilter='all';
+        }
+        try{
+          giveawayRoster=await call('/api/giveaways/'+id+'/participants?page='+giveawayRosterPage+
+            '&filter='+encodeURIComponent(giveawayRosterFilter));
+          giveawayRosterError='';
+        }catch(error){
+          giveawayRoster=null;giveawayRosterError=error.message||'Participant roster could not load.';
+        }
+      }else{
+        giveawayRoster=null;giveawayRosterError='';giveawayRosterEvent='';
+      }
       if(route()==='giveaways'||/^giveaway-/.test(route()))render();
     }catch(e){tell(e.message,true);}
     finally{giveawayLoading=false;}
+  }
+  function giveawayRosterSection(g){
+    if(!giveawayData?.owner)return '';
+    const roster=giveawayRoster?.giveawayId===g.id?giveawayRoster:null;
+    const filters=[['all','All'],['active','Entered'],['withdrawn','Withdrawn']];
+    const controls=filters.map(([value,label])=>
+      '<button type="button" data-giveaway-roster-filter="'+value+'"'+
+      (giveawayRosterFilter===value?' aria-pressed="true"':' aria-pressed="false"')+'>'+label+'</button>').join('');
+    const rows=(roster?.participants||[]).map(p=>{
+      const name=p.displayName||p.username||'Discord profile unavailable';
+      const identity=p.username?'@'+p.username:'Discord ID only';
+      const state=p.memberStatus==='left'?'Left the server':p.memberStatus==='unavailable'?'Profile unavailable':'Current member';
+      const boost=p.booster===true?' · Server booster':p.booster===false?' · Not boosting':'';
+      const ticketCount=roster.hasDrawSnapshot?p.drawTickets:p.currentTickets;
+      const ticketText=ticketCount===null?'Tickets unavailable':
+        String(ticketCount)+' '+(ticketCount===1?'ticket':'tickets')+(roster.hasDrawSnapshot?' at original draw':' currently eligible');
+      const wins=p.wins.length?' · Winner slot '+p.wins.map(w=>w.slot).join(', '):'';
+      return '<div class="card person">'+avatar(name,p.userId,p.avatarUrl||'')+
+        '<span class="who"><b>'+h(name)+'</b><small class="muted">'+h(identity)+' · '+h(p.userId)+'</small>'+
+        '<small>'+h(state+boost+' · '+ticketText+wins)+'</small>'+
+        '<small class="subtle">Joined '+h(new Date(p.joinedMs).toLocaleString())+'</small></span>'+
+        '<span class="pill">'+(p.active?'Entered':'Withdrawn')+'</span></div>';
+    }).join('');
+    const paging=roster?'<div class="actions">'+
+      '<button type="button" data-giveaway-roster-page="'+(roster.page-1)+'"'+(roster.page<=1?' disabled':'')+'>Previous</button>'+
+      '<span>Page '+h(roster.page)+' of '+h(roster.pages)+'</span>'+
+      '<button type="button" data-giveaway-roster-page="'+(roster.page+1)+'"'+(roster.page>=roster.pages?' disabled':'')+'>Next</button></div>':'';
+    return '<section class="panel dossier"><h3>Participant directory · Owner only</h3>'+
+      '<p class="muted">Discord identities are verified against current guild membership. Historical draw tickets come from the saved original drawing; withdrawn members remain in the audit list.</p>'+
+      (roster?'<p><b>'+h(roster.active)+'</b> entered · <b>'+h(roster.withdrawn)+'</b> withdrawn · <b>'+h(roster.active+roster.withdrawn)+'</b> total recorded</p>':'')+
+      '<div class="actions">'+controls+'</div>'+
+      (giveawayRosterError?'<p role="alert">'+h(giveawayRosterError)+'</p>':
+        roster?'<div class="stack">'+(rows||'<p>No participants in this view.</p>')+'</div>'+paging:
+        '<p>Loading participant identities…</p>')+
+      '</section>';
   }
   function giveawayPage(){
     if(demo)return title('Giveaways','Community celebrations, unique drawings and prizes')+
@@ -628,7 +678,7 @@ function formList(raw){
         '<p>Entries close <strong>'+h(new Date(g.endsMs).toLocaleString())+'</strong>. Winners have a per-giveaway claim deadline.</p>'+
         '<p class="muted">Boosters receive 3 total draw tickets. Every human can win only once.</p></section>'+
         controls+(winners?'<section class="panel"><h3>Draw results and claims</h3>'+winners+'</section>':'')+
-        claimForm+staffActions+editForm+
+        claimForm+giveawayRosterSection(g)+staffActions+editForm+
         '<section class="panel"><p>Public giveaway messages and entry buttons appear in <a href="https://discord.com/channels/'+h(data.guild||'950522987646418964')+'/'+h(g.channelId)+'">the designated Discord channel</a>.</p></section>';
     }
     const cards=(data.giveaways||[]).map(g=>
@@ -789,6 +839,22 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const rosterFilter=e.target.closest('[data-giveaway-roster-filter]');
+    const rosterPage=e.target.closest('[data-giveaway-roster-page]');
+    if(rosterFilter||rosterPage){
+      if(rosterFilter){
+        const filter=rosterFilter.dataset.giveawayRosterFilter;
+        if(!['all','active','withdrawn'].includes(filter))return;
+        giveawayRosterFilter=filter;giveawayRosterPage=1;
+      }else{
+        const page=Number(rosterPage.dataset.giveawayRosterPage);
+        if(!Number.isSafeInteger(page)||page<1||page>(giveawayRoster?.pages||1))return;
+        giveawayRosterPage=page;
+      }
+      giveawayRoster=null;
+      await giveawayRefresh();
+      return;
+    }
     const give=e.target.closest('[data-giveaway-action]');
     if(give){
       const action=give.dataset.giveawayAction,id=give.dataset.giveawayId;
