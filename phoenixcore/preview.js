@@ -15,10 +15,10 @@
   ];
   const forms=window.PhoenixForms, sampleChannel='555555555555555555';
   let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'1100315893864603649',commandPrefixes:'pc!',submissionMessage:'{helper} A {type} submission for {character} is ready for review.',reviewChannel:'',...forms.reviewRoutes,currency:'Credits',rpChannels:sampleChannel,rpDivider:''}};
-  const embeds=[],designs=[],tags=[],defaults=[],clone=x=>JSON.parse(JSON.stringify(x));
+  const embeds=[],designs=[],tags=[],defaults=[],favorites=[],clone=x=>JSON.parse(JSON.stringify(x));
   function state() {
     const id=ids[role],owner=role==='owner',judge=owner||role==='judge',channels=settings.value.rpChannels.split(/\s+/).filter(Boolean);
-    return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:judge},players,characters:characters.map(c=>({...c,tag:tags.find(t=>t.characterId===c.id)?.tag||''})),
+    return clone({actor:{id,isPlayer:true,isOwner:owner,isJudge:judge},favoriteCharacterIds:favorites.filter(f=>f.owner===id).map(f=>f.characterId),players,characters:characters.map(c=>({...c,tag:tags.find(t=>t.characterId===c.id)?.tag||''})),
       scope:{online:true,categories:[{id:'566666666666666666',name:'Roleplay channels below'}],locations:channels.map(id=>({id,name:'Practice scene',type:0})),incomplete:0,scanning:false},
       requests:requests.filter(r=>judge||r.ownerId===id||r.authorId===id).map(r=>({...r,denial:judge?r.denial:null,...(judge?{assessment:{summary:'Ready for staff review',checks:[{label:'Roleplay review',state:'review',detail:'Check the character, requirements and limitations against the server rules.'}]}}:{})})),announcements:owner?embeds:[],
       catalogue:designs,
@@ -115,12 +115,17 @@
   function remove(id){
     if(role!=='owner')throw Error('Owner access required.');
     characters=characters.filter(c=>c.id!==id);
-    for(const list of [tags,defaults])for(let i=list.length-1;i>=0;i--)if(list[i].characterId===id)list.splice(i,1);
+    for(const list of [tags,defaults,favorites])for(let i=list.length-1;i>=0;i--)if(list[i].characterId===id)list.splice(i,1);
     for(const r of requests)if(r.characterId===id&&['pending','awaiting_judge','archived'].includes(r.status))r.status='stale';
   }
   function purge(id){if(role!=='owner'||!requests.find(r=>r.id===id)?.archived)throw Error('Choose an archived request.');requests=requests.filter(r=>r.id!==id);}
   function embed(value){if(role!=='owner')throw Error('Owner access required.');const old=embeds.findIndex(x=>x.kind===value.kind);if(old<0)embeds.push(value);else embeds[old]=value;}
-  window.PhoenixPreview={state,purge,embed,archive,remove,propose,decision,judge,savePosting,role:()=>role,switchRole:value=>{if(['player','judge','owner'].includes(value))role=value;},
+  window.PhoenixPreview={state,purge,embed,archive,remove,propose,decision,judge,savePosting,favorite:(characterId,on)=>{
+      if(!characters.some(c=>c.id===characterId))throw Error('Choose a current character.');
+      const owner=ids[role],index=favorites.findIndex(f=>f.owner===owner&&f.characterId===characterId);
+      if(index>=0)favorites.splice(index,1);
+      if(on)favorites.push({owner,characterId});
+    },role:()=>role,switchRole:value=>{if(['player','judge','owner'].includes(value))role=value;},
     saveSettings:input=>{
       if(role!=='owner')throw Error('Only the owner can change settings.');
       if(input.revision!==settings.revision)throw Error('Reload current settings.');
