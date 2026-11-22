@@ -58,11 +58,11 @@ export async function deliverScheduledJob(db:Store,discord:Pick<Discord,'call'>,
       'Warnings are reviewed by staff. This notice does not announce an automatic ban or other penalty.';
     else if(job.job_type==='moderation-action-notice'){
       const kind=String(data.action||'sanction'),until=Number(data.untilMs||0);
-      content='**Convergence moderation notice**\\nAction: '+kind+
-        '\\nCase: '+String(data.caseId||'').slice(0,60)+
-        '\\nReason: '+String(data.reason||'Unspecified').slice(0,850)+
-        (until?'\\nExpected end: <t:'+Math.floor(until/1000)+':F>':'')+
-        '\\nIf you wish to appeal, contact PhoenixCore Support through a private message.';
+      content='**Convergence moderation notice**\nAction: '+kind+
+        '\nCase: '+String(data.caseId||'').slice(0,60)+
+        '\nReason: '+String(data.reason||'Unspecified').slice(0,850)+
+        (until?'\nExpected end: <t:'+Math.floor(until/1000)+':F>':'')+
+        '\nIf you wish to appeal, contact PhoenixCore Support through a private message.';
     }
     else throw Error('Unsupported scheduled job type');
     const channel=await discord.call('/users/@me/channels',{method:'POST',body:JSON.stringify({recipient_id:job.recipient_id})});
