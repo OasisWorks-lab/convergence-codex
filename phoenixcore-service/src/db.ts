@@ -91,12 +91,18 @@ const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_role_receipts (id TEXT PRIMARY KEY,panel_id TEXT NOT NULL,role_id TEXT NOT NULL,user_id TEXT NOT NULL,desired INTEGER NOT NULL,status TEXT NOT NULL,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL,last_error TEXT)',
   'CREATE TABLE IF NOT EXISTS pc_role_assignments (panel_id TEXT NOT NULL,role_id TEXT NOT NULL,user_id TEXT NOT NULL,active INTEGER NOT NULL,updated_ms BIGINT NOT NULL,PRIMARY KEY(panel_id,role_id,user_id))',
   'CREATE TABLE IF NOT EXISTS pc_role_audit (id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,panel_id TEXT NOT NULL,role_id TEXT,detail TEXT NOT NULL,created_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_role_reactions (panel_id TEXT NOT NULL REFERENCES pc_role_panels(id) ON DELETE CASCADE,role_id TEXT NOT NULL,emoji TEXT NOT NULL,PRIMARY KEY(panel_id,emoji),UNIQUE(panel_id,role_id))',
+  'CREATE TABLE IF NOT EXISTS pc_role_sticky_snapshots (user_id TEXT NOT NULL,panel_id TEXT NOT NULL REFERENCES pc_role_panels(id) ON DELETE CASCADE,role_id TEXT NOT NULL,captured_ms BIGINT NOT NULL,PRIMARY KEY(user_id,panel_id,role_id))',
+
   'CREATE INDEX IF NOT EXISTS pc_role_panels_delivery ON pc_role_panels(retry_ms,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_community_modules (module TEXT PRIMARY KEY,enabled INTEGER NOT NULL,revision INTEGER NOT NULL,actor_id TEXT NOT NULL,updated_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_community_module_history (module TEXT NOT NULL,revision INTEGER NOT NULL,previous_enabled INTEGER,enabled INTEGER NOT NULL,actor_id TEXT NOT NULL,occurred_ms BIGINT NOT NULL,PRIMARY KEY(module,revision))',
   'CREATE TABLE IF NOT EXISTS pc_info_tags (id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,body TEXT NOT NULL,author_id TEXT NOT NULL,revision INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_info_tag_aliases (alias TEXT PRIMARY KEY,tag_id TEXT NOT NULL REFERENCES pc_info_tags(id) ON DELETE CASCADE)',
   'CREATE TABLE IF NOT EXISTS pc_info_tag_history (tag_id TEXT NOT NULL REFERENCES pc_info_tags(id),revision INTEGER NOT NULL,body TEXT NOT NULL,actor_id TEXT NOT NULL,changed_ms BIGINT NOT NULL,PRIMARY KEY(tag_id,revision))',
+  'CREATE TABLE IF NOT EXISTS pc_info_tag_rich (tag_id TEXT PRIMARY KEY REFERENCES pc_info_tags(id) ON DELETE CASCADE,title TEXT NOT NULL DEFAULT \'\',image_url TEXT NOT NULL DEFAULT \'\',color INTEGER NOT NULL DEFAULT 6950085,buttons TEXT NOT NULL DEFAULT \'[]\',updated_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_info_tag_rich_history (tag_id TEXT NOT NULL REFERENCES pc_info_tags(id) ON DELETE CASCADE,revision INTEGER NOT NULL,title TEXT NOT NULL,image_url TEXT NOT NULL,color INTEGER NOT NULL,buttons TEXT NOT NULL,actor_id TEXT NOT NULL,changed_ms BIGINT NOT NULL,PRIMARY KEY(tag_id,revision))',
+
   'CREATE TABLE IF NOT EXISTS pc_info_tag_proposals (id TEXT PRIMARY KEY,author_id TEXT NOT NULL,name TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL,created_ms BIGINT NOT NULL,decided_by TEXT,decided_ms BIGINT,note TEXT)',
   'CREATE INDEX IF NOT EXISTS pc_info_tag_proposals_status ON pc_info_tag_proposals(status,created_ms)',
   'CREATE TABLE IF NOT EXISTS pc_suggestions (id TEXT PRIMARY KEY,author_id TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,anonymous INTEGER NOT NULL,status TEXT NOT NULL,staff_response TEXT NOT NULL DEFAULT \'\',created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL,reviewed_by TEXT)',
@@ -207,6 +213,9 @@ export async function initialize(db: Store, guildId: string) {
     else if(!(await q('PRAGMA table_info(pc_support_templates)')).some(c=>c.name==='active'))
       await q('ALTER TABLE pc_support_templates ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
 
+    if(db.dialect==='postgres') await q('ALTER TABLE pc_role_panels ADD COLUMN IF NOT EXISTS image_url TEXT NOT NULL DEFAULT \'\'');
+    else if(!(await q('PRAGMA table_info(pc_role_panels)')).some(x=>x.name==='image_url'))
+      await q("ALTER TABLE pc_role_panels ADD COLUMN image_url TEXT NOT NULL DEFAULT ''");
     if(db.dialect==='postgres') await q('ALTER TABLE pc_shops ADD COLUMN IF NOT EXISTS owner_npc_id TEXT');
     else if(!(await q('PRAGMA table_info(pc_shops)')).some(column=>column.name==='owner_npc_id'))
       await q('ALTER TABLE pc_shops ADD COLUMN owner_npc_id TEXT');
