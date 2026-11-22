@@ -27,7 +27,7 @@ const cmd=(command:string,operation:string,user:string,roles:string[]=[],opts:an
 const arg=(name:string,value:unknown)=>({name,value});
 test('all Carl informational tags and suggestion commands register as separate namespaces',()=>{
   const commands=communityCommands();
-  assert.deepEqual(commands.map(x=>x.name),['tag','suggest','community-module']);
+  assert.deepEqual(commands.map(x=>x.name),['tag','suggest','pc-tag-show','pc-tag-save','community-module']);
   const tag=commands[0].options.map(x=>x.name);
   assert.ok(['show','search','propose','save','alias','history','rollback','proposals','review'].every(x=>tag.includes(x)));
   assert.ok(commands[1].options.map(x=>x.name).includes('vote'));
