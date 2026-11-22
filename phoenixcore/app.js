@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -554,13 +554,15 @@ function formList(raw){
       history+'</section>';
   }
   async function supportSearchLoad(){
-    if(!session||demo)return;
+    if(!session||demo||supportSearchLoading)return;
+    supportSearchLoading=true;
     try{
       const filters=supportSearchFilters;
       const q=new URLSearchParams({...filters,page:String(supportSearchPage),pageSize:'25'});
       supportSearch=await call('/api/support/search?'+q.toString());
       if(route()==='support')render();
     }catch(error){tell(error.message,true);}
+    finally{supportSearchLoading=false;}
   }
   function supportPage(){
     if(demo)return title('Support Center','Live, private tickets and Modmail conversations')+
@@ -577,11 +579,31 @@ function formList(raw){
         return title('SupportCase','Loading private conversation…')+'<section class="panel"><p>Verifying current case access.</p></section>';
       }
       const c=supportDetail.case,staff=c.isStaff,closed=['Resolved','Closed'].includes(c.status);
+      const feedback=supportDetail.feedback||{maySubmit:false,feedback:null};
+      const feedbackUI=feedback.maySubmit?
+        '<section class="panel dossier"><h3>Optional case feedback</h3>'+
+        '<p>Only the member who opened this case can rate the resolution once.</p>'+
+        '<form id="support-feedback-form" class="form" data-id="'+h(c.id)+'">'+
+        '<label class="field"><span>Rating (1–5)</span><select name="rating" required>'+
+        [1,2,3,4,5].map(v=>'<option value="'+v+'">'+v+' / 5</option>').join('')+
+        '</select></label>'+field('comment','Comment (optional)','',{area:true,max:500,wide:true})+
+        '<button class="primary">Submit private feedback</button></form></section>':
+        feedback.feedback?'<section class="panel dossier"><h3>Recorded feedback</h3><p>'+
+          h(feedback.feedback.rating)+'/5</p><p class="prewrap">'+h(feedback.feedback.comment||'No written comment')+
+          '</p></section>':'';
+      const templates=(supportData.templates||[]).filter(t=>t.active);
+      const templatePicker=staff&&!closed&&templates.length?
+        '<label class="field"><span>Insert staff saved reply (review before sending)</span>'+
+        '<select data-support-template-insert data-case-id="'+h(c.id)+'">'+
+        '<option value="">Choose template…</option>'+templates.map(t=>'<option value="'+h(t.id)+'">'+
+          h(t.name)+'</option>').join('')+'</select></label>':'';
+
       const entries=(supportDetail.events||[]).map(e=>'<article class="panel dossier"><p class="eyeline">'+h(e.type.replaceAll('-',' '))+
         ' · '+h(new Date(e.createdMs).toLocaleString())+'</p><p class="prewrap">'+h(e.text)+'</p>'+
         (e.authorId?'<small class="muted">Sender '+h(e.authorId)+'</small>':'')+'</article>').join('');
       const input=(name,caption)=>'<form class="panel form support-message-form" data-mode="'+name+'" data-id="'+h(c.id)+'">'+
-        '<h3>'+h(caption)+'</h3>'+field('message','Message','',{area:true,wide:true,required:true,max:1800})+
+        '<h3>'+h(caption)+'</h3>'+(name==='send'?templatePicker:'')+
+        field('message','Message','',{area:true,wide:true,required:true,max:1800})+
         (name==='send'?'<label class="field"><span><input type="checkbox" name="signed"> Sign with my Discord identity</span></label>':'')+
         '<button class="primary">'+h(name==='note'?'Save internal note':name==='send'?'Send DM to member':'Add message')+'</button></form>';
       const actions=staff?'<section class="panel dossier"><h3>Staff case controls</h3><p class="muted">Only staff can close/reopen cases. Internal notes are never sent to members.</p>'+
@@ -593,9 +615,44 @@ function formList(raw){
         title('SupportCase · '+c.kind,c.status+' · '+(c.sensitive?'Restricted access':'Private case'))+
         '<section class="panel dossier"><h2>'+h(c.summary)+'</h2><p>Case ID: '+h(c.id)+'</p><p>Assigned staff: '+h(c.assignedId||'Unassigned')+'</p></section>'+
         '<section class="stack"><h2>Conversation and activity</h2>'+entries+'</section>'+actions+
-        (!closed?(staff?input('send','Explicit outward staff reply')+input('note','Staff-only note'):input('reply','Reply to staff')):'<section class="panel"><p>This case is closed. Contact support staff to reopen it.</p></section>');
+        (!closed?(staff?input('send','Explicit outward staff reply')+input('note','Staff-only note'):input('reply','Reply to staff')):'<section class="panel"><p>This case is closed. Contact support staff to reopen it.</p></section>')+
+        feedbackUI;
     }
     const stats=supportData.stats,staff=supportData.staff;
+    const insights=supportData.insights;
+    const report=staff&&insights?'<section class="panel dossier"><h2>Support operations</h2>'+
+      '<div class="stat-row"><span>Awaiting staff</span><strong>'+h(insights.awaitingStaff)+'</strong></div>'+
+      '<div class="stat-row"><span>Opened in last 7 days</span><strong>'+h(insights.openedLast7Days)+'</strong></div>'+
+      '<div class="stat-row"><span>Average first staff reply</span><strong>'+h(insights.averageFirstStaffReplyHours===null?'No data':insights.averageFirstStaffReplyHours+' h')+'</strong></div>'+
+      '<div class="stat-row"><span>Average resolution time</span><strong>'+h(insights.averageResolutionHours===null?'No data':insights.averageResolutionHours+' h')+'</strong></div>'+
+      '<div class="stat-row"><span>Case feedback</span><strong>'+h(insights.feedback.average===null?'No ratings':insights.feedback.average+'/5 ('+insights.feedback.responses+')')+'</strong></div>'+
+      '<h3>Assigned staff workload</h3>'+
+      (insights.workload.length?insights.workload.map(x=>'<div class="stat-row"><span>'+h(x.staffId)+
+        '</span><strong>'+h(x.active)+' active · '+h(x.resolved)+' resolved</strong></div>').join(''):
+        '<p>No assigned case workload.</p>')+
+      '</section>':'';
+    if(!supportSearch&&!supportSearchLoading)void supportSearchLoad();
+    const choices=(value,items)=>'<option value="">All</option>'+items.map(x=>
+      '<option value="'+h(x)+'"'+(supportSearchFilters[value]===x?' selected':'')+'>'+h(x)+'</option>').join('');
+    const searchForm='<section class="panel dossier"><h2>Search accessible cases</h2>'+
+      '<p>Only cases you are authorized to see are searchable. Internal staff notes are not exposed to players.</p>'+
+      '<form id="support-search-form" class="form">'+
+      field('query','Find case subject or conversation',supportSearchFilters.query,{max:120})+
+      '<label class="field"><span>Case type</span><select name="kind">'+
+      choices('kind',['ticket','modmail','report','appeal'])+'</select></label>'+
+      '<label class="field"><span>Status</span><select name="status">'+
+      choices('status',['Open','Claimed','Waiting for Member','Waiting for Staff','Resolved','Closed'])+
+      '</select></label><button class="primary">Search cases</button></form>'+
+      (supportSearch?'<div class="stack"><h3>Matching cases · '+h(supportSearch.total)+'</h3>'+
+        (supportSearch.cases.length?supportSearch.cases.map(c=>
+          '<a class="request-row" href="#support-'+h(c.id)+'"><span class="summary"><b>'+h(c.summary)+
+          '</b><small class="muted">'+h(c.kind)+' · '+h(c.status)+'</small></span></a>').join(''):
+          '<p>No matching cases.</p>')+
+        '<div class="actions"><button type="button" data-support-search-page="-1"'+(supportSearch.page<=1?' disabled':'')+'>Previous</button>'+
+        '<span>Page '+h(supportSearch.page)+' of '+h(supportSearch.pages)+'</span>'+
+        '<button type="button" data-support-search-page="1"'+(supportSearch.page>=supportSearch.pages?' disabled':'')+
+        '>Next</button></div></div>':'<p>Searching…</p>')+'</section>';
+
     const cases=(supportData.cases||[]).map(c=>'<a class="request-row" href="#support-'+h(c.id)+'"><span class="summary"><b>'+h(c.summary)+'</b>'+
       '<small class="muted">'+h(c.kind)+' · '+h(c.id)+' · '+h(c.assignedId?'Assigned':'Awaiting assignment')+'</small></span>'+
       '<span class="pill">'+h(c.status)+'</span></a>').join('');
@@ -608,6 +665,7 @@ function formList(raw){
       '<label class="field"><span><input type="checkbox" name="anonymous"> Anonymous report (does not hide identity from authorized senior staff)</span></label>'+
       '<button class="primary">Create private case</button></form></section>'+
       '<section class="stack"><h2>'+(staff?'Staff case queue':'Your cases')+'</h2>'+(cases||'<p>No cases to display.</p>')+'</section>'+
+      report+searchForm+(staff?supportTemplateManagement():'')+
       '<section class="panel"><p>You can also use /support in Discord, or DM PhoenixCore to start Modmail. Staff replies require an explicit send action; notes remain internal.</p></section>';
   }
   async function giveawayRefresh(){
