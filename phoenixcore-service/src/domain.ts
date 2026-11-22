@@ -4,6 +4,7 @@ import {racePaths} from './codex.ts';
 import { attachImage } from './media.ts';
 import { createHash,randomUUID } from 'node:crypto';
 import { defaultSettings, type Store, type Row, type Query } from './db.ts';
+import {approvalBalance,startingZeni} from './economy.ts';
 
 export class Problem extends Error {
   status: number;
@@ -278,6 +279,9 @@ export async function decide(db:Store,reviewer:string,ownerId:string,id:string,a
     }
     if (r.status==='approved' && !isDesign(r.kind)) {
       const after=JSON.parse(r.after_sheet), before=r.before_sheet?JSON.parse(r.before_sheet):null;
+      if(r.kind==='create'&&after.characterType!=='NPC'&&startingZeni[after.societyClass]){
+        after.wallet=(BigInt(after.wallet||'0')+BigInt(startingZeni[after.societyClass])).toString();
+      }
       const writesTag=Object.hasOwn(after,'tag');
       const tag=after.tag;
       delete after.tag;
@@ -292,6 +296,10 @@ export async function decide(db:Store,reviewer:string,ownerId:string,id:string,a
       }
       if (!applied) await q('ROLLBACK TO SAVEPOINT character_review');
       await q('RELEASE SAVEPOINT character_review');
+      if(applied){
+        await approvalBalance(q,r.id,reviewer,r.kind,r.character_id,after,before);
+        if(r.kind==='create')await q('UPDATE pc_requests SET after_sheet=$1 WHERE id=$2',[JSON.stringify(after),r.id]);
+      }
       if(applied && r.kind==='create')await queueForumCheck(q,r.owner_id);
       if (!applied) {
         await q("UPDATE pc_requests SET status='stale' WHERE id=$1", [id]);
