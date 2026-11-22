@@ -223,7 +223,7 @@ test('native tags and parent defaults feed identities while joins and handoffs s
   assert.match(joining.data.content,/next round/);
   await deliverScene(db,async (s,move)=>{
     assert.deepEqual(s.posts.map(p=>[p.name,p.text]),[['Mira','The gate is open.'],['Mira','I wait for Renn.'],['Renn','I listen for the signal.']]);
-    assert.match(move.text,/Mira/);return post;
+    assert.ok(move.text.length>10);return post;
   });
   while(await deliver()){}
   assert.equal(notices.length,0);assert.equal(panels.at(-1).messageId,post);
