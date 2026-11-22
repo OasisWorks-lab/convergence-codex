@@ -1,5 +1,5 @@
 import type {Query,Store} from './db.ts';
-import type {Scene,Entry} from './npc-voice.ts';
+import type {Scene} from './npc-voice.ts';
 
 export type Encounter={characterId:string;occurredAt:number;round:number;spoken:string;npcReplied:string};
 export async function writeEncounters(q:Query,s:Scene,npcReply:string,now=Date.now()){
@@ -15,8 +15,10 @@ export async function writeEncounters(q:Query,s:Scene,npcReply:string,now=Date.n
 export async function remembered(db:Store,npcId:string,characterIds:string[],limit=6):Promise<Record<string,Encounter[]>>{
   const unique=[...new Set(characterIds)].filter(id=>/^[a-f0-9-]{36}$/i.test(id)).slice(0,12),out:Record<string,Encounter[]>={};
   for(const id of unique){
-    const rows=await db.query('SELECT character_id,round,occurred_ms,player_text,npc_reply FROM pc_npc_encounters WHERE npc_id=$1 AND character_id=$2 ORDER BY occurred_ms DESC,id DESC LIMIT $3',[npcId,id,Math.max(1,Math.min(limit,12))]);
-    out[id]=rows.reverse().map(r=>({characterId:r.character_id,round:Number(r.round),occurredAt:Number(r.occurred_ms),spoken:r.player_text,npcReplied:r.npc_reply}));
+    const first=await db.query('SELECT id,character_id,round,occurred_ms,player_text,npc_reply FROM pc_npc_encounters WHERE npc_id=$1 AND character_id=$2 ORDER BY occurred_ms ASC,id ASC LIMIT 1',[npcId,id]);
+    const recent=await db.query('SELECT id,character_id,round,occurred_ms,player_text,npc_reply FROM pc_npc_encounters WHERE npc_id=$1 AND character_id=$2 ORDER BY occurred_ms DESC,id DESC LIMIT $3',[npcId,id,Math.max(1,Math.min(limit,12))-1||1]);
+    const rows=[...new Map([...first,...recent.reverse()].map(row=>[row.id,row])).values()].sort((a,b)=>Number(a.occurred_ms)-Number(b.occurred_ms));
+    out[id]=rows.map(r=>({characterId:r.character_id,round:Number(r.round),occurredAt:Number(r.occurred_ms),spoken:r.player_text,npcReplied:r.npc_reply}));
   }
   return out;
 }
