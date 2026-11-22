@@ -1,5 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
-import type {Store,Query} from './db.ts';
+import type {Store} from './db.ts';
 import {requireThat,discordId} from './domain.ts';
 import type {Config} from './discord.ts';
 import type {StaffIdentity} from './staff.ts';
@@ -96,7 +96,7 @@ function urlHosts(content:string){
   return found;
 }
 function inviteLink(content:string){
-  return /https?:\/\/(?:www\.)?(?:discord\.gg\/|discord(?:app)?\.com\/invite\/)[a-z0-9-]+/i.test(content);
+  return /(?:^|[^\w.])(?:https?:\/\/)?(?:www\.)?(?:discord\.gg\/|discord(?:app)?\.com\/invite\/)[a-z0-9-]+/i.test(content);
 }
 const normalize=(text:string)=>text.trim().toLowerCase().replace(/\s+/g,' ');
 const digest=(content:string)=>createHash('sha256').update(normalize(content)).digest('hex');
@@ -140,10 +140,14 @@ export async function observeAutomod(db:Store,config:Config,message:ObservedMess
     for(const rule of matches)await q('INSERT INTO pc_automod_hits(id,message_id,user_id,channel_id,rule,excerpt,created_ms) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(message_id,rule) DO NOTHING',
       [randomUUID(),message.id,message.userId,message.channelId,rule,message.content.slice(0,220),now]);
     if(matches.length&&policy.ownerAlerts){
-      const details=matches.join(', ');
-      await q('INSERT INTO pc_core_jobs(id,job_type,recipient_id,payload,due_ms,created_ms) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING',
-        ['automod-alert:'+message.id,'automod-alert',config.owner,
-          JSON.stringify({memberId:message.userId,channelId:message.channelId,messageId:message.id,rules:details}),now,now]);
+      const [recent]=await q('SELECT COUNT(*) AS n FROM pc_automod_hits WHERE user_id=$1 AND created_ms>=$2 AND message_id!=$3',
+        [message.userId,now-60000,message.id]);
+      if(Number(recent.n)===0){
+        const details=matches.join(', ');
+        await q('INSERT INTO pc_core_jobs(id,job_type,recipient_id,payload,due_ms,created_ms) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING',
+          ['automod-alert:'+message.id,'automod-alert',config.owner,
+            JSON.stringify({memberId:message.userId,channelId:message.channelId,messageId:message.id,rules:details}),now,now]);
+      }
     }
     return {rules:matches,recorded:true};
   });
