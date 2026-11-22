@@ -72,8 +72,8 @@ test('repeat spam detection serializes observations, ignores Owner and excluded 
     assert.deepEqual(hit.rules,i===2?['repeated-post']:[]);
   }
   assert.equal((await automodIncidents(db,admin)).total,1);
-  assert.equal((await observeAutomod(db,config,sample(message,'930000000000000080',{userId:ownerId})).recorded,false);
-  assert.equal((await observeAutomod(db,config,sample(message,'930000000000000081',{guildId:'930000000000000088'})).recorded,false);
+  assert.equal((await observeAutomod(db,config,sample(message,'930000000000000080',{userId:ownerId}))).recorded,false);
+  assert.equal((await observeAutomod(db,config,sample(message,'930000000000000081',{guildId:'930000000000000088'}))).recorded,false);
   await setAutomodPolicy(db,owner,1,policy({excludedChannels:[channel],excludedRoles:[staffRole]}));
   assert.equal((await observeAutomod(db,config,sample(message,'930000000000000082')).recorded,false);
   assert.equal((await observeAutomod(db,config,sample(message,'930000000000000083',
