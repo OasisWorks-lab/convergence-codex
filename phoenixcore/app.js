@@ -609,17 +609,26 @@ function formList(raw){
         (g.status==='active'?'<button type="button" data-giveaway-action="pause" data-giveaway-id="'+h(g.id)+'">Pause</button>'+
           '<button type="button" data-giveaway-action="end" data-giveaway-id="'+h(g.id)+'">End and draw now</button>':'')+
         (g.status==='paused'?'<button type="button" data-giveaway-action="resume" data-giveaway-id="'+h(g.id)+'">Resume</button>':'')+
+        (['active','paused','scheduled'].includes(g.status)?'<button type="button" data-giveaway-action="extend" data-giveaway-id="'+h(g.id)+'" data-giveaway-version="'+h(g.version)+'">Extend time</button>':'')+
         (['active','paused','scheduled'].includes(g.status)?'<button type="button" data-giveaway-action="cancel" data-giveaway-id="'+h(g.id)+'">Cancel</button>':'')+
         (g.status==='ended'?'<button type="button" data-giveaway-action="reroll" data-giveaway-id="'+h(g.id)+'">Reroll unclaimed slot</button>':'')+
         (data.owner&&g.status==='ended'?'<button type="button" data-giveaway-action="manual-winner" data-giveaway-id="'+h(g.id)+'">Select manual winner</button>':'')+
         '</div></section>':'';
+      const editable=['active','paused','scheduled'].includes(g.status),
+        editForm=staff&&editable?
+          '<form class="panel form" id="giveaway-edit-form" data-id="'+h(g.id)+'" data-version="'+h(g.version)+'">'+
+          '<h3>Edit public giveaway details</h3>'+
+          field('title','Giveaway title',g.title,{required:true,max:120})+
+          field('description','Description',g.description,{area:true,wide:true,max:1600})+
+          '<p class="muted">Prize and drawing rules cannot be changed after creation. Entry deadline changes use Extend time.</p>'+
+          '<button class="primary">Save giveaway details</button></form>':'';
       return breadcrumbs([link('giveaways','Giveaways'),h(g.title)])+
         title(g.title,g.status+' · '+g.entries+' entrants · '+g.winnerCount+' winner position(s)')+
         '<section class="panel dossier"><p class="prewrap">'+h(g.description)+'</p><p><b>Prize:</b> '+h(prize)+'</p>'+
         '<p>Entries close <strong>'+h(new Date(g.endsMs).toLocaleString())+'</strong>. Winners have a per-giveaway claim deadline.</p>'+
         '<p class="muted">Boosters receive 3 total draw tickets. Every human can win only once.</p></section>'+
         controls+(winners?'<section class="panel"><h3>Draw results and claims</h3>'+winners+'</section>':'')+
-        claimForm+staffActions+
+        claimForm+staffActions+editForm+
         '<section class="panel"><p>Public giveaway messages and entry buttons appear in <a href="https://discord.com/channels/'+h(data.guild||'950522987646418964')+'/'+h(g.channelId)+'">the designated Discord channel</a>.</p></section>';
     }
     const cards=(data.giveaways||[]).map(g=>
@@ -784,6 +793,14 @@ function formList(raw){
     if(give){
       const action=give.dataset.giveawayAction,id=give.dataset.giveawayId;
       const payload={action,id};
+      if(action==='extend'){
+        const value=prompt('Additional entry time in minutes (1–525600):');
+        if(value===null)return;
+        const minutes=Number(value);
+        if(!Number.isSafeInteger(minutes)||minutes<1||minutes>525600){tell('Enter a whole number of minutes from 1 to 525600.',true);return;}
+        payload.minutes=minutes;
+        payload.version=Number(give.dataset.giveawayVersion);
+      }
       if(action==='reroll'){
         const value=prompt('Which unclaimed winner slot should be rerolled? Enter its number (1–25).');
         if(value===null)return;
@@ -945,7 +962,7 @@ function formList(raw){
   }
   document.addEventListener('submit',async e=>{
     const f=e.target;
-    if(!['giveaway-channels-form','giveaway-create-form','giveaway-claim-form'].includes(f.id))return;
+    if(!['giveaway-channels-form','giveaway-create-form','giveaway-claim-form','giveaway-edit-form'].includes(f.id))return;
     e.preventDefault();
     if(demo){tell('Practice mode cannot modify real giveaways.');return;}
     const values=Object.fromEntries(new FormData(f));
@@ -954,6 +971,8 @@ function formList(raw){
       channels:String(values.channels||'').split(/[\s,]+/).map(v=>v.trim()).filter(Boolean)};
     else if(f.id==='giveaway-claim-form')payload={action:'claim',id:f.dataset.id,
       characterId:values.characterId||undefined};
+    else if(f.id==='giveaway-edit-form')payload={action:'edit',id:f.dataset.id,
+      version:Number(f.dataset.version),title:String(values.title||''),description:String(values.description||'')};
     else {
       if(!f.dataset.receipt)f.dataset.receipt=crypto.randomUUID();
       payload={action:'create',receipt:f.dataset.receipt,
@@ -974,7 +993,8 @@ function formList(raw){
       if(f.id==='giveaway-create-form'&&result.result?.id)location.hash='giveaway-'+result.result.id;
       await giveawayRefresh();
       tell(f.id==='giveaway-create-form'?'Giveaway created and queued for its designated Discord channel.':
-        f.id==='giveaway-claim-form'?'Prize claim recorded.':'Giveaway destinations saved.');
+        f.id==='giveaway-claim-form'?'Prize claim recorded.':
+        f.id==='giveaway-edit-form'?'Giveaway details updated.':'Giveaway destinations saved.');
     }catch(error){tell(error.message,true);}
     finally{if(button)button.disabled=false;}
   });
