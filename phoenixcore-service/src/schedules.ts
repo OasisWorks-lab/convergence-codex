@@ -168,6 +168,7 @@ export async function recoverSchedule(db:Store,actor:Actor,id:string,revision:nu
   });
 }
 export async function deliverSchedule(db:Store,discord:Pick<Discord,'call'>,config:Config,now=Date.now()){
+  if(!await communityEnabled(db,'schedules'))return false;
   const token=randomUUID();
   const job=await db.transaction(async q=>{
     const [s]=await q(`SELECT s.*,d.id AS existing_id,d.status AS delivery_status,
