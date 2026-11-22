@@ -65,7 +65,7 @@ export async function deliverGiveawayPost(db:Store,discord:Pick<Discord,'call'>,
   }
   return true;
 }
-export async function advanceGiveaways(db:Store,discord:Pick<Discord,'call'>,now=Date.now()){
+export async function advanceGiveaways(db:Store,discord:Pick<Discord,'call'>,config:Config,now=Date.now()){
   const [scheduled]=await db.query("SELECT id FROM pc_giveaways WHERE status='scheduled' AND starts_ms<=$1 ORDER BY starts_ms,id LIMIT 1",[now]);
   if(scheduled){
     await db.transaction(async q=>{
@@ -80,13 +80,13 @@ export async function advanceGiveaways(db:Store,discord:Pick<Discord,'call'>,now
   }
   const [ending]=await db.query("SELECT id FROM pc_giveaways WHERE status='active' AND ends_ms<=$1 ORDER BY ends_ms,id LIMIT 1",[now]);
   if(ending){
-    await concludeGiveaway(db,ending.id,'system',userId=>discord.call('/guilds/'+(discord as any).settings?.guild+'/members/'+userId),now);
+    await concludeGiveaway(db,ending.id,'system',userId=>discord.call('/guilds/'+config.guild+'/members/'+userId),now);
     return true;
   }
   const [expired]=await db.query("SELECT w.giveaway_id,w.slot FROM pc_giveaway_winners w JOIN pc_giveaways g ON g.id=w.giveaway_id WHERE w.status='awaiting_claim' AND w.claim_deadline_ms<=$1 AND g.status='ended' ORDER BY w.claim_deadline_ms LIMIT 1",[now]);
   if(expired){
     await rerollGiveawaySlot(db,expired.giveaway_id,Number(expired.slot),'system',
-      userId=>discord.call('/guilds/'+(discord as any).settings?.guild+'/members/'+userId),now);
+      userId=>discord.call('/guilds/'+config.guild+'/members/'+userId),now);
     return true;
   }
   return false;
