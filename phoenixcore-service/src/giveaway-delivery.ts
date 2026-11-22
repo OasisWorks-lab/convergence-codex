@@ -23,7 +23,10 @@ export function giveawayMessage(g:any){
       footer:{text:'PhoenixCore giveaway '+g.id+' · Boosters: 3 total tickets at draw'}}],
     components:active?[{type:1,components:[
       {type:2,style:3,label:'Enter',custom_id:'pcg:enter:'+g.id},
-      {type:2,style:2,label:'Withdraw',custom_id:'pcg:leave:'+g.id}]}]:[]};
+      {type:2,style:2,label:'Withdraw',custom_id:'pcg:leave:'+g.id}]}]:
+      (g.status==='ended'&&g.winners.some((w:any)=>w.status==='awaiting_claim'&&Number(w.claim_deadline_ms)>Date.now())?
+        [{type:1,components:[{type:2,style:3,label:'Claim prize',custom_id:'pcg:claim:'+g.id}]}]:[])};
+
 }
 export async function deliverGiveawayPost(db:Store,discord:Pick<Discord,'call'>,now=Date.now()){
   const token=randomUUID();
