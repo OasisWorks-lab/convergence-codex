@@ -25,6 +25,7 @@ import {deliverCommunityNotice} from './community-delivery.ts';
 import {deliverSuggestionPost} from './community-posts.ts';
 import {deliverScheduledJob} from './jobs.ts';
 import {closeInactiveSupport,deliverSupportOutbox} from './support-delivery.ts';
+import {advanceGiveaways,deliverGiveawayPost} from './giveaway-delivery.ts';
 import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
 import {staffIdentity} from './staff.ts';
 import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,supportHistory,supportAnalytics,blockSupportMember} from './support.ts';
@@ -435,6 +436,8 @@ async function start() {
       for(let i=0;i<8;i++) if(!await deliverScheduledJob(db,discord)) break;
       for(let i=0;i<8;i++) if(!await closeInactiveSupport(db)) break;
       for(let i=0;i<8;i++) if(!await deliverSupportOutbox(db,discord)) break;
+      for(let i=0;i<5;i++) if(!await advanceGiveaways(db,discord,config)) break;
+      for(let i=0;i<8;i++) if(!await deliverGiveawayPost(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}
