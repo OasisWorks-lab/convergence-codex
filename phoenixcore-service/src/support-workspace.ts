@@ -36,7 +36,7 @@ export async function searchSupportCases(db:Store,actor:StaffIdentity,input:Supp
   if(query){
     const literal='%'+query.replace(/[\\%_]/g,c=>'\\'+c)+'%';
     const term=bind(literal);
-    const ownerEvent=bind(actor.id);
+    const ownerEvent=actor.isHelper?bind(actor.id):'';
     const visibleEvent=actor.isHelper?
       "(e.visibility='member' OR (c.requester_id<>"+ownerEvent+
         (actor.isOwner?" AND e.visibility IN ('staff','owner')":" AND c.sensitive=0 AND e.visibility IN ('staff','owner')")+"))":
