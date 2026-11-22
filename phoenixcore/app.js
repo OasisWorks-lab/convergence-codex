@@ -1730,13 +1730,13 @@ function formList(raw){
         tell(result.result?.changed?'Your vote was recorded.':'Your ballot is already saved.');
       }else{
         const v=Object.fromEntries(new FormData(f)),roles=key=>
-          String(v[key]||'').split(/[\\s,]+/).filter(Boolean);
+          String(v[key]||'').split(/[\s,]+/).filter(Boolean);
         const minutes=Number(v.minutes),mode=String(v.mode);
         if(!Number.isSafeInteger(minutes)||minutes<1||minutes>43200){
           throw Error('Choose a duration from 1 to 43,200 minutes.');
         }
         const poll={receipt:f.dataset.receipt,question:String(v.question),description:String(v.description),
-          choices:String(v.choices).split(/\\r?\\n/).map(x=>x.trim()).filter(Boolean),
+          choices:String(v.choices).split(/\r?\n/).map(x=>x.trim()).filter(Boolean),
           mode,anonymous:v.anonymous==='on',allowChange:v.allowChange==='on',
           resultsEarly:v.resultsEarly==='on',channelId:String(v.channelId),
           endsMs:Date.now()+minutes*60000,color:Number(v.color),imageUrl:String(v.imageUrl||''),
