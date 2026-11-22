@@ -100,6 +100,7 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await click(ids.judge,control)).type,4);
   assert.equal((await click(ids.owner,control)).type,7);
   assert.equal((await state(writer)).characters[0].sheet.name,'Rin');
+  assert.equal((await state(extra)).characters[0].sheet.wallet,undefined);
   assert.deepEqual((await state(writer)).favoriteCharacterIds,[]);
   assert.equal((await post('/api/favorites',{characterId:form.id,favorite:true})).status,401);
   assert.equal((await post('/api/favorites',{characterId:form.id,favorite:'yes'},writer)).status,400);
