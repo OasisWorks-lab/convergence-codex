@@ -3,13 +3,27 @@ import type {Store} from './db.ts';
 import type {Discord,Config} from './discord.ts';
 import type {RoleplayScope} from './scope.ts';
 import {Problem,actorFor,readSettings,requireThat,discordId} from './domain.ts';
-import {createShop,createShopItem,setShopOpen,setShopLocations,setShopStock,listShopCatalog,
-  shopAccess,characterInventory,purchaseShopItem,type ShopContext} from './shop.ts';
+import {createShop,createShopItem,setShopOpen,setShopLocations,setShopStock,setShopkeeper,unlistShopItem,
+  listShopCatalog,shopNpcOptions,shopAccess,characterInventory,purchaseShopItem,type ShopContext} from './shop.ts';
 
 const str=(name:string,description:string,required=true,max_length?:number)=>({name,type:3,description,required,...(max_length?{max_length}:{})});
 const number=(name:string,description:string,min:number,max:number,required=true)=>({name,type:4,description,required,min_value:min,max_value:max});
 const sub=(name:string,description:string,options:any[]=[])=>({name,type:1,description,options});
 const identifier=(name:string,label:string)=>str(name,label,true,36);
+const keeperOption={name:'shopkeeper',type:3,description:'Choose an approved NPC or Custom Entry',required:true,autocomplete:true};
+const keeperName=str('custom-name','Only when using Custom Entry',false,100);
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const selectedKeeper=(keeper:unknown,customName:unknown)=>{
+  requireThat(keeper==='custom'||typeof keeper==='string'&&uuid.test(keeper),400,
+    'Choose an approved NPC or Custom Entry from shopkeeper autocomplete.');
+  const custom=String(customName||'').trim();
+  if(keeper==='custom'){
+    requireThat(custom.length>0,400,'Custom Entry requires the new shopkeeper name.');
+    return {ownerNpcId:null,ownerName:custom,shopkeeperMode:'custom'};
+  }
+  requireThat(!custom,400,'Remove the custom name when using an approved NPC.');
+  return {ownerNpcId:keeper,ownerName:''};
+};
 export const shopCommands=()=>[{name:'shop',type:1,description:'Convergence shops and character-owned inventory.',options:[
   sub('list','List current shops and their availability.'),
   sub('view','Browse shop stock and purchase with interactive menus.',[identifier('shop','Shop UUID from /shop list')]),
@@ -25,7 +39,13 @@ export const shopCommands=()=>[{name:'shop',type:1,description:'Convergence shop
   sub('admin-create','Owner/Helper: create a shop, closed until opened.',[
     str('name','Shop name',true,100),
     {name:'kind',type:3,description:'Shop location mode',required:true,choices:[{name:'General, all RP channels',value:'general'},{name:'Location restricted',value:'location'}]},
-    str('shopkeeper','Display shopkeeper name',false,100),str('description','Shop description',false,1200)]),
+    keeperOption,keeperName,str('description','Shop description',false,1200)]),
+  sub('admin-keeper','Owner/Helper: replace a shopkeeper with NPC or Custom Entry.',[
+    identifier('shop','Shop UUID'),number('revision','Current shop revision',1,100000000),
+    keeperOption,keeperName]),
+  sub('admin-unlist','Owner/Helper: remove merchandise without deleting purchased items.',[
+    identifier('shop','Shop UUID'),identifier('item','Stocked item UUID'),
+    number('revision','Current shop revision',1,100000000)]),
   sub('admin-stock','Owner/Helper: list or restock an item.',[
     identifier('shop','Shop UUID'),identifier('item','Item UUID'),number('revision','Current shop revision',1,100000000),
     str('price','Per-item Zeni price'),number('remaining','-1 unlimited, 0 sold out, or quantity',-1,1000000000)]),
@@ -37,6 +57,24 @@ export const shopCommands=()=>[{name:'shop',type:1,description:'Convergence shop
     {name:'channel',type:7,description:'Allowed Convergence RP channel/thread',required:true}])
 ]}];
 export const shopCommand=(name:string)=>name==='shop';
+export async function shopAutocomplete(db:Store,config:Config,body:any){
+  const empty={type:8,data:{choices:[] as {name:string;value:string}[]}};
+  if(body.guild_id!==config.guild||!body.member?.user?.id||body.data?.name!=='shop')return empty;
+  const {value:settings}=await readSettings(db),
+    actor=actorFor(body.member.user.id,body.member.roles||[],config.owner,settings),
+    command=body.data?.options?.[0],options=command?.options||[],
+    focused=options.find((o:any)=>o.focused===true);
+  if(!actor.isJudge||!['admin-create','admin-keeper'].includes(command?.name)||focused?.name!=='shopkeeper')
+    return empty;
+  const query=String(focused.value||'').trim().toLocaleLowerCase();
+  const npcs=await shopNpcOptions(db);
+  const choices=[{name:'Custom Entry — enter a new name',value:'custom'},...npcs
+    .filter(n=>n.name.toLocaleLowerCase().includes(query))
+    .slice(0,24)
+    .map(n=>({name:n.name.slice(0,100),value:n.id}))];
+  return {type:8,data:{choices}};
+}
+
 const ephemeral=(content:string)=>({type:4,data:{flags:64,content:content.slice(0,1900),allowed_mentions:{parse:[]}}});
 const val=(options:any[],name:string)=>options.find((o:any)=>o.name===name)?.value;
 const compact=(id:string)=>Buffer.from(id.replaceAll('-',''),'hex').toString('base64url');
@@ -73,8 +111,19 @@ export async function shopInteraction(db:Store,config:Config,body:any,discord:Pi
       return ephemeral('Staff item registered: **'+r.name+'**\nID: '+r.id);
     }
     if(action==='admin-create'){
-      const r=await createShop(db,actor,{name:value('name'),kind:value('kind'),ownerName:value('shopkeeper')||'',description:value('description')||''});
-      return ephemeral('Shop created **closed**. Configure stock and locations before opening.\nID: '+r.id);
+      const r=await createShop(db,actor,{name:value('name'),kind:value('kind'),description:value('description')||'',
+        ...selectedKeeper(value('shopkeeper'),value('custom-name'))});
+      return ephemeral('Shop created **closed**. Shopkeeper: '+r.ownerName+
+        '. Configure stock and locations before opening.\nID: '+r.id);
+    }
+    if(action==='admin-keeper'){
+      const r=await setShopkeeper(db,actor,shopId,Number(value('revision')),
+        selectedKeeper(value('shopkeeper'),value('custom-name')));
+      return ephemeral('Shopkeeper updated to '+r.ownerName+'. Shop revision '+r.revision+'.');
+    }
+    if(action==='admin-unlist'){
+      const r=await unlistShopItem(db,actor,shopId,String(value('item')||''),Number(value('revision')));
+      return ephemeral('Item removed from the shop catalog. Existing character purchases are safe. Revision '+r.revision+'.');
     }
     if(action==='admin-stock'){
       const r=await setShopStock(db,actor,shopId,String(value('item')),Number(value('revision')),String(value('price')),
