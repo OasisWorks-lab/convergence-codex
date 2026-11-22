@@ -172,6 +172,31 @@ test('pause/resume maintains remaining duration, cancellation blocks draw',async
   await assert.rejects(concludeGiveaway(db,g.id,helperId,lookup,now+93000),/Only an active giveaway/);
 });
 
+test('retention expires finished giveaways after seven days without erasing permanent economy payouts',async t=>{
+  const db=await setup(t),now=Date.now(),g=await createGiveaway(db,helper,input(now,{winnerCount:1}));
+  await giveawayEntry(db,g.id,memberId,people[memberId],true,now+1000);
+  await concludeGiveaway(db,g.id,helperId,lookup,now+60001);
+  const character=randomUUID();await createChar(db,character,memberId);
+  await claimGiveaway(db,g.id,memberId,character,people[memberId],now+62000);
+  const discord:any={call:async()=>({id:'1511111111111111111'})};
+  assert.equal(await advanceGiveaways(db,discord,config,now+60001+8*86400000),true);
+  assert.equal((await db.query('SELECT id FROM pc_giveaways WHERE id=$1',[g.id])).length,0);
+  const [transaction]=await db.query("SELECT reason FROM pc_economy_transactions WHERE kind='giveaway_prize'");
+  assert.match(transaction.reason,new RegExp(g.id));
+  const [bank]=await db.query('SELECT cash,bank FROM pc_economy_accounts WHERE character_id=$1',[character]);
+  assert.equal(bank.cash,'0');assert.equal(bank.bank,'750');
+});
+test('unclaimed and pending-manual awards block retention deletion until claim/reroll processing is finished',async t=>{
+  const db=await setup(t),now=Date.now(),g=await createGiveaway(db,helper,input(now,{winnerCount:1,prizeKind:'manual',prizeText:'Community badge',zeniAmount:undefined}));
+  await giveawayEntry(db,g.id,memberId,people[memberId],true,now+1000);
+  await concludeGiveaway(db,g.id,helperId,lookup,now+60001);
+  const discord:any={call:async(path:string)=>path.includes('/members/')?people[memberId]:{id:'1511111111111111111'}};
+  assert.equal(await advanceGiveaways(db,discord,config,now+60001+8*86400000),true);
+  const [old]=await db.query('SELECT status FROM pc_giveaway_winners WHERE giveaway_id=$1',[g.id]);
+  assert.equal(old.status,'expired');
+  assert.equal(await advanceGiveaways(db,discord,config,now+60001+8*86400000),true);
+  assert.equal((await db.query('SELECT id FROM pc_giveaways WHERE id=$1',[g.id])).length,0);
+});
 test('PostgreSQL concurrent draws, claims and receipts never multiply winners or bank credits',{skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
   const url=new URL(process.env.PHOENIX_TEST_DATABASE_URL!),root=await openPostgres(url.href);
   const schema='giveaway_'+randomUUID().replaceAll('-','');
