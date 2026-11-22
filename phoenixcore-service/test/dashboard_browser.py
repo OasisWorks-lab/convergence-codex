@@ -391,6 +391,26 @@ with sync_playwright() as p:
                     "zeniAmount":None,"status":"active","entries":4,"winnerCount":1,
                     "startsMs":1700000000000,"endsMs":4700000000000,
                     "channelId":"1573908218260885614","winners":[]}]})
+            elif url.path=="/api/moderation":
+                assert owner, "Non-moderators must not receive private moderation cases."
+                if route.request.method=="GET":
+                    route.fulfill(json={"total":2,"page":1,"pages":1,"cases":[{
+                        "id":"b61c01cb-3f65-4b16-9178-c9d247de983e","target_id":"940000000000000004",
+                        "actor_id":"owner","kind":"ban","reason":"Member was given a timed restriction.",
+                        "created_ms":1700000000000,"active":1,"sanction_status":"applied",
+                        "until_ms":4700000000000,"last_error":"","source_message_id":None,
+                        "character_id":None},
+                        {"id":"b61c01cb-3f65-4b16-9178-c9d247de983f","target_id":"940000000000000005",
+                        "actor_id":"owner","kind":"warn","reason":"Please follow the community rules.",
+                        "created_ms":1700000000000,"active":1,"sanction_status":None,
+                        "until_ms":None,"last_error":"","source_message_id":None,
+                        "character_id":None}]})
+                else:route.fulfill(json={"ok":True,"result":{"caseId":"b61c01cb-3f65-4b16-9178-c9d247de983e","status":"applied"}})
+            elif url.path=="/api/moderation/case/b61c01cb-3f65-4b16-9178-c9d247de983e":
+                assert owner
+                route.fulfill(json={"record":{"id":"b61c01cb-3f65-4b16-9178-c9d247de983e"},
+                    "events":[{"actor_id":"owner","event":"discord-applied",
+                        "detail":"Manual ban confirmed by Discord.","occurred_ms":1700000000000}]})
             elif url.path=="/api/community":
                 if route.request.method=="GET":
                     route.fulfill(json={"staff":owner,"owner":owner,"modules":{"tags":True,"suggestions":True},
@@ -405,7 +425,7 @@ with sync_playwright() as p:
                 if route.request.headers.get("authorization")!="Bearer fixture":
                     route.fulfill(status=401,json={"error":"Sign in again"})
                 else:
-                    route.fulfill(json={"actor":{"id":"owner" if owner else "writer","isOwner":owner,"isPlayer":True,"isJudge":owner},"players":[],"characters":[],"requests":[],"catalogue":[],"settings":None,"posting":{},"currency":"Credits"})
+                    route.fulfill(json={"actor":{"id":"owner" if owner else "writer","isOwner":owner,"isPlayer":True,"isJudge":owner},"canModerate":owner,"players":[],"characters":[],"requests":[],"catalogue":[],"settings":None,"posting":{},"currency":"Credits"})
             elif url.path=="/phoenixcore/config.js":
                 route.fulfill(content_type="text/javascript",body="window.PHOENIXCORE_API='https://codex.test';")
             else:
@@ -511,6 +531,7 @@ with sync_playwright() as p:
     assert again.get_by_role("heading",name="Sales overview").count()==0
     assert again.get_by_role("heading",name="Shop sales report").count()==0
     assert again.locator('img[src="x"]').count()==0
+    assert again.get_by_role("link",name="Moderation").count()==0
     again.goto("https://codex.test/phoenixcore/index.html#giveaways")
     expect(again.get_by_role("heading",name="Giveaways",exact=True)).to_be_visible()
     expect(again.get_by_text("An Autumn Celebration",exact=False)).to_be_visible()
@@ -561,6 +582,15 @@ with sync_playwright() as p:
     expect(owner_dashboard.locator('[data-support-template-insert]')).to_have_count(1)
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"support-owner-operations-mobile.png")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#moderation")
+    expect(owner_dashboard.get_by_role("heading",name="Moderation",exact=True)).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Record a manual moderation action")).to_be_visible()
+    expect(owner_dashboard.get_by_text("Member was given a timed restriction.")).to_be_visible()
+    owner_dashboard.get_by_role("button",name="Inspect audit").first.click()
+    expect(owner_dashboard.get_by_role("heading",name="Case audit",exact=False)).to_be_visible()
+    expect(owner_dashboard.get_by_text("Manual ban confirmed by Discord.")).to_be_visible()
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"moderation-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#shops")
     expect(owner_dashboard.get_by_role("heading",name="Sales overview")).to_be_visible()
     expect(owner_dashboard.get_by_text("625 Zeni",exact=False)).to_be_visible()

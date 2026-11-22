@@ -18,14 +18,28 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   await initialize(db,ids.guild);
   const members=Object.entries(ids).filter(([k])=>['writer','owner','judge','extra'].includes(k)).map(([k,id])=>({user:{id,username:k,global_name:k.toUpperCase()},roles:k==='judge'?[ids.role]:[]}));
   const fixture=new ReviewFixture(config);
+  const botModeratorRole='800000000000000077';
+  const issuedBans=new Set<string>();
   const prizeChannel='1573908218260885614';
   fixture.channels.set(prizeChannel,{id:prizeChannel,type:0,guild_id:ids.guild,flags:0});
   const discord=new Discord(config,async(u,init)=>{
-    const path=new URL(String(u)).pathname;
+    const path=new URL(String(u)).pathname,endpoint=path.replace(/^\/api\/v10/,'');
     if(path.endsWith('/oauth2/token')) return Response.json({access_token:new URLSearchParams(String(init?.body)).get('code')});
     if(path.endsWith('/users/@me')) return Response.json({id:new Headers(init?.headers).get('Authorization')!.slice(7)});
     if(path.endsWith('/members'))return Response.json(members);
-    if(path.endsWith('/roles'))return Response.json([{id:ids.role,permissions:'0'}]);
+    if(endpoint==='/guilds/'+ids.guild)return Response.json({id:ids.guild,owner_id:ids.owner});
+    if(path.endsWith('/roles'))return Response.json([
+      {id:ids.role,position:5,permissions:'0'},
+      {id:botModeratorRole,position:20,permissions:'8'}
+    ]);
+    if(endpoint==='/guilds/'+ids.guild+'/members/'+ids.app)
+      return Response.json({user:{id:ids.app,bot:true},roles:[botModeratorRole]});
+    if(endpoint==='/guilds/'+ids.guild+'/bans/'+ids.writer){
+      if(init?.method==='PUT'){issuedBans.add(ids.writer);return Response.json({});}
+      if(init?.method==='DELETE'){issuedBans.delete(ids.writer);return new Response(null,{status:204});}
+      return issuedBans.has(ids.writer)?Response.json({user:{id:ids.writer},reason:'Test ban'}):
+        Response.json({message:'Unknown Ban'},{status:404});
+    }
     if(path.includes('/members/')){const m=members.find(x=>x.user.id===path.split('/').pop());return Response.json(m||{}, {status:m?200:404});}
     return fixture.respond(path,init);
   });
@@ -289,6 +303,40 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   const publicPanels=await (await get(roleUrl,{headers:{authorization:'Bearer '+writer,origin}})).json();
   assert.equal(publicPanels.panels.length,0);
   assert.equal((await post(roleUrl,{action:'publish',panelId:rolePanelId,revision:1,active:true},owner)).status,409);
+
+  assert.equal((await get('/api/moderation',{headers:{origin}})).status,401);
+  assert.equal((await get('/api/moderation',{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+  const modHistory=await get('/api/moderation',{headers:{authorization:'Bearer '+owner,origin}});
+  assert.equal(modHistory.status,200);
+  assert.equal((await modHistory.json()).total,0);
+  assert.equal((await post('/api/moderation',{action:'warn',memberId:ids.writer,receipt:randomUUID(),
+    reason:'Cannot record this'},judge)).status,403);
+  const warning=await post('/api/moderation',{action:'warn',memberId:ids.writer,receipt:randomUUID(),
+    reason:'Follow the RP guidelines'},owner);
+  assert.equal(warning.status,200);
+  const warningId=(await warning.json()).result.caseId;
+  const audit=await get('/api/moderation/case/'+warningId,{headers:{authorization:'Bearer '+owner,origin}});
+  assert.equal(audit.status,200);
+  assert.match((await audit.json()).record.reason,/RP guidelines/);
+  assert.equal((await get('/api/moderation/case/'+warningId,{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+  const banRequest={action:'ban',memberId:ids.writer,receipt:randomUUID(),minutes:45,reason:'Explicit test ban'};
+  const postedBan=await post('/api/moderation',banRequest,owner);
+  assert.equal(postedBan.status,200);
+  const manualBanCaseId=(await postedBan.json()).result.caseId;
+  assert.equal(issuedBans.has(ids.writer),true);
+  assert.equal((await post('/api/moderation',banRequest,owner)).status,200);
+  assert.equal((await db.query("SELECT COUNT(*) AS n FROM pc_mod_cases WHERE kind='ban'"))[0].n,1);
+  const userSearch=await get('/api/moderation?member='+ids.writer,
+    {headers:{authorization:'Bearer '+owner,origin}});
+  assert.equal((await userSearch.json()).total,2);
+  const deniedUnban=await post('/api/moderation',{action:'unban',memberId:ids.writer,receipt:randomUUID()},judge);
+  assert.equal(deniedUnban.status,403);
+  const unbanned=await post('/api/moderation',{action:'unban',memberId:ids.writer,receipt:randomUUID(),
+    reason:'Appeal accepted'},owner);
+  assert.equal(unbanned.status,200);
+  assert.equal(issuedBans.has(ids.writer),false);
+  assert.equal((await post('/api/moderation',{action:'remove-warning',caseId:warningId},owner)).status,200);
+
   assert.equal((await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,
     title:'Illegal style',description:'',color:456},judge)).status,403);
   const styledPanel=await post(roleUrl,{action:'style',panelId:rolePanelId,revision:1,

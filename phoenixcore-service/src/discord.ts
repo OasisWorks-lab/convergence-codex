@@ -262,7 +262,7 @@ export async function handleInteraction(db:Store, config:Config, body:any,discor
   if(body.type===2&&operationCommand(body.data?.name)){
     const run=()=>operationInteraction(db,config,body,discord);
     const action=body.data?.options?.[0]?.name;
-    if(defer&&body.data.name==='mod'&&['warn','note','remove-warning'].includes(action)){
+    if(defer&&body.data.name==='mod'&&['warn','note','remove-warning','timeout','untimeout','kick','ban','unban','apply'].includes(action)){
       defer(async()=>String((await run()).data.content||'Moderation operation completed.'));
       return {type:5,data:{flags:64}};
     }

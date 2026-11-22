@@ -5,6 +5,7 @@ import {communityEnabled} from './community.ts';
 import {staffIdentity,requireModerator,verifyModerationTarget} from './staff.ts';
 import {recordCase,removeWarning,proxyEvidence,moderationHistory,caseEvents,activeWarnings} from './moderation.ts';
 import {createReminder,listReminders,cancelReminder,maxReminderMinutes} from './jobs.ts';
+import {queueSanction,executeQueuedSanction,type SanctionAction} from './moderation-actions.ts';
 
 const input=(name:string,description:string,required=true,max_length?:number)=>({type:3,name,description,required,...(max_length?{max_length}:{})});
 const member={type:6,name:'member',description:'Discord member (not an NPC or webhook)',required:true};
@@ -17,7 +18,20 @@ export const operationCommands=()=>[
     sub('warnings','Count active warnings for a member.',[member]),
     sub('history','View private moderation history for a member.',[member]),
     sub('case','Inspect the audit record for a moderation case.',[caseId]),
-    sub('remove-warning','Remove an active warning, retaining the audit record.',[caseId])
+    sub('remove-warning','Remove an active warning, retaining the audit record.',[caseId]),
+    sub('timeout','Manually time out a member, for up to 28 days.',[
+      member,{type:4,name:'minutes',description:'Duration 1–40,320 minutes',required:true,min_value:1,max_value:40320},
+      input('reason','Optional reason',false,850),input('proxy-post','Optional attributable RP post ID',false,24)]),
+    sub('untimeout','Manually clear an active timeout.',[
+      member,input('reason','Optional reason',false,850)]),
+    sub('kick','Manually remove a member from Convergence.',[
+      member,input('reason','Optional reason',false,850),input('proxy-post','Optional attributable RP post ID',false,24)]),
+    sub('ban','Manually ban a member; optional expiry is restart-safe.',[
+      member,{type:4,name:'minutes',description:'0 for permanent; otherwise 1–525,600 minutes',required:false,min_value:0,max_value:525600},
+      input('reason','Optional reason',false,850),input('proxy-post','Optional attributable RP post ID',false,24)]),
+    sub('unban','Manually revoke a ban; enter the banned user ID.',[
+      input('user-id','Banned Discord user ID',true,24),input('reason','Optional reason',false,850)]),
+    sub('apply','Explicitly apply an unfinished queued sanction (same moderator).',[caseId])
   ]},
   {type:1,name:'remind',description:'Schedule a private reminder for yourself.',options:[
     sub('me','Send me a reminder after a number of minutes.',[
@@ -62,6 +76,24 @@ export async function operationInteraction(db:Store,config:Config,body:any,disco
         return respond('Warning '+(result.created?'recorded':'already recorded')+' for <@'+target+'>.\nCase: '+result.caseId+
           '\nActive warnings: '+result.activeWarnings+(result.needsReview?'\n**Staff review required:** 5 or more active warnings. No automatic punishment was applied.':'')+
           '\nPhoenixCore will attempt a private DM notification.');
+      }
+      if(['timeout','untimeout','kick','ban','unban'].includes(operation)){
+        const action=operation as SanctionAction,target=String(value(action==='unban'?'user-id':'member')||'');
+        const queued=await queueSanction(db,discord,config,who,{
+          action,targetId:target,receipt:String(body.id||''),reason:String(value('reason')||''),
+          minutes:Number(value('minutes')||0),proxyPost:value('proxy-post')?String(value('proxy-post')):undefined
+        });
+        const result=queued.created?await executeQueuedSanction(db,discord,config,who,queued.caseId):queued;
+        return respond('Manual '+action+' · '+result.status+'\\nCase: '+queued.caseId+
+          (result.status==='applied'?'\\nDiscord confirmed the action. An audit event was recorded.':
+          result.status==='needs-review'?'\\nDiscord delivery was uncertain. Do not repeat blindly; verify the member or ban state.':
+          '\\nNo additional Discord operation was performed for this receipt.')+
+          (action==='ban'&&Number(value('minutes')||0)>0?'\\nA persistent expiry check is scheduled.':''));
+      }
+      if(operation==='apply'){
+        const result=await executeQueuedSanction(db,discord,config,who,String(value('case')||''));
+        return respond('Sanction '+result.status+' · '+result.caseId+
+          (result.applied?'\\nDiscord confirmed the operation.':'\\nNo additional Discord operation was performed.'));
       }
       if(operation==='warnings'||operation==='history'){
         const target=String(value('member')||'');
