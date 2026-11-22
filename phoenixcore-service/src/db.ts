@@ -72,7 +72,7 @@ export async function openPostgres(url: string): Promise<Store> {
   };
 }
 
-export const defaultSettings = { playerRole: '', judgeRole: '1100315893864603649', submissionMessage:'{helper} A {type} submission for {character} is ready for review.', commandPrefixes:'pc!', botNickname:'', loreParagraphs:'0', loreSentences:'0', loreWords:'0', reviewGuidance:'', reviewChannel: '', ...forms.reviewRoutes as {characterChannel:string;designChannel:string;updatesForum:string}, currency: 'Credits', rpChannels: '', rpDivider: '' };
+export const defaultSettings = { playerRole: '', judgeRole: '1100315893864603649', submissionMessage:'{helper} A {type} submission for {character} is ready for review.', commandPrefixes:'pc!', botNickname:'', loreParagraphs:'0', loreSentences:'0', loreWords:'0', reviewGuidance:'', reviewChannel: '', ...forms.reviewRoutes as {characterChannel:string;designChannel:string;updatesForum:string}, currency: 'Zeni', rpChannels: '', rpDivider: '' };
 const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_rp_scenes (channel_id TEXT PRIMARY KEY, scene_id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, ready_at BIGINT NOT NULL DEFAULT 0, lease_token TEXT, lease_until BIGINT NOT NULL DEFAULT 0, speech TEXT, attempts INTEGER NOT NULL DEFAULT 0, delivery_note TEXT)',
   'CREATE TABLE IF NOT EXISTS pc_rp_clocks (scene_id TEXT PRIMARY KEY REFERENCES pc_rp_scenes(scene_id) ON DELETE CASCADE,due_at BIGINT NOT NULL)',
@@ -102,6 +102,10 @@ const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_settings_history (revision INTEGER PRIMARY KEY, actor TEXT NOT NULL, old_value TEXT NOT NULL, new_value TEXT NOT NULL, at_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_characters (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision INTEGER NOT NULL, sheet TEXT NOT NULL)',
   'CREATE INDEX IF NOT EXISTS pc_characters_owner ON pc_characters(owner_id)',
+  'CREATE TABLE IF NOT EXISTS pc_economy_accounts (character_id TEXT PRIMARY KEY REFERENCES pc_characters(id) ON DELETE CASCADE,currency_id TEXT NOT NULL,cash TEXT NOT NULL,bank TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1)',
+  'CREATE TABLE IF NOT EXISTS pc_economy_transactions (id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,kind TEXT NOT NULL,reason TEXT NOT NULL,amount TEXT NOT NULL,currency_id TEXT NOT NULL,fingerprint TEXT NOT NULL,created_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_economy_entries (transaction_id TEXT NOT NULL REFERENCES pc_economy_transactions(id),character_id TEXT NOT NULL,cash_before TEXT NOT NULL,cash_after TEXT NOT NULL,bank_before TEXT NOT NULL,bank_after TEXT NOT NULL,PRIMARY KEY(transaction_id,character_id))',
+  'CREATE INDEX IF NOT EXISTS pc_economy_entries_character ON pc_economy_entries(character_id)',
   'CREATE TABLE IF NOT EXISTS pc_character_favorites (user_id TEXT NOT NULL, character_id TEXT NOT NULL REFERENCES pc_characters(id) ON DELETE CASCADE, created_ms BIGINT NOT NULL, PRIMARY KEY(user_id,character_id))',
   `CREATE TABLE IF NOT EXISTS pc_requests (
     id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, kind TEXT NOT NULL, character_id TEXT NOT NULL,
@@ -143,5 +147,7 @@ export async function initialize(db: Store, guildId: string) {
       await q("INSERT INTO pc_archives SELECT id,status FROM pc_requests WHERE status IN ('approved','declined','stale') ON CONFLICT DO NOTHING");
       await q("INSERT INTO pc_designs SELECT id,kind,author_id,after_sheet FROM pc_requests WHERE status='approved' AND kind IN ('technique','item','race','transformation') ON CONFLICT DO NOTHING");
     }
+    const {seedExistingAccounts}=await import('./economy.ts');
+    await seedExistingAccounts(q);
   });
 }

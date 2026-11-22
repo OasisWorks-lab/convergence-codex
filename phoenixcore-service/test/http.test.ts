@@ -100,6 +100,7 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await click(ids.judge,control)).type,4);
   assert.equal((await click(ids.owner,control)).type,7);
   assert.equal((await state(writer)).characters[0].sheet.name,'Rin');
+  assert.equal((await state(extra)).characters[0].sheet.wallet,undefined);
   assert.deepEqual((await state(writer)).favoriteCharacterIds,[]);
   assert.equal((await post('/api/favorites',{characterId:form.id,favorite:true})).status,401);
   assert.equal((await post('/api/favorites',{characterId:form.id,favorite:'yes'},writer)).status,400);
@@ -129,6 +130,15 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await post(judgmentPath,offer,extra)).status,403);
   assert.equal((await post(judgmentPath,offer,judge)).status,200);
   await click(ids.owner,'pc:approve:'+training.id);assert.equal((await state(writer)).characters[0].sheet.bpl,'11300');
+  const bankRequest={id:randomUUID(),characterId:form.id,action:'deposit',amount:'10'};
+  assert.equal((await post('/api/economy/bank',bankRequest,extra)).status,403);
+  assert.equal((await post('/api/economy/bank',bankRequest,writer)).status,200);
+  assert.deepEqual((await state(writer)).economyAccounts.map((a:any)=>[a.cash,a.bank]),[['10','10']]);
+  assert.equal((await state(extra)).economyAccounts.length,0);
+  assert.equal((await get('/api/economy/characters/'+form.id+'/statement',{headers:{Authorization:'Bearer '+extra,origin}})).status,403);
+  const history=await get('/api/economy/characters/'+form.id+'/statement',{headers:{Authorization:'Bearer '+writer,origin}});
+  assert.equal(history.status,200);assert.ok((await history.json()).transactions.some((item:any)=>item.kind==='deposit'));
+  assert.equal((await (await post('/api/economy/bank',bankRequest,writer)).json()).replayed,true);
   const design={id:randomUUID(),kind:'technique',reason:'For review',fields:{name:'Glide',techType:'SUP',description:'Ride a breeze',requirements:'Ki control',drawbacks:'Needs wind'}};
   assert.equal((await post('/api/requests',design,writer)).status,200);
   assert.equal((await state(extra)).catalogue.length,0);

@@ -30,6 +30,19 @@ Open **New Submission** in the directory or on the Codex homepage. The dropdown 
 
 For example, a player can claim 500 BPL and two points of Ki Control. A judge can grant 300 BPL and one point of Ki Control. Gabe sees both versions. Approving adds 300 BPL and one point of Ki Control to that character. Recording the judgment enables approval on the same review card and on the website.
 
+## Character economy foundation (Zeni)
+
+PhoenixCore's first economy slice adds character-specific cash and bank balances backed by a private SQLite/PostgreSQL ledger. It does not create a shared player wallet. New player characters can submit an optional **Societal class** in the existing owner-reviewed character form: Low (1,000 Zeni), Middle (2,000), High (4,000), or Noble (8,000). This is independent of combat class. The grant happens **once when the character is approved**; editing or approving an existing sheet cannot grant it again. Existing sheets without a societal class retain their existing wallet and receive no retroactive class bonus.
+
+Existing character `wallet` values are imported into a cash account once; the original sheet continues to show a synchronized cash value for compatibility. Approved training currency awards update the account and create a ledger entry in the same transaction. Bank deposits and withdrawals explicitly operate on the selected character's own account. A second OC belonging to the same player has a separate account and ledger. Authenticated players can read their own statements, while Helpers and the owner can inspect statements for review.
+
+Authenticated API:
+- `GET /api/state`: includes `economyAccounts` limited to the current player's characters or authorized reviewers.
+- `POST /api/economy/bank`: `{"id":"<UUID>","characterId":"<UUID>","action":"deposit"|"withdraw","amount":"123"}`. Idempotency keys prevent double processing on retries. Each transaction bumps the selected character's sheet revision to invalidate stale edit requests.
+- `GET /api/economy/characters/<UUID>/statement`: last 100 ledger events, authorized by character ownership or reviewer access.
+
+The original and shared character sheet are retained. This slice intentionally **does not** activate overdrafts, negative balances, freezes, bank interest, trading, shops, passive RP income, or a global administrator economy dashboard. Those require the separately approved policy and integration phases; the unresolved negative-balance semantics must not be guessed.
+
 ## Run the service
 
 The web pages, bot and tests live together in this repository. GitHub Pages serves the dashboard. An always-running Node service receives Discord interactions, processes approvals and stores records. The existing Codex Studio continues to handle lore editing.

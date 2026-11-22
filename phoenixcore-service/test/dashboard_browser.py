@@ -54,7 +54,7 @@ with sync_playwright() as p:
     page.get_by_label("Practice role").select_option("judge")
     page.get_by_role("link",name="Judge a reward").click()
     page.get_by_label("Final BPL gain",exact=False).fill("12.5")
-    page.get_by_label("Credits to award").fill("30")
+    page.get_by_label("Zeni to award").fill("30")
     page.get_by_label("Gear to award").fill("Battle journal")
     page.get_by_label("Judgment and scene reference").fill("Gabe's example training scene.")
     expect(page.locator("#estimate")).to_contain_text("11,250")
