@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -477,7 +477,13 @@ function formList(raw){
       return title('Community','Server information and member suggestions.')+'<section class="panel"><p>Loading community content…</p></section>';
     }
     const data=communityData,staff=data.staff,owner=data.owner,active=data.modules||{};
-    const tags=(data.tags||[]).map(item=>'<article class="panel dossier community-tag" data-community-name="'+h(item.name)+'"><h3>'+h(item.name)+'</h3><p class="prewrap">'+h(item.body)+'</p><small class="muted">Revision '+h(item.revision)+'</small></article>').join('');
+    const tags=(data.tags||[]).map(item=>'<article class="panel dossier community-tag" data-community-name="'+h(item.name)+'"><h3>'+h(item.title||item.name)+'</h3>'+
+      (item.imageUrl?artwork(item.imageUrl,item.name+' illustration'):'')+
+      '<p class="prewrap">'+h(item.body)+'</p>'+
+      ((item.buttons||[]).length?'<div class="actions">'+item.buttons.map(button=>
+        '<a class="button" href="'+h(button.url)+'" target="_blank" rel="noopener noreferrer">'+h(button.label)+'</a>').join('')+'</div>':'')+
+      '<small class="muted">'+h(item.name)+' · Text revision '+h(item.revision)+
+      ' · Appearance revision '+h(item.presentationRevision||0)+'</small></article>').join('');
     const suggestions=(data.suggestions||[]).map(item=>
       '<article class="panel dossier"><h3>'+h(item.title)+'</h3><p class="prewrap">'+h(item.body)+'</p>'+
       '<p><strong>'+h(item.status)+'</strong> · 👍 '+h(item.upvotes)+' · 👎 '+h(item.downvotes)+'</p>'+
@@ -504,6 +510,24 @@ function formList(raw){
         '<form id="community-tag-form" class="form">'+field('name','Short tag name','',{required:true,max:40})+
         field('content','Useful content','',{required:true,area:true,wide:true,max:1600})+
         '<button class="primary">'+(staff?'Publish tag':'Send proposal')+'</button></form></section>'+
+        (staff?(()=>{const choices=(data.tags||[]),selected=choices.find(t=>t.name===richTagName)||null;
+          return '<section class="panel dossier"><h3>Styled informational tags</h3>'+
+            '<p>Choose a published tag and customize its public embed. HTTPS links only; character proxy tags remain separate.</p>'+
+            '<label class="field"><span>Published tag</span><select id="rich-tag-picker">'+
+            '<option value="">Choose a tag…</option>'+
+            choices.map(t=>'<option value="'+h(t.name)+'"'+(selected?.name===t.name?' selected':'')+'>'+h(t.name)+'</option>').join('')+
+            '</select></label>'+
+            (selected?'<form id="community-rich-tag-form" class="form" data-name="'+h(selected.name)+
+              '" data-revision="'+h(selected.presentationRevision||0)+'">'+
+              field('title','Embed title',selected.title||'',{max:120})+
+              field('imageUrl','Optional HTTPS image URL',selected.imageUrl||'',{max:600})+
+              field('color','Embed color (integer)',String(selected.color||6978501),{required:true,max:8,numeric:true})+
+              field('linkLabel','Optional link button title',selected.buttons?.[0]?.label||'',{max:80})+
+              field('linkUrl','Optional link button HTTPS URL',selected.buttons?.[0]?.url||'',{max:600})+
+              '<button class="primary">Save tag appearance</button></form>'+
+              '<div class="actions"><button type="button" data-rich-tag-history="'+h(selected.name)+'">View appearance history</button></div>':
+              '<p>Select a published tag above.</p>')+'</section>';
+        })():'')+
         (staff?'<section class="stack"><h3>Pending tag proposals</h3>'+(proposalCards||'<p>No pending tag proposals.</p>')+
           '<form id="community-rollback-form" class="panel form">'+field('name','Tag to restore','',{required:true,max:40})+
           field('revision','Previous revision','',{required:true,max:8,numeric:true})+'<button class="primary">Restore version</button></form></section>':'')+'</section>':
@@ -1261,6 +1285,16 @@ function formList(raw){
       }catch(error){tell(error.message,true);}
       return;
     }
+    const richHistory=e.target.closest('[data-rich-tag-history]');
+    if(richHistory){
+      try{
+        const result=await call('/api/community','POST',{action:'tag-style-history',name:richHistory.dataset.richTagHistory});
+        const versions=(result.result.history||[]).map(v=>'r'+v.presentationRevision+
+          ' · '+new Date(v.changedMs).toLocaleDateString()+' · '+v.actorId).join('\n');
+        alert(versions||'No appearance history saved yet.');
+      }catch(error){tell(error.message,true);}
+      return;
+    }
     const staffAction=e.target.closest('[data-support-action]');
     if(staffAction){
       const action=staffAction.dataset.supportAction,caseId=staffAction.dataset.supportId;
@@ -1423,6 +1457,9 @@ function formList(raw){
     finally{if(button)button.disabled=false;}
   });
   document.addEventListener('change',e=>{
+    if(e.target.id==='rich-tag-picker'){
+      richTagName=e.target.value;render();return;
+    }
     const picker=e.target.closest('select[data-shopkeeper-choice]');
     if(!picker)return;
     const wrapper=picker.form?.querySelector('[data-shopkeeper-custom]'),input=wrapper?.querySelector('input');
@@ -1570,6 +1607,22 @@ function formList(raw){
       await supportRefresh();tell(f.id==='support-open-form'?'Private SupportCase created.':
         payload.action==='note'?'Private staff note saved; no member DM sent.':
         payload.action==='send'?'Explicit staff reply queued for a DM.':'Message added to the case.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(f.id!=='community-rich-tag-form')return;
+    e.preventDefault();
+    const fields=Object.fromEntries(new FormData(f)),button=f.querySelector('button.primary');
+    if(button?.disabled)return;
+    if(button)button.disabled=true;
+    try{
+      const result=await call('/api/community','POST',{action:'tag-style',name:f.dataset.name,
+        revision:Number(f.dataset.revision),title:fields.title,imageUrl:fields.imageUrl,
+        color:Number(fields.color),
+        buttons:fields.linkLabel||fields.linkUrl?[{label:fields.linkLabel,url:fields.linkUrl}]:[]});
+      communityData=null;await communityRefresh();tell('Informational tag appearance saved, revision '+result.result.presentationRevision+'.');
     }catch(error){tell(error.message,true);}
     finally{if(button)button.disabled=false;}
   });
