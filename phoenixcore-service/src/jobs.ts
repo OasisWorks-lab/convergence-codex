@@ -57,12 +57,12 @@ export async function deliverScheduledJob(db:Store,discord:Pick<Discord,'call'>,
       'Reason: '+String(data.reason||'Unspecified').slice(0,900)+'\n'+
       'Warnings are reviewed by staff. This notice does not announce an automatic ban or other penalty.';
     else if(job.job_type==='automod-alert'){
-      content='**PhoenixCore automod observation — audit only**\\n'+
+      content='**PhoenixCore automod observation — audit only**\n'+
         'Possible issue: '+String(data.rules||'').slice(0,150)+
-        '\\nMember: '+String(data.memberId||'').slice(0,24)+
-        '\\nChannel: '+String(data.channelId||'').slice(0,24)+
-        '\\nMessage: '+String(data.messageId||'').slice(0,24)+
-        '\\nNo message deletion, warning or sanction was applied. Review the Moderation Center.';
+        '\nMember: '+String(data.memberId||'').slice(0,24)+
+        '\nChannel: '+String(data.channelId||'').slice(0,24)+
+        '\nMessage: '+String(data.messageId||'').slice(0,24)+
+        '\nNo message deletion, warning or sanction was applied. Review the Moderation Center.';
     }
     else if(job.job_type==='moderation-action-notice'){
       const kind=String(data.action||'sanction'),until=Number(data.untilMs||0);
