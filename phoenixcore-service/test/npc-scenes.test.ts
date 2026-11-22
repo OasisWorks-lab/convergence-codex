@@ -155,7 +155,7 @@ test('guild command registration resumes after throttling, updates changed defin
   assert.equal(writes.filter(s=>s==='POST roleplay-start').length,1);assert.equal(writes.filter(s=>s==='POST finish-turn').length,1);
   assert.deepEqual(writes.filter(s=>s.includes('roleplay-status')),['PATCH roleplay-status']);
   assert.equal(writes.some(s=>/unrelated|Character sheet/.test(s)),false);
-  assert.deepEqual(installed.filter(s=>s.name.startsWith('roleplay-')).map(s=>s.name).sort(),['roleplay-cancel','roleplay-start','roleplay-status']);
+  assert.deepEqual(installed.filter(s=>s.name.startsWith('roleplay-')).map(s=>s.name).sort(),['roleplay-cancel','roleplay-join','roleplay-start','roleplay-status']);
 });
 
 test('start defers Discord history, reads the last five in this thread in order, and zero makes no read',async t=>{
