@@ -158,6 +158,46 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await post('/api/support',{action:'sensitive',caseId:reportId},judge)).status,403);
   assert.equal((await post('/api/support',{action:'sensitive',caseId:reportId},owner)).status,200);
   assert.equal((await get('/api/support/'+reportId,{headers:{authorization:'Bearer '+judge,origin}})).status,403);
+
+  const getAs=(url:string,token:string)=>get(url,{headers:{authorization:'Bearer '+token,origin}});
+  assert.equal((await get('/api/support/search')).status,401);
+  assert.equal((await getAs('/api/support/search?query=Private%20staff%20investigation',writer)).status,200);
+  const hiddenSearch=await (await getAs('/api/support/search?query=Private%20staff%20investigation',writer)).json();
+  assert.equal(hiddenSearch.total,0);
+  const staffSearch=await (await getAs('/api/support/search?query=Private%20staff%20investigation',judge)).json();
+  assert.equal(staffSearch.total,1);
+  const secretSearch=await (await getAs('/api/support/search?query=Private%20report',judge)).json();
+  assert.equal(secretSearch.total,0);
+  const ownerSearch=await (await getAs('/api/support/search?query=Private%20report',owner)).json();
+  assert.equal(ownerSearch.total,1);
+  assert.equal((await getAs('/api/support/templates',writer)).status,403);
+  const createdTemplate=await post('/api/support/templates',{action:'save',name:'hello-staff',body:'Hello {{member}}. Case {{case}}'},judge);
+  assert.equal(createdTemplate.status,200);
+  const templateId=(await createdTemplate.json()).result.id;
+  const preview=await post('/api/support/templates',{action:'preview',id:templateId,caseId},judge);
+  assert.equal(preview.status,200);
+  assert.match((await preview.json()).result.body,/Hello <@/);
+  assert.equal((await post('/api/support/templates',{action:'preview',id:templateId,caseId},writer)).status,403);
+  assert.equal((await getAs('/api/support/templates/'+templateId+'/history',judge)).status,200);
+  const updatedTemplate=await post('/api/support/templates',{action:'save',id:templateId,
+    revision:1,name:'hello-staff',body:'Updated {{case}}'},judge);
+  assert.equal(updatedTemplate.status,200);
+  assert.equal((await (await getAs('/api/support/templates',judge)).json()).templates[0].revision,2);
+  assert.equal((await post('/api/support/templates',{action:'archive',id:templateId,revision:2},judge)).status,200);
+  assert.equal((await post('/api/support/templates',{action:'preview',id:templateId,caseId},judge)).status,404);
+  assert.equal((await post('/api/support/feedback/'+caseId,{rating:5},writer)).status,409);
+  assert.equal((await post('/api/support',{action:'resolve',caseId},judge)).status,200);
+  const feedbackPosted=await post('/api/support/feedback/'+caseId,{rating:4,comment:'Clear explanation.'},writer);
+  assert.equal(feedbackPosted.status,200);
+  assert.equal((await post('/api/support/feedback/'+caseId,{rating:5},writer)).status,409);
+  assert.equal((await post('/api/support/feedback/'+caseId,{rating:3},extra)).status,403);
+  const rating=await (await getAs('/api/support/feedback/'+caseId,writer)).json();
+  assert.equal(rating.feedback.rating,4);
+  const insights=(await getAs('/api/support',judge));
+  assert.equal(insights.status,200);
+  assert.equal((await insights.json()).insights.feedback.responses,1);
+  assert.equal((await db.query('SELECT event_id FROM pc_support_outbox')).length,1);
+
   const shopPath='/api/economy/shops';
   const salesPath='/api/economy/shops/sales';
   assert.equal((await get(salesPath)).status,401);
