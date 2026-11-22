@@ -32,9 +32,12 @@ import {closeInactiveSupport,deliverSupportOutbox} from './support-delivery.ts';
 import {advanceGiveaways,deliverGiveawayPost} from './giveaway-delivery.ts';
 import {giveawayChannels,setGiveawayChannels,createGiveaway,giveawayEntry,giveawayPublic,listGiveaways,claimGiveaway,concludeGiveaway,rerollGiveawaySlot,updateGiveawayStatus,confirmManualPrize,manualGiveawayWinner,editGiveaway,extendGiveaway,giveawayParticipants} from './giveaway.ts';
 import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
-import {staffIdentity} from './staff.ts';
+
 import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,supportHistory,supportAnalytics,blockSupportMember} from './support.ts';
 import {searchSupportCases,listSupportTemplates,saveSupportTemplate,archiveSupportTemplate,supportTemplateHistory,previewSupportTemplate,supportCaseFeedback,submitSupportFeedback,supportInsights} from './support-workspace.ts';
+import {staffIdentity,requireModerator,verifyModerationTarget,hasNativeAdmin} from './staff.ts';
+import {queueSanction,executeQueuedSanction,moderationWorkspace} from './moderation-actions.ts';
+import {recordCase,caseEvents,removeWarning,proxyEvidence} from './moderation.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -537,6 +540,48 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         }else throw new Problem(400,'Unknown role panel action.');
         json(res,200,{ok:true,result});wake();return;
       }
+      if((path==='/api/moderation'||/^\/api\/moderation\/case\/[\da-f-]{36}$/.test(path))&&['GET','POST'].includes(String(method))){
+        requireThat(await communityEnabled(db,'moderation'),403,'Convergence moderation is disabled.');
+        const roleRows=actor.isOwner?[]:await discord.call('/guilds/'+config.guild+'/roles');
+        requireThat(actor.isOwner||Array.isArray(roleRows),503,'Unable to verify current staff permissions.');
+        const nativeAdmin=!actor.isOwner&&roleRows.some((role:any)=>member.roles.includes(role.id)&&hasNativeAdmin(role.permissions));
+        const moderator=staffIdentity(actor.id,member.roles,nativeAdmin?'8':'0',config,settings.value.judgeRole);
+        requireModerator(moderator);
+        if(method==='GET'){
+          const caseMatch=/^\/api\/moderation\/case\/([\da-f-]{36})$/.exec(path);
+          if(caseMatch)json(res,200,await caseEvents(db,moderator,caseMatch[1]));
+          else json(res,200,await moderationWorkspace(db,moderator,url.searchParams.get('member')||'',
+            Number(url.searchParams.get('page')||1)));
+          return;
+        }
+        requireThat(path==='/api/moderation',404,'Unknown moderation operation.');
+        const input=parse(await rawBody(req,10000));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Provide a valid moderation action.');
+        let result:any;
+        if(input.action==='warn'||input.action==='note'){
+          const target=String(input.memberId||'');
+          await verifyModerationTarget(discord,config,moderator,target);
+          const evidence=input.action==='warn'&&input.proxyPost?
+            await proxyEvidence(db,String(input.proxyPost),target):null;
+          result=await recordCase(db,moderator,input.action,target,String(input.receipt||''),
+            String(input.reason||''),evidence);
+        }else if(input.action==='remove-warning'){
+          const record=await caseEvents(db,moderator,String(input.caseId||''));
+          await verifyModerationTarget(discord,config,moderator,record.record.target_id);
+          result=await removeWarning(db,moderator,String(input.caseId||''));
+        }else if(['timeout','untimeout','kick','ban','unban'].includes(input.action)){
+          const queued=await queueSanction(db,discord,config,moderator,{
+            action:input.action,targetId:String(input.memberId||''),
+            receipt:String(input.receipt||''),reason:String(input.reason||''),
+            minutes:Number(input.minutes||0),
+            proxyPost:input.proxyPost?String(input.proxyPost):undefined
+          });
+          result=queued.created?await executeQueuedSanction(db,discord,config,moderator,queued.caseId):queued;
+        }else if(input.action==='apply'){
+          result=await executeQueuedSanction(db,discord,config,moderator,String(input.caseId||''));
+        }else throw new Problem(400,'Unknown moderation action.');
+        json(res,200,{ok:true,result});wake();return;
+      }
       if(method==='GET'&&path==='/api/economy/shops/sales'){
         json(res,200,await shopSalesReport(db,actor));return;
       }
@@ -586,6 +631,9 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       if(method==='GET'&&statementMatch){
         json(res,200,{transactions:await statement(db,actor,statementMatch[1])});return;
       }
+      const moderationRoles=actor.isOwner?[]:await discord.call('/guilds/'+config.guild+'/roles').catch(()=>[]);
+      const canModerate=actor.isOwner||moderationRoles.some((role:any)=>
+        member.roles.includes(role.id)&&hasNativeAdmin(role.permissions));
       const roster=(await discord.members()).filter(m=>!settings.value.playerRole||m.roles.includes(settings.value.playerRole));
       const active=new Set(roster.map(m=>m.user.id));
       const completion=/^\/api\/requests\/([\da-f-]{36})\/complete$/.exec(path);
@@ -622,7 +670,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       const today=new Date().toISOString().slice(0,10);
       const [aiCount]=actor.isOwner?await db.query('SELECT used FROM pc_npc_ai_usage WHERE day=$1',[today]):[];
       const npcAi=actor.isOwner?{day:today,used:Number(aiCount?.used||0),limit:aiOptions()?.cap||0,providers:await freeProviderStatus(db)}:undefined;
-      json(res,200,{actor,races,...(npcAi?{npcAi}:{}),economyAccounts:accounts,favoriteCharacterIds:favorites.map(row=>row.character_id),canEditPaths:member.roles.includes(editorRole),pathRevisions:Object.fromEntries(pathEntries.map(x=>[x.key,x.revision])),announcements:embeds.map(e=>({kind:e.kind,revision:Number(e.revision),draft:JSON.parse(e.draft),url:e.message_id?'https://discord.com/channels/'+config.guild+'/'+e.channel_id+'/'+e.message_id:null})),nicknameStatus:nick[0]?.status,players:roster.map(m=>({id:m.user.id,username:m.user.username,updatesUrl:forumLinks.get('player:'+m.user.id),avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
+      json(res,200,{actor,canModerate,races,...(npcAi?{npcAi}:{}),economyAccounts:accounts,favoriteCharacterIds:favorites.map(row=>row.character_id),canEditPaths:member.roles.includes(editorRole),pathRevisions:Object.fromEntries(pathEntries.map(x=>[x.key,x.revision])),announcements:embeds.map(e=>({kind:e.kind,revision:Number(e.revision),draft:JSON.parse(e.draft),url:e.message_id?'https://discord.com/channels/'+config.guild+'/'+e.channel_id+'/'+e.message_id:null})),nicknameStatus:nick[0]?.status,players:roster.map(m=>({id:m.user.id,username:m.user.username,updatesUrl:forumLinks.get('player:'+m.user.id),avatar:accountAvatar(m.user),display:m.nick||m.user.global_name||m.user.username})),
         characters:sheets.filter(s=>active.has(s.owner_id)||JSON.parse(s.sheet).characterType==='NPC').map(s=>{const sheet=JSON.parse(s.sheet);if(!actor.isJudge&&s.owner_id!==actor.id)delete sheet.wallet;return {id:s.id,ownerId:s.owner_id,version:s.revision,tag:s.tag||'',activeForm:s.form_key||'',sheet};}),
         posting,scope:inventory,catalogue:designs.map(d=>({id:d.id,kind:d.kind,fields:JSON.parse(d.after_sheet),authorId:d.author_id})),requests:requests.map(r=>({...visibleRequest(r),...(r.source_id?{native:{source:'https://discord.com/channels/'+config.guild+'/'+r.source_channel+'/'+r.source_id,text:r.raw_text,input:JSON.parse(r.native_input),attachments:JSON.parse(r.attachments)}}:{}),...(actor.isJudge?{assessment:assess(visibleRequest(r),settings.value),denial:r.helper?{helper:r.helper,key:r.decision_key,note:r.denial_note,delivered:!!r.dm_message}:null}:{}),reviewUrl:r.review_message?'https://discord.com/channels/'+config.guild+'/'+r.review_channel+'/'+r.review_message:undefined})),currency:settings.value.currency,settings:actor.isOwner?settings:null});
     } catch(e) {
