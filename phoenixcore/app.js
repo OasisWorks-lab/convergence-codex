@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -521,6 +521,40 @@ function formList(raw){
       if(route()==='support'||/^support-/.test(route()))render();
     }catch(error){tell(error.message,true);}
     finally{supportLoading=false;}
+  }
+  function supportTemplateManagement(){
+    if(!supportData?.staff)return '';
+    const available=supportData.templates||[],selected=available.find(x=>x.id===supportTemplateId)||null;
+    const selector='<label class="field"><span>Existing saved reply</span>'+
+      '<select id="support-template-picker"><option value="">New template</option>'+
+      available.map(t=>'<option value="'+h(t.id)+'"'+(selected?.id===t.id?' selected':'')+'>'+
+        h(t.name)+(t.active?'':' (archived)')+'</option>').join('')+'</select></label>';
+    const history=supportTemplateHistoryData?.id===selected?.id?
+      '<section class="stack"><h3>Revision history</h3>'+
+      supportTemplateHistoryData.items.map(x=>'<div class="stat-row"><span>Revision '+h(x.revision)+
+        ' · '+h(x.active?'Active':'Archived')+' · '+h(new Date(x.changedMs).toLocaleString())+
+        '<small class="muted">'+h(x.actorId)+'</small></span></div>').join('')+'</section>':'';
+    return '<section class="panel dossier"><h2>Staff saved replies</h2>'+
+      '<p>Templates are private drafts. Picking one in a case fills an outward reply for review; it never sends automatically.</p>'+
+      selector+'<form id="support-template-form" class="form" data-id="'+h(selected?.id||'')+
+      '" data-revision="'+h(selected?.revision||'')+'">'+
+      field('name','Template identifier',selected?.name||'',{required:true,max:40})+
+      field('body','Reply text ({{case}}, {{member}}, {{staff}})',selected?.body||'',{area:true,wide:true,required:true,max:1800})+
+      '<button class="primary">'+h(selected?'Save new revision':'Create saved reply')+'</button></form>'+
+      (selected?'<div class="actions"><button type="button" data-support-template-action="history" data-id="'+h(selected.id)+
+        '">Revision history</button>'+
+        (selected.active?'<button type="button" data-support-template-action="archive" data-id="'+h(selected.id)+
+        '" data-revision="'+h(selected.revision)+'">Archive template</button>':'')+'</div>':'')+
+      history+'</section>';
+  }
+  async function supportSearchLoad(){
+    if(!session||demo)return;
+    try{
+      const filters=supportSearchFilters;
+      const q=new URLSearchParams({...filters,page:String(supportSearchPage),pageSize:'25'});
+      supportSearch=await call('/api/support/search?'+q.toString());
+      if(route()==='support')render();
+    }catch(error){tell(error.message,true);}
   }
   function supportPage(){
     if(demo)return title('Support Center','Live, private tickets and Modmail conversations')+
