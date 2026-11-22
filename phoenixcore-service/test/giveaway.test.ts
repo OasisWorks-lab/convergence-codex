@@ -234,10 +234,11 @@ test('staff extensions respect one-year limit, revision conflicts and paused clo
   assert.equal(Number((await db.query('SELECT updated_ms FROM pc_giveaways WHERE id=$1',[g.id]))[0].updated_ms),pauseClock);
   await updateGiveawayStatus(db,g.id,helper,'resume',now+33000);
   assert.equal((await giveawayPublic(db,g.id)).endsMs,now+46*60000+30000);
-  await assert.rejects(extendGiveaway(db,g.id,helper,5,525600,now+34000),/longer than one year/);
+  const afterResume=await giveawayPublic(db,g.id);
+  await assert.rejects(extendGiveaway(db,g.id,helper,afterResume.version,525600,now+34000),/longer than one year/);
   assert.equal((await db.query("SELECT event FROM pc_giveaway_events WHERE giveaway_id=$1 AND event='extended'",[g.id])).length,2);
   await updateGiveawayStatus(db,g.id,helper,'cancel',now+35000);
-  await assert.rejects(extendGiveaway(db,g.id,helper,5,1,now+36000),/closed or drawn/);
+  await assert.rejects(extendGiveaway(db,g.id,helper,afterResume.version+1,1,now+36000),/closed or drawn/);
 });
 
 test('PostgreSQL concurrent draws, claims and receipts never multiply winners or bank credits',{skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
