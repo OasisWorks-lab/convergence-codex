@@ -8,7 +8,7 @@ export function replyLength(s:Scene) {
   for(const post of s.posts)totals.set(post.writer,(totals.get(post.writer)||0)+words(post.text));
   const sample=totals.size?[...totals.values()]:(s.history||[]).slice(-3).map(p=>words(p.text));
   const average=sample.length?sample.reduce((a,b)=>a+b,0)/sample.length:70;
-  return Math.max(65,Math.min(260,Math.round(average)));
+  return Math.max(24,Math.min(230,Math.round(average*0.95+14)));
 }
 export function detail(value:string) {
   const text=value.replace(/https?:\/\/\S+|<[@#][^>]*>|[*_~\x60@]/g,' ').replace(/\s+/g,' ').trim();
@@ -54,7 +54,7 @@ const beats:Beat[]=[
 ];
 function relevant(s:Scene) {
   const sources=[...s.posts].reverse().map(p=>p.text);
-  sources.push(...s.past.slice(-1).flatMap(r=>[...r.posts].reverse().map(p=>p.text)),s.opening,...[...(s.history||[])].reverse().map(p=>p.text));
+  if(!sources.length && s.opening)sources.push(s.opening);
   for(const source of sources){const b=beats.find(b=>b.words.test(source));if(b)return b;}
 }
 function npcVoice(text:string,name:string,gender:unknown){
