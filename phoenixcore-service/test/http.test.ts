@@ -191,6 +191,27 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   const webDraw=await (await get('/api/giveaways/'+drawId,{headers:{authorization:'Bearer '+writer,origin}})).json();
   assert.equal(webDraw.giveaways[0].entries,1);
   assert.ok(webDraw.enteredGiveawayIds.includes(drawId));
+  const participantPath='/api/giveaways/'+drawId+'/participants';
+  assert.equal((await get(participantPath,{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+  assert.equal((await get(participantPath,{headers:{authorization:'Bearer '+judge,origin}})).status,403);
+  const ownerRosterResponse=await get(participantPath,{headers:{authorization:'Bearer '+owner,origin}});
+  assert.equal(ownerRosterResponse.status,200);
+  assert.equal(ownerRosterResponse.headers.get('cache-control'),'no-store');
+  const ownerRoster=await ownerRosterResponse.json();
+  assert.equal(ownerRoster.active,1);
+  assert.equal(ownerRoster.total,1);
+  assert.equal(ownerRoster.participants[0].userId,ids.writer);
+  assert.equal(ownerRoster.participants[0].username,'writer');
+  assert.equal(ownerRoster.participants[0].currentTickets,1);
+  assert.equal((await get(participantPath+'?page=2',{headers:{authorization:'Bearer '+owner,origin}})).status,400);
+  assert.equal((await get(participantPath+'?filter=bogus',{headers:{authorization:'Bearer '+owner,origin}})).status,400);
+  assert.equal((await post('/api/giveaways',{action:'join',id:drawId},extra)).status,200);
+  assert.equal((await post('/api/giveaways',{action:'withdraw',id:drawId},extra)).status,200);
+  const withdrawnRoster=await (await get(participantPath+'?filter=withdrawn',
+    {headers:{authorization:'Bearer '+owner,origin}})).json();
+  assert.equal(withdrawnRoster.withdrawn,1);
+  assert.equal(withdrawnRoster.participants[0].userId,ids.extra);
+  assert.equal(withdrawnRoster.participants[0].active,false);
   assert.equal((await post('/api/giveaways',{action:'end',id:drawId},writer)).status,403);
   assert.equal((await post('/api/giveaways',{action:'end',id:drawId},judge)).status,200);
   const [winner]=await db.query('SELECT user_id,status FROM pc_giveaway_winners WHERE giveaway_id=$1',[drawId]);
