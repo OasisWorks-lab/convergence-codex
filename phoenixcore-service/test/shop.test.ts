@@ -156,7 +156,7 @@ test('PostgreSQL shop purchases serialize stock and repeated identical receipts'
   const repeated=await Promise.all(Array.from({length:8},()=>purchaseShopItem(db,player,input,general())));
   assert.equal(repeated.filter(x=>!x.replayed).length,1);
   assert.equal(repeated.filter(x=>x.replayed).length,7);
-  assert.equal((await db.query('SELECT COUNT(*) AS total FROM pc_shop_purchases'))[0].total,1);
+  assert.equal(Number((await db.query('SELECT COUNT(*) AS total FROM pc_shop_purchases'))[0].total),1);
   assert.equal((await db.query('SELECT quantity FROM pc_inventory_items WHERE character_id=$1',[c]))[0].quantity,1);
   const second={...input,id:randomUUID()};
   await assert.rejects(purchaseShopItem(db,player,second,general()),{status:409});
