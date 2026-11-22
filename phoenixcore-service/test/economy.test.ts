@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {openSqlite,initialize} from '../src/db.ts';
+import {openSqlite,openPostgres,initialize} from '../src/db.ts';
 import {propose,decide,judgeTraining,type Actor} from '../src/domain.ts';
 import {bankAction,statement,visibleAccounts} from '../src/economy.ts';
 
@@ -69,4 +69,23 @@ test('staff-awarded cash enters the ledger once and existing wallets import once
   assert.equal((await visibleAccounts(db,player)).find(x=>x.characterId===legacy)?.cash,'123');
   await initialize(db,guild);
   assert.equal((await db.query("SELECT COUNT(*) AS count FROM pc_economy_transactions WHERE kind='legacy_import'"))[0].count,1);
+});
+
+test('PostgreSQL economy grants, account transfers and repeated initialization', {skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
+  const url=new URL(process.env.PHOENIX_TEST_DATABASE_URL!),admin=await openPostgres(url.href);
+  const schema='econ_test_'+randomUUID().replaceAll('-','');
+  await admin.query('CREATE SCHEMA '+schema);
+  url.searchParams.set('options','-c search_path='+schema);
+  const db=await openPostgres(url.href);
+  t.after(async()=>{await db.close();await admin.query('DROP SCHEMA '+schema+' CASCADE');await admin.close();});
+  await initialize(db,guild);
+  const c=await approved(db,'Kael',player,'Middle');
+  assert.equal((await visibleAccounts(db,player))[0].cash,'2000');
+  const transaction={id:randomUUID(),characterId:c,action:'deposit',amount:'250'};
+  const settled=await Promise.all([bankAction(db,player,transaction),bankAction(db,player,transaction)]);
+  assert.equal(settled.filter(x=>!x.replayed).length,1);
+  assert.equal(settled.filter(x=>x.replayed).length,1);
+  assert.equal((await visibleAccounts(db,player))[0].bank,'250');
+  await initialize(db,guild);
+  assert.equal((await statement(db,player,c)).length,2);
 });
