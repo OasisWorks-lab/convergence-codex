@@ -119,7 +119,7 @@ const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_support_idle (case_id TEXT PRIMARY KEY REFERENCES pc_support_cases(id) ON DELETE CASCADE,due_ms BIGINT NOT NULL,lease TEXT,lease_until BIGINT NOT NULL DEFAULT 0)',
   'CREATE INDEX IF NOT EXISTS pc_support_idle_due ON pc_support_idle(due_ms,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_support_blocks (user_id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,reason TEXT NOT NULL,created_ms BIGINT NOT NULL,active INTEGER NOT NULL DEFAULT 1)',
-  'CREATE TABLE IF NOT EXISTS pc_support_templates (id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,body TEXT NOT NULL,creator_id TEXT NOT NULL,revision INTEGER NOT NULL,updated_ms BIGINT NOT NULL)'
+  'CREATE TABLE IF NOT EXISTS pc_support_templates (id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,body TEXT NOT NULL,creator_id TEXT NOT NULL,revision INTEGER NOT NULL,updated_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_core_jobs (id TEXT PRIMARY KEY,job_type TEXT NOT NULL,recipient_id TEXT NOT NULL,payload TEXT NOT NULL,due_ms BIGINT NOT NULL,status TEXT NOT NULL DEFAULT \'pending\',attempts INTEGER NOT NULL DEFAULT 0,lease TEXT,lease_until BIGINT NOT NULL DEFAULT 0,last_error TEXT,delivery_id TEXT,created_ms BIGINT NOT NULL)',
   'CREATE INDEX IF NOT EXISTS pc_core_jobs_due ON pc_core_jobs(status,due_ms,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_migrations (name TEXT PRIMARY KEY)',
