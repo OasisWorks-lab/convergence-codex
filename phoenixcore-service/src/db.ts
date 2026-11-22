@@ -87,6 +87,7 @@ const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_npc_ai_usage (day TEXT PRIMARY KEY, used INTEGER NOT NULL)',
 
   'CREATE TABLE IF NOT EXISTS pc_community_modules (module TEXT PRIMARY KEY,enabled INTEGER NOT NULL,revision INTEGER NOT NULL,actor_id TEXT NOT NULL,updated_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_community_module_history (module TEXT NOT NULL,revision INTEGER NOT NULL,previous_enabled INTEGER,enabled INTEGER NOT NULL,actor_id TEXT NOT NULL,occurred_ms BIGINT NOT NULL,PRIMARY KEY(module,revision))',
   'CREATE TABLE IF NOT EXISTS pc_info_tags (id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,body TEXT NOT NULL,author_id TEXT NOT NULL,revision INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_info_tag_aliases (alias TEXT PRIMARY KEY,tag_id TEXT NOT NULL REFERENCES pc_info_tags(id) ON DELETE CASCADE)',
   'CREATE TABLE IF NOT EXISTS pc_info_tag_history (tag_id TEXT NOT NULL REFERENCES pc_info_tags(id),revision INTEGER NOT NULL,body TEXT NOT NULL,actor_id TEXT NOT NULL,changed_ms BIGINT NOT NULL,PRIMARY KEY(tag_id,revision))',
