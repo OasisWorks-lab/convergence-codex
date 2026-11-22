@@ -6,6 +6,18 @@ import {DiscordFailure} from './discord.ts';
 import {communityEnabled} from './community.ts';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const safeImage=(value:unknown)=>{
+  const raw=String(value||'').trim();
+  if(!raw)return '';
+  requireThat(raw.length<=600&&!/\\s/.test(raw),400,'Use an HTTPS image URL.');
+  let url:URL;
+  try{url=new URL(raw);}catch{requireThat(false,400,'Image URL is invalid.');throw Error('Invalid URL');}
+  requireThat(url.protocol==='https:'&&!url.username&&!url.password&&!url.hash,400,
+    'Image URL must be HTTPS without credentials or fragments.');
+  return url.href;
+};
+const emojiPattern=/^(?!\s)[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Component}\u200d\ufe0f]{1,16}$/u;
+
 const id=(value:unknown,label:string)=>{
   requireThat(typeof value==='string'&&uuid.test(value),400,'Choose a valid '+label+' ID.');
   return value;
@@ -35,13 +47,13 @@ export async function createRolePanel(db:Store,actor:Actor,data:any){
   const title=textValue(data.title,120,'Panel title',true),
     description=textValue(data.description||'',1500,'Panel description');
   requireThat(typeof data.channelId==='string'&&discordId.test(data.channelId),400,'Choose a Convergence text channel.');
-  requireThat(['buttons','select'].includes(data.style),400,'Choose buttons or select menu.');
+  requireThat(['buttons','select','reactions'].includes(data.style),400,'Choose buttons or select menu.');
   const color=data.color===undefined?0xA86BD2:Number(data.color);
   requireThat(Number.isInteger(color)&&color>=0&&color<=0xFFFFFF,400,'Color must be a Discord embed color number.');
   const panelId=randomUUID();
   await db.transaction(async q=>{
-    await q('INSERT INTO pc_role_panels(id,channel_id,title,description,style,color,creator_id,created_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-      [panelId,data.channelId,title,description,data.style,color,actor.id,Date.now()]);
+    await q('INSERT INTO pc_role_panels(id,channel_id,title,description,style,color,creator_id,created_ms,image_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [panelId,data.channelId,title,description,data.style,color,actor.id,Date.now(),safeImage(data.imageUrl)]);
     await audit(q,actor.id,'create',panelId,null,title);
   });
   return {id:panelId,revision:1,active:false};
@@ -61,7 +73,7 @@ export async function addRoleOption(db:Store,actor:Actor,panelId:string,expected
   return db.transaction(async q=>{
     const panel=await lockedPanel(q,db,panelId);checkVersion(panel,expected);
     const options=await q('SELECT role_id,position FROM pc_role_panel_options WHERE panel_id=$1 ORDER BY position',[panelId]);
-    requireThat(options.length<(panel.style==='buttons'?5:25),409,'This panel has reached its Discord component limit.');
+    requireThat(options.length<(panel.style==='buttons'?5:panel.style==='reactions'?20:25),409,'This panel has reached its Discord component limit.');
     requireThat(!options.some(x=>x.role_id===roleId),409,'This role already appears on the panel.');
     await q('INSERT INTO pc_role_panel_options(panel_id,role_id,label,position) VALUES($1,$2,$3,$4)',
       [panelId,roleId,display,options.length]);
@@ -88,6 +100,10 @@ export async function publishRolePanel(db:Store,actor:Actor,panelId:string,expec
     if(active){
       const [count]=await q('SELECT COUNT(*) AS count FROM pc_role_panel_options WHERE panel_id=$1',[panelId]);
       requireThat(Number(count.count)>0,409,'Add a safe role before publishing this panel.');
+      if(panel.style==='reactions'){
+        const [mapped]=await q('SELECT COUNT(*) AS count FROM pc_role_reactions WHERE panel_id=$1',[panelId]);
+        requireThat(Number(mapped.count)===Number(count.count),409,'Map a unique emoji to every role before publishing a reaction panel.');
+      }
     }
     await q('UPDATE pc_role_panels SET active=$1 WHERE id=$2',[active?1:0,panelId]);
     await dirty(q,panelId);
@@ -97,22 +113,23 @@ export async function publishRolePanel(db:Store,actor:Actor,panelId:string,expec
 }
 export async function listRolePanels(db:Store,actor:Actor){
   const panels=await db.query('SELECT * FROM pc_role_panels ORDER BY created_ms DESC,id');
-  const [options,counts]=await Promise.all([
+  const [options,counts,reactions]=await Promise.all([
     db.query('SELECT panel_id,role_id,label,position FROM pc_role_panel_options ORDER BY panel_id,position'),
-    db.query('SELECT panel_id,role_id,COUNT(*) AS total FROM pc_role_assignments WHERE active=1 GROUP BY panel_id,role_id')
+    db.query('SELECT panel_id,role_id,COUNT(*) AS total FROM pc_role_assignments WHERE active=1 GROUP BY panel_id,role_id'),
+    db.query('SELECT panel_id,role_id,emoji FROM pc_role_reactions ORDER BY panel_id,role_id')
   ]);
   return panels.filter(panel=>actor.isOwner||Number(panel.active)===1).map(panel=>({
     id:panel.id,channelId:panel.channel_id,title:panel.title,description:panel.description,
-    style:panel.style,color:Number(panel.color),active:Number(panel.active)===1,
+    style:panel.style,color:Number(panel.color),imageUrl:panel.image_url||'',active:Number(panel.active)===1,
     revision:Number(panel.revision),messageId:panel.message_id||null,
     options:options.filter(option=>option.panel_id===panel.id).map(option=>({
-      roleId:option.role_id,label:option.label,position:Number(option.position),
+      roleId:option.role_id,label:option.label,emoji:reactions.find(x=>x.panel_id===panel.id&&x.role_id===option.role_id)?.emoji||'',position:Number(option.position),
       recordedSelections:Number(counts.find(c=>c.panel_id===panel.id&&c.role_id===option.role_id)?.total||0)
     }))
   }));
 }
 export function rolePanelMessage(panel:any,enabled=true){
-  const components=panel.active&&enabled&&panel.options.length?
+  const components=panel.active&&enabled&&panel.options.length&&panel.style!=='reactions'?
     panel.style==='buttons'?[{type:1,components:panel.options.map((o:any)=>({
       type:2,style:2,label:String(o.label).slice(0,80),custom_id:'pcr:'+panel.id+':'+o.roleId
     }))}]:
@@ -120,10 +137,43 @@ export function rolePanelMessage(panel:any,enabled=true){
         placeholder:'Choose a role to toggle',
         options:panel.options.map((o:any)=>({label:String(o.label).slice(0,100),value:o.roleId}))}]}]:[];
   return {content:'',allowed_mentions:{parse:[]},
-    embeds:[{title:panel.title,description:panel.description||'Select the roles you want. Choose again to remove an assigned role.',
-      color:panel.color,
+    embeds:[{title:panel.title,description:(panel.description||'Choose a role to assign or remove.')+(panel.style==='reactions'?'\n\n'+panel.options.map((o:any)=>o.emoji?o.emoji+' · '+o.label:'[No emoji] · '+o.label).join('\n'):''),
+      color:panel.color,...(panel.imageUrl?{image:{url:panel.imageUrl}}:{}),
       footer:{text:panel.active&&enabled?'PhoenixCore · Choose again to remove a role':'Role selections are currently disabled'}}],
     components};
+}
+
+export async function styleRolePanel(db:Store,actor:Actor,panelId:string,revision:number,input:any){
+  ownerOnly(actor);id(panelId,'panel');
+  requireThat(input&&typeof input==='object',400,'Provide a role panel appearance.');
+  const title=textValue(input.title,120,'Panel title',true),
+    description=textValue(input.description||'',1500,'Panel description');
+  const color=Number(input.color);
+  requireThat(Number.isInteger(color)&&color>=0&&color<=0xffffff,400,'Invalid panel color.');
+  const imageUrl=safeImage(input.imageUrl);
+  return db.transaction(async q=>{
+    const panel=await lockedPanel(q,db,panelId);checkVersion(panel,revision);
+    await q('UPDATE pc_role_panels SET title=$1,description=$2,color=$3,image_url=$4 WHERE id=$5',
+      [title,description,color,imageUrl,panelId]);
+    await dirty(q,panelId);await audit(q,actor.id,'appearance',panelId,null,title);
+    return {id:panelId,revision:revision+1};
+  });
+}
+export async function setRoleReaction(db:Store,actor:Actor,panelId:string,revision:number,roleId:string,emoji:string){
+  ownerOnly(actor);id(panelId,'panel');requireThat(discordId.test(roleId),400,'Invalid role.');
+  requireThat(emojiPattern.test(emoji),400,'Choose one Unicode emoji (custom server emojis are not supported yet).');
+  return db.transaction(async q=>{
+    const panel=await lockedPanel(q,db,panelId);checkVersion(panel,revision);
+    requireThat(panel.style==='reactions',409,'Choose a reaction-based panel.');
+    const [option]=await q('SELECT role_id FROM pc_role_panel_options WHERE panel_id=$1 AND role_id=$2',[panelId,roleId]);
+    requireThat(option,404,'Add the role option before configuring its emoji.');
+    const [taken]=await q('SELECT role_id FROM pc_role_reactions WHERE panel_id=$1 AND emoji=$2',[panelId,emoji]);
+    requireThat(!taken||taken.role_id===roleId,409,'Another role uses that emoji.');
+    await q('INSERT INTO pc_role_reactions(panel_id,role_id,emoji) VALUES($1,$2,$3) ON CONFLICT(panel_id,role_id) DO UPDATE SET emoji=excluded.emoji',
+      [panelId,roleId,emoji]);
+    await dirty(q,panelId);await audit(q,actor.id,'reaction-emoji',panelId,roleId,emoji);
+    return {id:panelId,revision:revision+1};
+  });
 }
 export async function deliverRolePanel(db:Store,discord:Pick<Discord,'call'>,now=Date.now()){
   const token=randomUUID();
@@ -160,6 +210,12 @@ export async function deliverRolePanel(db:Store,discord:Pick<Discord,'call'>,now
     }
     const messageId=String(message?.id||row.message_id||'');
     requireThat(discordId.test(messageId),502,'Discord did not confirm the role panel.');
+    if(panel.active&&enabled&&panel.style==='reactions'){
+      const mapped=panel.options.filter((x:any)=>x.emoji);
+      requireThat(mapped.length===panel.options.length,409,'Configure each reaction emoji before publishing this panel.');
+      for(const option of mapped)await discord.call('/channels/'+panel.channelId+'/messages/'+messageId+
+        '/reactions/'+encodeURIComponent(option.emoji)+'/@me',{method:'PUT'});
+    }
     await db.query('UPDATE pc_role_panels SET message_id=$1,delivered_revision=$2,lease=NULL,lease_until=0,retry_ms=0,last_error=NULL WHERE id=$3 AND lease=$4',
       [messageId,Number(row.revision),panel.id,token]);
   }catch(error:any){

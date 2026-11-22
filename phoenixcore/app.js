@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -477,7 +477,13 @@ function formList(raw){
       return title('Community','Server information and member suggestions.')+'<section class="panel"><p>Loading community content…</p></section>';
     }
     const data=communityData,staff=data.staff,owner=data.owner,active=data.modules||{};
-    const tags=(data.tags||[]).map(item=>'<article class="panel dossier community-tag" data-community-name="'+h(item.name)+'"><h3>'+h(item.name)+'</h3><p class="prewrap">'+h(item.body)+'</p><small class="muted">Revision '+h(item.revision)+'</small></article>').join('');
+    const tags=(data.tags||[]).map(item=>'<article class="panel dossier community-tag" data-community-name="'+h(item.name)+'"><h3>'+h(item.title||item.name)+'</h3>'+
+      (item.imageUrl?artwork(item.imageUrl,item.name+' illustration'):'')+
+      '<p class="prewrap">'+h(item.body)+'</p>'+
+      ((item.buttons||[]).length?'<div class="actions">'+item.buttons.map(button=>
+        '<a class="button" href="'+h(button.url)+'" target="_blank" rel="noopener noreferrer">'+h(button.label)+'</a>').join('')+'</div>':'')+
+      '<small class="muted">'+h(item.name)+' · Text revision '+h(item.revision)+
+      ' · Appearance revision '+h(item.presentationRevision||0)+'</small></article>').join('');
     const suggestions=(data.suggestions||[]).map(item=>
       '<article class="panel dossier"><h3>'+h(item.title)+'</h3><p class="prewrap">'+h(item.body)+'</p>'+
       '<p><strong>'+h(item.status)+'</strong> · 👍 '+h(item.upvotes)+' · 👎 '+h(item.downvotes)+'</p>'+
@@ -504,6 +510,24 @@ function formList(raw){
         '<form id="community-tag-form" class="form">'+field('name','Short tag name','',{required:true,max:40})+
         field('content','Useful content','',{required:true,area:true,wide:true,max:1600})+
         '<button class="primary">'+(staff?'Publish tag':'Send proposal')+'</button></form></section>'+
+        (staff?(()=>{const choices=(data.tags||[]),selected=choices.find(t=>t.name===richTagName)||null;
+          return '<section class="panel dossier"><h3>Styled informational tags</h3>'+
+            '<p>Choose a published tag and customize its public embed. HTTPS links only; character proxy tags remain separate.</p>'+
+            '<label class="field"><span>Published tag</span><select id="rich-tag-picker">'+
+            '<option value="">Choose a tag…</option>'+
+            choices.map(t=>'<option value="'+h(t.name)+'"'+(selected?.name===t.name?' selected':'')+'>'+h(t.name)+'</option>').join('')+
+            '</select></label>'+
+            (selected?'<form id="community-rich-tag-form" class="form" data-name="'+h(selected.name)+
+              '" data-revision="'+h(selected.presentationRevision||0)+'">'+
+              field('title','Embed title',selected.title||'',{max:120})+
+              field('imageUrl','Optional HTTPS image URL',selected.imageUrl||'',{max:600})+
+              field('color','Embed color (integer)',String(selected.color||6978501),{required:true,max:8,numeric:true})+
+              field('linkLabel','Optional link button title',selected.buttons?.[0]?.label||'',{max:80})+
+              field('linkUrl','Optional link button HTTPS URL',selected.buttons?.[0]?.url||'',{max:600})+
+              '<button class="primary">Save tag appearance</button></form>'+
+              '<div class="actions"><button type="button" data-rich-tag-history="'+h(selected.name)+'">View appearance history</button></div>':
+              '<p>Select a published tag above.</p>')+'</section>';
+        })():'')+
         (staff?'<section class="stack"><h3>Pending tag proposals</h3>'+(proposalCards||'<p>No pending tag proposals.</p>')+
           '<form id="community-rollback-form" class="panel form">'+field('name','Tag to restore','',{required:true,max:40})+
           field('revision','Previous revision','',{required:true,max:8,numeric:true})+'<button class="primary">Restore version</button></form></section>':'')+'</section>':
@@ -971,7 +995,7 @@ function formList(raw){
       const panel=data.panels.find(p=>p.id===match[1]);
       if(!panel)return title('Role panel unavailable','This panel is hidden or no longer exists.');
       const options=panel.options.map(o=>'<div class="stat-row role-panel-option"><span><b>'+h(o.label)+'</b>'+
-        '<small class="muted">'+h(o.roleId)+' · '+h(o.recordedSelections)+' recorded selections</small></span>'+
+        '<small class="muted">'+h(o.roleId)+' · '+h(o.recordedSelections)+' recorded selections'+(o.emoji?' · '+h(o.emoji):'')+'</small></span>'+
         (data.owner?'<button type="button" data-rolepanel-action="remove" data-rolepanel-id="'+h(panel.id)+
           '" data-rolepanel-version="'+h(panel.revision)+'" data-rolepanel-role="'+h(o.roleId)+'">Remove option</button>':'')+
         '</div>').join('');
@@ -983,11 +1007,26 @@ function formList(raw){
         '<form id="rolepanel-add-form" class="form" data-id="'+h(panel.id)+'" data-revision="'+h(panel.revision)+'">'+
         '<h3>Add a safe Discord role</h3>'+field('roleId','Discord role ID','',{required:true,max:20})+
         field('label','Role label','',{required:true,max:80})+
-        '<button class="primary">Add role option</button></form></section>':'';
+        '<button class="primary">Add role option</button></form>'+
+        '<form id="rolepanel-style-form" class="form" data-id="'+h(panel.id)+'" data-revision="'+h(panel.revision)+'">'+
+        '<h3>Appearance</h3>'+field('title','Panel title',panel.title,{required:true,max:120})+
+        field('description','Panel description',panel.description,{area:true,wide:true,max:1500})+
+        field('color','Discord embed color (0–16777215)',String(panel.color),{required:true,max:8,numeric:true})+
+        field('imageUrl','Optional HTTPS banner image',panel.imageUrl||'',{max:600})+
+        '<button class="primary">Save panel appearance</button></form>'+
+        (panel.style==='reactions'?'<form id="rolepanel-emoji-form" class="form" data-id="'+h(panel.id)+
+          '" data-revision="'+h(panel.revision)+'">'+
+          '<h3>Reaction role emoji</h3>'+
+          '<label class="field"><span>Selected role</span><select name="roleId" required>'+
+          panel.options.map(o=>'<option value="'+h(o.roleId)+'">'+h(o.label)+'</option>').join('')+
+          '</select></label>'+
+          field('emoji','Unicode emoji (e.g. 🔥)','',{required:true,max:32})+
+          '<button class="primary">Save emoji mapping</button></form>':'')+
+        '</section>':'';
       return breadcrumbs([link('roles','Role Panels'),h(panel.title)])+
         title(panel.title,panel.description)+
         '<section class="panel dossier"><p><b>'+h(panel.active?'Published':'Draft / inactive')+
-        '</b> · '+h(panel.style==='buttons'?'Button panel':'Select-menu panel')+'</p>'+
+        '</b> · '+h(panel.style==='buttons'?'Button panel':panel.style==='reactions'?'Reaction-role panel':'Select-menu panel')+'</p>'+
         '<p>Discord channel: '+h(panel.channelId)+(panel.messageId?' · Message: '+h(panel.messageId):' · Not posted yet')+'</p>'+
         (options||'<p>No role options configured yet.</p>')+'</section>'+owner;
     }
@@ -1002,7 +1041,10 @@ function formList(raw){
       field('channelId','Destination Discord channel ID','',{required:true,max:20})+
       '<label class="field"><span>Selection style</span><select name="style">'+
       '<option value="buttons">Buttons (up to five roles)</option>'+
-      '<option value="select">Select menu (up to 25 roles)</option></select></label>'+
+      '<option value="select">Select menu (up to 25 roles)</option>'+
+      '<option value="reactions">Emoji reactions (up to 20 roles)</option></select></label>'+
+      field('color','Color (integer)','11037650',{required:true,max:8,numeric:true})+
+      field('imageUrl','Optional HTTPS image URL','',{max:600})+
       '<button class="primary">Create unpublished panel</button></form></section>':'';
     return title('Role Panels','Select community roles from approved Discord buttons or menus. Only the Owner can configure panels.')+
       (!data.enabled?'<section class="panel"><p>Role panel interactions are disabled by the Owner.</p></section>':'')+
@@ -1243,6 +1285,16 @@ function formList(raw){
       }catch(error){tell(error.message,true);}
       return;
     }
+    const richHistory=e.target.closest('[data-rich-tag-history]');
+    if(richHistory){
+      try{
+        const result=await call('/api/community','POST',{action:'tag-style-history',name:richHistory.dataset.richTagHistory});
+        const versions=(result.result.history||[]).map(v=>'r'+v.presentationRevision+
+          ' · '+new Date(v.changedMs).toLocaleDateString()+' · '+v.actorId).join('\n');
+        alert(versions||'No appearance history saved yet.');
+      }catch(error){tell(error.message,true);}
+      return;
+    }
     const staffAction=e.target.closest('[data-support-action]');
     if(staffAction){
       const action=staffAction.dataset.supportAction,caseId=staffAction.dataset.supportId;
@@ -1381,7 +1433,7 @@ function formList(raw){
   }
   document.addEventListener('submit',async e=>{
     const f=e.target;
-    if(!['rolepanel-create-form','rolepanel-add-form'].includes(f.id))return;
+    if(!['rolepanel-create-form','rolepanel-add-form','rolepanel-style-form','rolepanel-emoji-form'].includes(f.id))return;
     e.preventDefault();
     const fields=Object.fromEntries(new FormData(f));
     const button=f.querySelector('button.primary');
@@ -1389,7 +1441,12 @@ function formList(raw){
     if(button)button.disabled=true;
     try{
       const payload=f.id==='rolepanel-create-form'?{action:'create',
-        channelId:fields.channelId,title:fields.title,description:fields.description,style:fields.style}:
+        channelId:fields.channelId,title:fields.title,description:fields.description,style:fields.style,
+        color:Number(fields.color),imageUrl:fields.imageUrl}:
+        f.id==='rolepanel-style-form'?{action:'style',panelId:f.dataset.id,revision:Number(f.dataset.revision),
+          title:fields.title,description:fields.description,color:Number(fields.color),imageUrl:fields.imageUrl}:
+        f.id==='rolepanel-emoji-form'?{action:'emoji',panelId:f.dataset.id,revision:Number(f.dataset.revision),
+          roleId:fields.roleId,emoji:fields.emoji}:
         {action:'add',panelId:f.dataset.id,revision:Number(f.dataset.revision),
           roleId:fields.roleId,label:fields.label};
       const response=await call('/api/community/roles','POST',payload);
@@ -1400,6 +1457,9 @@ function formList(raw){
     finally{if(button)button.disabled=false;}
   });
   document.addEventListener('change',e=>{
+    if(e.target.id==='rich-tag-picker'){
+      richTagName=e.target.value;render();return;
+    }
     const picker=e.target.closest('select[data-shopkeeper-choice]');
     if(!picker)return;
     const wrapper=picker.form?.querySelector('[data-shopkeeper-custom]'),input=wrapper?.querySelector('input');
@@ -1547,6 +1607,22 @@ function formList(raw){
       await supportRefresh();tell(f.id==='support-open-form'?'Private SupportCase created.':
         payload.action==='note'?'Private staff note saved; no member DM sent.':
         payload.action==='send'?'Explicit staff reply queued for a DM.':'Message added to the case.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(f.id!=='community-rich-tag-form')return;
+    e.preventDefault();
+    const fields=Object.fromEntries(new FormData(f)),button=f.querySelector('button.primary');
+    if(button?.disabled)return;
+    if(button)button.disabled=true;
+    try{
+      const result=await call('/api/community','POST',{action:'tag-style',name:f.dataset.name,
+        revision:Number(f.dataset.revision),title:fields.title,imageUrl:fields.imageUrl,
+        color:Number(fields.color),
+        buttons:fields.linkLabel||fields.linkUrl?[{label:fields.linkLabel,url:fields.linkUrl}]:[]});
+      communityData=null;await communityRefresh();tell('Informational tag appearance saved, revision '+result.result.presentationRevision+'.');
     }catch(error){tell(error.message,true);}
     finally{if(button)button.disabled=false;}
   });

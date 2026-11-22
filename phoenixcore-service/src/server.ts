@@ -17,13 +17,14 @@ import {nicknameJob,announcement} from './bot-tools.ts';
 import {bankAction,visibleAccounts,statement} from './economy.ts';
 import {listShopCatalog,characterInventory,createShop,createShopItem,setShopOpen,setShopStock,setShopLocations,setShopkeeper,unlistShopItem} from './shop.ts';
 import {shopSalesReport} from './shop-sales.ts';
-import {listRolePanels,createRolePanel,addRoleOption,removeRoleOption,publishRolePanel,verifyAssignableRole,deliverRolePanel} from './role-panels.ts';
+import {listRolePanels,createRolePanel,addRoleOption,removeRoleOption,publishRolePanel,verifyAssignableRole,deliverRolePanel,styleRolePanel,setRoleReaction} from './role-panels.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
 import { aiOptions } from './npc-voice.ts';
 import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
 import {deliverScenePanel} from './npc-panel.ts';
 import {freeProviderStatus} from './npc-ai-router.ts';
 import {communityActor,communityModules,communityEnabled,communitySetModule,saveTag,tagAlias,tagRollback,proposeTag,pendingTagProposals,reviewTag,createSuggestion,voteSuggestion,reviewSuggestion,listSuggestions,removeSuggestion,restoreSuggestion,suggestionChannelId,type CommunityModule} from './community.ts';
+import {richTagSave,richTagHistory,richTagRollback} from './rich-tags.ts';
 import {deliverCommunityNotice} from './community-delivery.ts';
 import {deliverSuggestionPost} from './community-posts.ts';
 import {deliverScheduledJob} from './jobs.ts';
@@ -230,7 +231,12 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         const who=communityActor(actor.id,member.roles,isAdmin?'8':'0',config.owner,settings.value.judgeRole);
         const flags=Object.fromEntries(await Promise.all(communityModules.map(async m=>[m,await communityEnabled(db,m)])));
         if(method==='GET'){
-          const tags=flags.tags?await db.query('SELECT name,body,revision FROM pc_info_tags WHERE active=1 ORDER BY name LIMIT 200'):[];
+          const tagRows=flags.tags?await db.query(`SELECT t.name,t.body,t.revision,m.title,m.image_url,m.color,m.buttons,m.revision AS presentation_revision
+            FROM pc_info_tags t LEFT JOIN pc_info_tag_rich m ON m.tag_id=t.id
+            WHERE t.active=1 ORDER BY t.name LIMIT 200`):[];
+          const tags=tagRows.map(t=>({name:t.name,body:t.body,revision:Number(t.revision),
+            title:t.title||'',imageUrl:t.image_url||'',color:Number(t.color??0x6a7bc5),
+            buttons:t.buttons?JSON.parse(t.buttons):[],presentationRevision:Number(t.presentation_revision||0)}));
           const suggestions=flags.suggestions?await listSuggestions(db,who.isOwner):[];
           const proposals=who.isStaff&&flags.tags?await pendingTagProposals(db,who):[];
           json(res,200,{modules:flags,staff:who.isStaff,owner:who.isOwner,suggestionChannelId,tags,suggestions,proposals});return;
@@ -250,6 +256,10 @@ export function application(db:Store, config:Config, discord=new Discord(config)
           else if(input.action==='tag-save')result=await saveTag(db,who,input.name,input.content);
           else if(input.action==='tag-alias')result={name:await tagAlias(db,who,input.name,input.alias)};
           else if(input.action==='tag-rollback')result=await tagRollback(db,who,input.name,Number(input.revision));
+          else if(input.action==='tag-style')result=await richTagSave(db,who,input.name,Number(input.revision),input);
+          else if(input.action==='tag-style-history')result={history:await richTagHistory(db,who,input.name)};
+          else if(input.action==='tag-style-rollback')result=await richTagRollback(db,who,input.name,
+            Number(input.revision),Number(input.target));
           else if(input.action==='tag-review')result=await reviewTag(db,who,input.id,input.decision,input.note||'');
           else throw new Problem(400,'Unknown tag action.');
           json(res,200,{ok:true,result});return;
@@ -505,7 +515,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         if(input.action==='create'){
           const channelId=String(input.channelId||''),c=await discord.guildChannel(channelId);
           requireThat(c.guild_id===config.guild&&[0,5].includes(Number(c.type)),400,'Choose a Convergence text or announcement channel.');
-          result=await createRolePanel(db,actor,{channelId,title:input.title,description:input.description||'',style:input.style,color:input.color});
+          result=await createRolePanel(db,actor,{channelId,title:input.title,description:input.description||'',style:input.style,color:input.color,imageUrl:input.imageUrl});
         }else if(input.action==='add'){
           const roleId=String(input.roleId||''),[roles,bot]=await Promise.all([
             discord.call('/guilds/'+config.guild+'/roles'),discord.call('/guilds/'+config.guild+'/members/'+config.clientId)]);
@@ -514,6 +524,14 @@ export function application(db:Store, config:Config, discord=new Discord(config)
           result=await addRoleOption(db,actor,String(input.panelId||''),Number(input.revision),roleId,input.label);
         }else if(input.action==='remove'){
           result=await removeRoleOption(db,actor,String(input.panelId||''),Number(input.revision),String(input.roleId||''));
+        }else if(input.action==='style'){
+          result=await styleRolePanel(db,actor,String(input.panelId||''),Number(input.revision),input);
+        }else if(input.action==='emoji'){
+          const roleId=String(input.roleId||''),[roles,bot]=await Promise.all([
+            discord.call('/guilds/'+config.guild+'/roles'),discord.call('/guilds/'+config.guild+'/members/'+config.clientId)]);
+          requireThat(Array.isArray(roles),503,'Could not verify Discord roles.');
+          verifyAssignableRole(roleId,roles,bot,config,settings.value.judgeRole);
+          result=await setRoleReaction(db,actor,String(input.panelId||''),Number(input.revision),roleId,String(input.emoji||''));
         }else if(input.action==='publish'){
           result=await publishRolePanel(db,actor,String(input.panelId||''),Number(input.revision),input.active);
         }else throw new Problem(400,'Unknown role panel action.');

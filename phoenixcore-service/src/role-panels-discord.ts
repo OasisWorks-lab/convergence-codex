@@ -3,7 +3,7 @@ import type {Discord,Config} from './discord.ts';
 import {Problem,readSettings,actorFor,requireThat,discordId} from './domain.ts';
 import {communityEnabled} from './community.ts';
 import {createRolePanel,addRoleOption,removeRoleOption,publishRolePanel,listRolePanels,
-  verifyAssignableRole,togglePanelRole} from './role-panels.ts';
+  verifyAssignableRole,togglePanelRole,styleRolePanel,setRoleReaction} from './role-panels.ts';
 
 const text=(name:string,description:string,required=true,max_length?:number)=>({name,type:3,description,required,...(max_length?{max_length}:{})});
 const num=(name:string,description:string)=>({name,type:4,description,required:true,min_value:1,max_value:100000000});
@@ -16,11 +16,18 @@ export const roleCommands=()=>[{name:'roles',type:1,description:'Safe Convergenc
   sub('admin-create','Owner: create an unpublished role panel.',[
     {name:'channel',type:7,description:'Destination text or announcement channel',required:true},
     text('title','Panel title',true,120),
-    {name:'style',type:3,description:'Role component style',required:true,choices:[{name:'Buttons (up to 5)',value:'buttons'},{name:'Select menu (up to 25)',value:'select'}]},
+    {name:'style',type:3,description:'Role component style',required:true,choices:[{name:'Buttons (up to 5)',value:'buttons'},{name:'Select menu (up to 25)',value:'select'},{name:'Emoji reactions (up to 20)',value:'reactions'}]},
     text('description','Panel description',false,1500)]),
   sub('admin-add','Owner: add an eligible self-assignable role.',[panel,revision,role,text('label','Visible role label',true,80)]),
   sub('admin-remove','Owner: remove a role option.',[panel,revision,role]),
-  sub('admin-publish','Owner: show or hide a role panel.',[panel,revision,{name:'enabled',type:5,description:'Publish role options',required:true}])
+  sub('admin-publish','Owner: show or hide a role panel.',[panel,revision,{name:'enabled',type:5,description:'Publish role options',required:true}]),
+  sub('admin-style','Owner: update a panel title, color, description and image.',[
+    panel,revision,text('title','Role panel title',true,120),
+    text('description','Panel description (type a hyphen for none)',true,1500),
+    {name:'color',type:4,description:'Discord hex color as integer, 0–16777215',required:true,min_value:0,max_value:16777215},
+    text('image','Optional HTTPS image URL',false,600)]),
+  sub('admin-emoji','Owner: associate a Unicode emoji with one reaction role.',[
+    panel,revision,role,text('emoji','Unicode emoji (e.g. 🔥)',true,32)])
 ]}];
 export const roleCommand=(name:string)=>name==='roles';
 const reply=(content:string)=>({type:4,data:{flags:64,content:content.slice(0,1950),allowed_mentions:{parse:[]}}});
@@ -63,6 +70,16 @@ export async function roleInteraction(db:Store,config:Config,body:any,discord:Pi
     if(action==='admin-remove'){
       const result=await removeRoleOption(db,who,panelId,v,String(value('role')||''));
       return reply('Role option removed. Existing member roles were not stripped. Revision '+result.revision+'.');
+    }
+    if(action==='admin-style'){
+      const result=await styleRolePanel(db,who,panelId,v,{title:value('title'),
+        description:value('description')==='-'?'':value('description'),
+        color:Number(value('color')),imageUrl:value('image')||''});
+      return reply('Panel appearance saved, revision '+result.revision+'. Original Discord embed will be updated.');
+    }
+    if(action==='admin-emoji'){
+      const result=await setRoleReaction(db,who,panelId,v,String(value('role')||''),String(value('emoji')||''));
+      return reply('Reaction emoji saved, revision '+result.revision+'. Add remaining emojis before publishing.');
     }
     if(action==='admin-publish'){
       const result=await publishRolePanel(db,who,panelId,v,value('enabled')===true);

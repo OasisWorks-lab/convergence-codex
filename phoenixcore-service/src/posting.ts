@@ -11,6 +11,7 @@ import type { Store } from './db.ts';
 import { Discord, handleInteraction, type Config } from './discord.ts';
 import {receiveSupportDm} from './support-dm.ts';
 import {communityEnabled} from './community.ts';
+import {applyRoleReaction,captureStickyRoles,restoreStickyRoles} from './role-persistence.ts';
 
 const channelIds=(settings:Settings)=>settings.rpChannels.split(/\s+/).filter(Boolean);
 export async function preferences(db:Store,actor:Actor,settings:Settings,liveChannels?:string[]) {
@@ -110,7 +111,12 @@ export async function relay(db:Store,config:Config,source:IncomingPost,send:(pos
 
 export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
   const {Client,GatewayIntentBits,PermissionFlagsBits,MessageType,Partials}=await import('discord.js');
-  const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.DirectMessages,GatewayIntentBits.MessageContent],partials:[Partials.Channel],rest:{retries:0}});
+  const stickyEvents=process.env.DISCORD_MEMBER_EVENTS_ENABLED==='true';
+  const client=new Client({intents:[
+    GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.DirectMessages,GatewayIntentBits.MessageContent,
+    ...(stickyEvents?[GatewayIntentBits.GuildMembers]:[])
+  ],partials:[Partials.Channel,Partials.Message,Partials.Reaction,Partials.User],rest:{retries:0}});
   const discord=new Discord(config);
   client.on('interactionCreate',async interaction=>{
     // Discord delivers interactions by HTTP or gateway, depending on the application setting.
@@ -159,6 +165,33 @@ export async function startPosting(db:Store,config:Config,scope:RoleplayScope){
       }
     }catch{console.warn('Could not verify the Discord review destinations.');}
   });
+  const roleReaction=async(reaction:any,user:any,added:boolean)=>{
+    if(user.bot)return;
+    try{
+      if(reaction.partial)reaction=await reaction.fetch();
+      const message=reaction.message.partial?await reaction.message.fetch():reaction.message;
+      if(message.guildId!==config.guild)return;
+      const emoji=reaction.emoji.id?'<:'+reaction.emoji.name+':'+reaction.emoji.id+'>':reaction.emoji.name;
+      await applyRoleReaction(db,discord,config,{guildId:message.guildId,userId:user.id,
+        channelId:message.channelId,messageId:message.id,emoji,added});
+    }catch{
+      // TODO: Preserve reaction mapping for retry after Discord permissions or network recover.
+    }
+  };
+  client.on('messageReactionAdd',(reaction,user)=>void roleReaction(reaction,user,true));
+  client.on('messageReactionRemove',(reaction,user)=>void roleReaction(reaction,user,false));
+  if(stickyEvents){
+    client.on('guildMemberRemove',member=>{
+      if(member.guild.id!==config.guild)return;
+      void captureStickyRoles(db,member.guild.id,member.id,[...member.roles.cache.keys()],config)
+        .catch(()=>console.warn('Sticky role capture unavailable.'));
+    });
+    client.on('guildMemberAdd',member=>{
+      if(member.guild.id!==config.guild)return;
+      void restoreStickyRoles(db,discord,config,member.guild.id,member.id)
+        .catch(()=>console.warn('Sticky role restore unavailable; retained snapshot will be retried on another join.'));
+    });
+  }
   client.on('threadCreate',t=>scope.archiveEvent(t));
   client.on('threadUpdate',(_,t)=>scope.archiveEvent(t));
   client.on('threadDelete',t=>scope.archiveEvent(t,true));
