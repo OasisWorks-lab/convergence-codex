@@ -60,8 +60,13 @@ export async function createSupportCase(db:Store,input:SupportInput,now=Date.now
       [input.requesterId,now-15000]);
     requireThat(Number(recent.count)<3||input.staffOpened,429,'Please avoid submitting several cases at once.');
     const id=randomUUID(),assigned=input.assigneeId||null,state=assigned?'Claimed':'Open';
-    await q('INSERT INTO pc_support_cases(id,receipt_id,kind,requester_id,status,sensitive,anonymous,summary,assigned_id,linked_mod_case_id,created_ms,updated_ms,activity_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$11)',
+    const inserted=await q('INSERT INTO pc_support_cases(id,receipt_id,kind,requester_id,status,sensitive,anonymous,summary,assigned_id,linked_mod_case_id,created_ms,updated_ms,activity_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$11) ON CONFLICT(receipt_id) DO NOTHING RETURNING id',
       [id,input.receipt,input.kind,input.requesterId,state,input.sensitive?1:0,input.anonymous?1:0,content.slice(0,130),assigned,input.linkedModCaseId||null,now]);
+    if(!inserted.length){
+      const [prior]=await q('SELECT id,requester_id,kind FROM pc_support_cases WHERE receipt_id=$1',[input.receipt]);
+      requireThat(prior&&prior.requester_id===input.requesterId&&prior.kind===input.kind,409,'Receipt belongs to another SupportCase.');
+      return {id:prior.id,created:false};
+    }
     await addEvent(q,id,'initial:'+input.receipt,input.actorId,'opened','member',content,now);
     if(assigned)await addEvent(q,id,'assigned:'+input.receipt,assigned,'assigned','staff','Auto-assigned to an eligible support member.',now);
     await q('INSERT INTO pc_support_idle(case_id,due_ms) VALUES($1,$2)',[id,now+supportIdleMs]);
