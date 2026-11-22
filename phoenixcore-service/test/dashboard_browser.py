@@ -257,7 +257,7 @@ with sync_playwright() as p:
                                "createdMs":1700000000000,"authorId":"writer"}]})
             elif url.path=="/api/giveaways":
                 if route.request.method=="GET":
-                    route.fulfill(json={"staff":False,"owner":False,"guild":"950522987646418964",
+                    route.fulfill(json={"staff":owner,"owner":owner,"guild":"950522987646418964",
                         "channels":["1573908218260885614"],"channelRevision":1,"characters":[],
                         "enteredGiveawayIds":[],"giveaways":[{
                           "id":"c21c01cb-3f65-4b16-9178-c9d247de983e","title":"An Autumn Celebration",
@@ -266,6 +266,28 @@ with sync_playwright() as p:
                           "startsMs":1700000000000,"endsMs":4700000000000,
                           "channelId":"1573908218260885614","winners":[]}]})
                 else: route.fulfill(json={"ok":True})
+            elif url.path=="/api/giveaways/c21c01cb-3f65-4b16-9178-c9d247de983e/participants":
+                assert owner, "Only Owner should request participant identities."
+                second="page=2" in url.query
+                filter_withdrawn="filter=withdrawn" in url.query
+                member={
+                    "userId":"800000000000000003","username":"rinplayer",
+                    "displayName":"<img src=x onerror=window.unsafeRoster=true>",
+                    "avatarUrl":None,"memberStatus":"current","active":True,
+                    "joinedMs":1700000000000,"updatedMs":1700000000000,
+                    "booster":True,"currentEligible":True,"currentTickets":3,
+                    "drawTickets":None,"drawEligible":None,"wins":[]}
+                returned=({"userId":"800000000000000004","username":"otheruser",
+                    "displayName":"Former participant","avatarUrl":None,
+                    "memberStatus":"left","active":False,
+                    "joinedMs":1700000000001,"updatedMs":1700000000010,
+                    "booster":None,"currentEligible":None,"currentTickets":None,
+                    "drawTickets":None,"drawEligible":None,"wins":[]} if second or filter_withdrawn else member)
+                route.fulfill(json={"giveawayId":"c21c01cb-3f65-4b16-9178-c9d247de983e",
+                    "filter":"withdrawn" if filter_withdrawn else "all","page":2 if second else 1,
+                    "pages":1 if filter_withdrawn else 2,"pageSize":25,
+                    "total":1 if filter_withdrawn else 26,"active":25,"withdrawn":1,
+                    "hasDrawSnapshot":False,"participants":[returned]})
             elif url.path=="/api/giveaways/c21c01cb-3f65-4b16-9178-c9d247de983e":
                 route.fulfill(json={"giveaways":[{
                     "id":"c21c01cb-3f65-4b16-9178-c9d247de983e","title":"An Autumn Celebration",
@@ -283,7 +305,7 @@ with sync_playwright() as p:
                 if route.request.headers.get("authorization")!="Bearer fixture":
                     route.fulfill(status=401,json={"error":"Sign in again"})
                 else:
-                    route.fulfill(json={"actor":{"id":"writer","isOwner":False,"isPlayer":True,"isJudge":False},"players":[],"characters":[],"requests":[],"catalogue":[],"settings":None,"posting":{},"currency":"Credits"})
+                    route.fulfill(json={"actor":{"id":"owner" if owner else "writer","isOwner":owner,"isPlayer":True,"isJudge":owner},"players":[],"characters":[],"requests":[],"catalogue":[],"settings":None,"posting":{},"currency":"Credits"})
             elif url.path=="/phoenixcore/config.js":
                 route.fulfill(content_type="text/javascript",body="window.PHOENIXCORE_API='https://codex.test';")
             else:
@@ -374,6 +396,21 @@ with sync_playwright() as p:
     expect(again.get_by_text("Custom event title",exact=False)).to_be_visible()
     expect(again.get_by_role("button",name="Enter giveaway")).to_be_visible()
     assert again.evaluate("sessionStorage.getItem('pc:/phoenixcore/:verifier')") is None
+    owner_dashboard=site(browser.new_context(viewport={"width":390,"height":844}),True)
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#giveaways")
+    owner_dashboard.get_by_role("link",name="An Autumn Celebration",exact=False).click()
+    expect(owner_dashboard.get_by_role("heading",name="Participant directory · Owner only")).to_be_visible()
+    expect(owner_dashboard.get_by_text("rinplayer",exact=False)).to_be_visible()
+    expect(owner_dashboard.get_by_text("3 tickets currently eligible",exact=False)).to_be_visible()
+    assert owner_dashboard.locator('img[src="x"]').count()==0, "Discord display name was injected as HTML"
+    owner_dashboard.get_by_role("button",name="Next",exact=True).click()
+    expect(owner_dashboard.get_by_text("Former participant",exact=False)).to_be_visible()
+    expect(owner_dashboard.get_by_text("Page 2 of 2")).to_be_visible()
+    owner_dashboard.get_by_role("button",name="Withdrawn",exact=True).click()
+    expect(owner_dashboard.get_by_text("Former participant",exact=False)).to_be_visible()
+    expect(owner_dashboard.get_by_text("Page 1 of 1")).to_be_visible()
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"giveaway-owner-participants-mobile.png")
     assert not problems,problems
     browser.close()
     print("Desktop and mobile verified, including templates, judgments, attained forms, archives, forum preferences, public atlas links, role-gated editing and all 30 themes.")
