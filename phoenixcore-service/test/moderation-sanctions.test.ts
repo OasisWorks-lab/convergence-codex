@@ -168,5 +168,5 @@ test('PostgreSQL concurrent sanction receipts remain one case and do not double-
   assert.equal(results.filter(x=>x.created).length,1);
   await Promise.all(Array.from({length:6},()=>executeQueuedSanction(db,api.discord,config,admin,results[0].caseId)));
   assert.equal(api.operations.filter(x=>x.method==='PATCH').length,1);
-  assert.equal((await db.query("SELECT COUNT(*) AS n FROM pc_mod_sanctions"))[0].n,1);
+  assert.equal(Number((await db.query("SELECT COUNT(*) AS n FROM pc_mod_sanctions"))[0].n),1);
 });
