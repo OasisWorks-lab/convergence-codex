@@ -400,3 +400,15 @@ The **Role Panels** website section and `/roles` command group let Convergence m
 
 **Still incomplete from the approved Carl-bot scope:** reaction-based role selection, safe sticky-role leave/rejoin restoration, expanded panel presentation (images/icons), panel reordering, advanced statistics and unified role/sticky/informational panel editor. The owner did **not** definitively authorize Owner-and-Admin panel creation, so this implementation does not silently grant Admin or Helper creation rights. If the RP gateway is not running, signed Discord slash/component interactions still work through the main interaction endpoint; live role assign/remove requires the bot's Discord permissions.
 
+
+
+## NPC-linked shopkeepers and editable shop rosters
+
+When an Owner/Helper creates a shop, the **Shopkeeper** field in the website offers a dropdown containing **all currently approved NPCs** in Convergence's authoritative `pc_characters` registry. The dropdown also includes **Custom Entry**, which reveals a required free-text name. It never invents or submits an NPC record. The Discord `/shop admin-create` and `/shop admin-keeper` commands offer the same choice via live NPC autocomplete; Discord limits each autocomplete response to 25 entries, so players can search larger directories by name, with Custom Entry always available.
+
+Approved NPC choices store a **stable `owner_npc_id`** plus a name snapshot. When the NPC is renamed or changes portrait, the shop displays the live approved name and portrait while retaining its identity. If that NPC is subsequently deleted, shops continue displaying the stored name snapshot rather than silently reassigning the merchant. Existing pre-migration shops retain their earlier custom shopkeeper names; new shopkeeper associations are optional at the schema level for backward compatibility, but the website and Discord creation screens require an explicit choice.
+
+Staff can later **switch shopkeepers** from the same selector, with version checks and audit history, without deleting the shop's stock or existing customer purchases. Staff can also **unlist an item** from one shop (website or `/shop admin-unlist`) without deleting the item definition, another shop's stock, or a character's purchased inventory; restocking the same item later is supported. Owner/Helpers have the same existing shop management authorization, with no increased privilege scope. NPC merchant selection does not yet authorize automatic NPC dialogue or ownership transfers.
+
+The change adds a nullable column to the existing shop table using an idempotent SQLite/PostgreSQL migration. Back up your live database before rolling forward, and verify the populated NPC dropdown using your currently approved NPC registry rather than a hard-coded demo roster.
+
