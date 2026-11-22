@@ -38,6 +38,7 @@ import {searchSupportCases,listSupportTemplates,saveSupportTemplate,archiveSuppo
 import {staffIdentity,requireModerator,verifyModerationTarget,hasNativeAdmin} from './staff.ts';
 import {queueSanction,executeQueuedSanction,moderationWorkspace,reconcileUnconfirmedSanctions} from './moderation-actions.ts';
 import {automodPolicy,setAutomodPolicy,automodPolicyHistory,automodIncidents,previewAutomod,cleanupAutomodObservations} from './automod.ts';
+import {createPoll,editPoll,transitionPoll,getPoll,listPolls,pollAudit,advancePolls,deliverPoll} from './polls.ts';
 import {recordCase,caseEvents,removeWarning,proxyEvidence} from './moderation.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
@@ -749,6 +750,8 @@ async function start() {
       for(let i=0;i<5;i++) if(!await advanceGiveaways(db,discord,config)) break;
       for(let i=0;i<8;i++) if(!await deliverGiveawayPost(db,discord)) break;
       for(let i=0;i<8;i++) if(!await deliverRolePanel(db,discord)) break;
+      await advancePolls(db);
+      for(let i=0;i<6;i++) if(!await deliverPoll(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}
