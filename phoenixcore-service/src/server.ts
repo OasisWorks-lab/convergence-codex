@@ -33,6 +33,7 @@ import {giveawayChannels,setGiveawayChannels,createGiveaway,giveawayEntry,giveaw
 import {chooseSupportStaff,liveSupportActor} from './support-auth.ts';
 import {staffIdentity} from './staff.ts';
 import {createSupportCase,addSupportMessage,transitionSupport,listSupportCases,supportHistory,supportAnalytics,blockSupportMember} from './support.ts';
+import {searchSupportCases,listSupportTemplates,saveSupportTemplate,archiveSupportTemplate,supportTemplateHistory,previewSupportTemplate,supportCaseFeedback,submitSupportFeedback,supportInsights} from './support-workspace.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -268,6 +269,47 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         }
         throw new Problem(400,'Unknown community action.');
       }
+      const feedbackPath=/^\/api\/support\/feedback\/([\da-f-]{36})$/.exec(path);
+      const templateHistoryPath=/^\/api\/support\/templates\/([\da-f-]{36})\/history$/.exec(path);
+      if((path==='/api/support/search'||path==='/api/support/templates'||feedbackPath||templateHistoryPath)&&
+          ['GET','POST'].includes(String(method))){
+        requireThat(await communityEnabled(db,'support'),403,'The Support Center is currently disabled.');
+        const staff=await liveSupportActor(db,discord,config,actor.id).catch(error=>{
+          if(actor.isOwner)return staffIdentity(actor.id,member.roles,'0',config,settings.value.judgeRole);
+          throw error;
+        });
+        if(method==='GET'&&path==='/api/support/search'){
+          const opts={
+            query:url.searchParams.get('query')||'',kind:url.searchParams.get('kind')||'',
+            status:url.searchParams.get('status')||'',assignedId:url.searchParams.get('assigned')||'',
+            page:Number(url.searchParams.get('page')||'1'),
+            pageSize:Number(url.searchParams.get('pageSize')||'25')};
+          json(res,200,await searchSupportCases(db,staff,opts));return;
+        }
+        if(method==='GET'&&path==='/api/support/templates'){
+          json(res,200,{templates:await listSupportTemplates(db,staff)});return;
+        }
+        if(method==='GET'&&templateHistoryPath){
+          json(res,200,{history:await supportTemplateHistory(db,staff,templateHistoryPath[1])});return;
+        }
+        if(feedbackPath){
+          if(method==='GET'){json(res,200,await supportCaseFeedback(db,staff,feedbackPath[1]));return;}
+          const input=parse(await rawBody(req,2000));
+          json(res,200,await submitSupportFeedback(db,staff,feedbackPath[1],input));return;
+        }
+        if(method==='POST'&&path==='/api/support/templates'){
+          const input=parse(await rawBody(req,5000));
+          let result;
+          if(input?.action==='save')result=await saveSupportTemplate(db,staff,input);
+          else if(input?.action==='archive')result=await archiveSupportTemplate(db,staff,
+            String(input.id||''),Number(input.revision));
+          else if(input?.action==='preview')result={body:await previewSupportTemplate(db,staff,
+            String(input.id||''),String(input.caseId||''))};
+          else throw new Problem(400,'Unknown saved reply operation.');
+          json(res,200,{result});return;
+        }
+        throw new Problem(404,'Unknown Support Center workspace action.');
+      }
       if((path==='/api/support'||/^\/api\/support\/[\da-f-]{36}$/.test(path))&&['GET','POST'].includes(String(method))){
         requireThat(await communityEnabled(db,'support'),403,'The Support Center is currently disabled.');
         const staff=await liveSupportActor(db,discord,config,actor.id).catch(error=>{
@@ -276,12 +318,18 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         });
         const match=/^\/api\/support\/([\da-f-]{36})$/.exec(path);
         if(method==='GET'&&match){
-          json(res,200,await supportHistory(db,staff,match[1]));return;
+          const [history,feedback]=await Promise.all([
+            supportHistory(db,staff,match[1]),supportCaseFeedback(db,staff,match[1])]);
+          json(res,200,{...history,feedback});return;
         }
         if(method==='GET'){
-          const cases=await listSupportCases(db,staff);
-          const stats=staff.isHelper?await supportAnalytics(db,staff):undefined;
-          json(res,200,{cases,staff:staff.isHelper,owner:staff.isOwner,stats});return;
+          const [cases,stats,insights,templates]=await Promise.all([
+            listSupportCases(db,staff),
+            staff.isHelper?supportAnalytics(db,staff):Promise.resolve(undefined),
+            staff.isHelper?supportInsights(db,staff):Promise.resolve(undefined),
+            staff.isHelper?listSupportTemplates(db,staff):Promise.resolve(undefined)
+          ]);
+          json(res,200,{cases,staff:staff.isHelper,owner:staff.isOwner,stats,insights,templates});return;
         }
         requireThat(!match,404,'Unknown Support Center action.');
         const input=parse(await rawBody(req,12288));
