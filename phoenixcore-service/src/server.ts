@@ -20,8 +20,9 @@ import { aiOptions } from './npc-voice.ts';
 import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
 import {deliverScenePanel} from './npc-panel.ts';
 import {freeProviderStatus} from './npc-ai-router.ts';
-import {communityActor,communityModules,communityEnabled,communitySetModule,saveTag,tagAlias,tagRollback,proposeTag,pendingTagProposals,reviewTag,createSuggestion,voteSuggestion,reviewSuggestion,listSuggestions,type CommunityModule} from './community.ts';
+import {communityActor,communityModules,communityEnabled,communitySetModule,saveTag,tagAlias,tagRollback,proposeTag,pendingTagProposals,reviewTag,createSuggestion,voteSuggestion,reviewSuggestion,listSuggestions,removeSuggestion,restoreSuggestion,suggestionChannelId,type CommunityModule} from './community.ts';
 import {deliverCommunityNotice} from './community-delivery.ts';
+import {deliverSuggestionPost} from './community-posts.ts';
 import { deliverScene,sendNpcPost } from './npc-delivery.ts';
 import {assess} from './review-rules.ts';
 import {deliverOwnerDenial} from './review-delivery.ts';
@@ -219,9 +220,9 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         const flags=Object.fromEntries(await Promise.all(communityModules.map(async m=>[m,await communityEnabled(db,m)])));
         if(method==='GET'){
           const tags=flags.tags?await db.query('SELECT name,body,revision FROM pc_info_tags WHERE active=1 ORDER BY name LIMIT 200'):[];
-          const suggestions=flags.suggestions?await listSuggestions(db):[];
+          const suggestions=flags.suggestions?await listSuggestions(db,who.isOwner):[];
           const proposals=who.isStaff&&flags.tags?await pendingTagProposals(db,who):[];
-          json(res,200,{modules:flags,staff:who.isStaff,owner:who.isOwner,tags,suggestions,proposals});return;
+          json(res,200,{modules:flags,staff:who.isStaff,owner:who.isOwner,suggestionChannelId,tags,suggestions,proposals});return;
         }
         const input=parse(await rawBody(req,12288));
         requireThat(input&&typeof input==='object'&&!Array.isArray(input)&&typeof input.action==='string',400,'Choose a community action.');
@@ -250,6 +251,8 @@ export function application(db:Store, config:Config, discord=new Discord(config)
             requireThat([-1,0,1].includes(input.choice),400,'Choose a ballot.');
             result={ok:await voteSuggestion(db,who,input.id,input.choice)};
           }else if(input.action==='suggest-review')result=await reviewSuggestion(db,who,input.id,input.status,input.response||'');
+          else if(input.action==='suggest-remove')result={removed:await removeSuggestion(db,who,input.id,input.reason||'')};
+          else if(input.action==='suggest-restore')result={restored:await restoreSuggestion(db,who,input.id)};
           else throw new Problem(400,'Unknown suggestion action.');
           json(res,200,{ok:true,result});return;
         }
@@ -379,6 +382,7 @@ async function start() {
       await provisionNext(db,discord,value.updatesForum);
       for(let i=0;i<8;i++) if(!await deliverNext(db,discord)) break;
       for(let i=0;i<4;i++) if(!await deliverCommunityNotice(db,discord)) break;
+      for(let i=0;i<8;i++) if(!await deliverSuggestionPost(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}

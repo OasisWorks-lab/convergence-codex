@@ -1,0 +1,102 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {openSqlite,openPostgres,initialize,type Store} from '../src/db.ts';
+import {communityActor,createSuggestion,voteSuggestion,reviewSuggestion,removeSuggestion,restoreSuggestion,getSuggestion,listSuggestions,suggestionChannelId,suggestionPost} from '../src/community.ts';
+import {deliverSuggestionPost} from '../src/community-posts.ts';
+import {DiscordFailure} from '../src/discord.ts';
+
+const guild='950522987646418964',ownerId='110000000000000001',memberId='110000000000000002';
+const owner=communityActor(ownerId,[],'0',ownerId,'');
+const member=communityActor(memberId,[],'0',ownerId,'');
+async function make(t:any){
+  const db=openSqlite(':memory:');await initialize(db,guild);t.after(()=>db.close());return db;
+}
+test('suggestions from any originating channel queue one canonical embed in the owner-selected channel',async t=>{
+  const db=await make(t);
+  const id=await createSuggestion(db,member,'More arenas','We should have a new RP zone.',true);
+  const post=await suggestionPost(db,id);
+  assert.equal(post.channel_id,suggestionChannelId);
+  assert.equal(post.message_id,null);
+  const logs:any[]=[];
+  const discord:any={call:async(path:string,init:any)=>{
+    logs.push({path,init});
+    if(init.method==='POST')return {id:'1511111111111111111'};
+    if(init.method==='PATCH')return {id:'1511111111111111111'};
+    if(init.method==='DELETE')return null;
+    throw Error('Unexpected operation');
+  }};
+  assert.equal(await deliverSuggestionPost(db,discord),true);
+  assert.equal(await deliverSuggestionPost(db,discord),false);
+  assert.equal(logs.length,1);
+  assert.equal(logs[0].path,'/channels/'+suggestionChannelId+'/messages');
+  const payload=JSON.parse(logs[0].init.body);
+  assert.equal(payload.embeds[0].fields[2].value,'Anonymous');
+  assert.equal(payload.components[0].components.length,3);
+  assert.ok(payload.components[0].components.every((b:any)=>!['Approved','Denied','Implemented'].includes(b.label)));
+  assert.equal(payload.enforce_nonce,true);
+  await voteSuggestion(db,member,id,1);
+  await reviewSuggestion(db,owner,id,'Under Review','Considering this.');
+  assert.equal(await deliverSuggestionPost(db,discord),true);
+  assert.equal(logs.length,2);
+  assert.equal(logs[1].path,'/channels/'+suggestionChannelId+'/messages/1511111111111111111');
+  assert.equal(logs[1].init.method,'PATCH');
+  const updated=JSON.parse(logs[1].init.body);
+  assert.match(updated.embeds[0].fields[1].value,/👍 1/);
+  assert.match(updated.embeds[0].fields[0].value,/Under Review/);
+  assert.equal(await deliverSuggestionPost(db,discord),false);
+  await initialize(db,guild);
+  assert.equal((await suggestionPost(db,id)).message_id,'1511111111111111111');
+});
+test('owner remove/restore hides website suggestions and deletes/reposts Discord canonical message, preserving audit',async t=>{
+  const db=await make(t),id=await createSuggestion(db,member,'Temporary test','Can be removed cleanly.',false);
+  const operations:any[]=[];
+  let n=1511111111111111111n;
+  const discord:any={call:async(path:string,init:any)=>{
+    operations.push({path,method:init.method});
+    if(init.method==='DELETE')return null;
+    return {id:String(n++)};
+  }};
+  assert.equal(await deliverSuggestionPost(db,discord),true);
+  await assert.rejects(removeSuggestion(db,member,id),/Only the server owner/);
+  assert.equal(await removeSuggestion(db,owner,id,'Testing removal'),true);
+  assert.equal(await removeSuggestion(db,owner,id),false);
+  assert.equal((await listSuggestions(db)).some(x=>x.id===id),false);
+  assert.equal((await listSuggestions(db,true)).find(x=>x.id===id).removed_ms>0,true);
+  await assert.rejects(getSuggestion(db,id),/removed/);
+  await assert.rejects(voteSuggestion(db,member,id,1),/removed/);
+  await assert.rejects(reviewSuggestion(db,member,id,'Approved'),/Only Owner/);
+  assert.equal(await deliverSuggestionPost(db,discord),true);
+  assert.equal(operations.at(-1)?.method,'DELETE');
+  assert.equal(await deliverSuggestionPost(db,discord),false);
+  assert.equal((await suggestionPost(db,id)).message_id,null);
+  assert.equal(await restoreSuggestion(db,owner,id),true);
+  assert.equal((await listSuggestions(db)).some(x=>x.id===id),true);
+  assert.equal(await deliverSuggestionPost(db,discord),true);
+  assert.equal(operations.at(-1)?.method,'POST');
+  const history=await db.query('SELECT event FROM pc_suggestion_history WHERE suggestion_id=$1 ORDER BY revision',[id]);
+  assert.deepEqual(history.map(r=>r.event),['created','removed','restored']);
+});
+test('Discord transient errors preserve one pending job without duplicating posts',async t=>{
+  const db=await make(t),id=await createSuggestion(db,member,'Keep alive','Retries should not duplicate.',false),calls:any[]=[];
+  const discord:any={call:async(path:string,init:any)=>{calls.push(path);if(calls.length===1)throw new DiscordFailure(503,0,0);return {id:'1511111111111111111'};}};
+  const now=Date.now();
+  assert.equal(await deliverSuggestionPost(db,discord,now),true);
+  assert.equal(await deliverSuggestionPost(db,discord,now+1),false);
+  const [pending]=await db.query('SELECT retry_at FROM pc_suggestion_posts WHERE suggestion_id=$1',[id]);
+  assert.ok(Number(pending.retry_at)>now);
+  assert.equal(await deliverSuggestionPost(db,discord,Number(pending.retry_at)+1),true);
+  assert.equal(calls.length,2);
+  assert.equal((await suggestionPost(db,id)).message_id,'1511111111111111111');
+});
+test('Postgres concurrent posting claims cannot publish the same suggestion twice',{skip:!process.env.PHOENIX_TEST_DATABASE_URL},async t=>{
+  const url=new URL(process.env.PHOENIX_TEST_DATABASE_URL!),admin=await openPostgres(url.href);
+  const schema='suggestion_hub_'+randomUUID().replaceAll('-','');
+  await admin.query('CREATE SCHEMA '+schema);url.searchParams.set('options','-c search_path='+schema);
+  const db=await openPostgres(url.href);t.after(async()=>{await db.close();await admin.query('DROP SCHEMA '+schema+' CASCADE');await admin.close();});
+  await initialize(db,guild);const id=await createSuggestion(db,member,'Atomic delivery','Only one post.',false);
+  const calls:any[]=[];const discord:any={call:async(path:string,init:any)=>{calls.push(path);return {id:'1511111111111111111'};}};
+  await Promise.all(Array.from({length:12},()=>deliverSuggestionPost(db,discord)));
+  assert.equal(calls.length,1);
+  assert.equal((await suggestionPost(db,id)).message_id,'1511111111111111111');
+});

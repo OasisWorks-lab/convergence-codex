@@ -259,3 +259,17 @@ All data persists through bot restarts in both SQLite and PostgreSQL. Authoritat
 ### Remaining modules
 
 This is the first completed implementation slice, **not** a claim that the 63+40+44+40+60+65+56 requested decisions are already delivered. Continue with shared authorization/jobs, moderation, unified SupportCase, self-roles/panels, approved profile fields, giveaway rewards, economy shops, and saved wheel logic. Do not invent fifth-warning punishments, wheel purchase entitlements, finance overdraft rules or fusion co-control votes.
+
+### Live-test fixes: central suggestion hub and private staff review
+
+**All new suggestions go to Convergence channel ID 1573908218260885614.** Submissions made from another channel with /suggest create or through the Community website queue one central Discord voting embed. The slash command returns a private acknowledgment. The bot records the central message ID and edits it on votes and decisions, with restart-safe delivery and retries.
+
+Give PhoenixCore View Channel, Send Messages and Embed Links permissions in that channel. Previously posted suggestions in other channels are not moved automatically, avoiding duplicate historical posts.
+
+**Private staff decisions:** use /suggest manage with the suggestion ID, or /suggest review without a status. Owner, native Discord Administrators and configured Helpers receive a private ephemeral review embed with Approved, Denied and Implemented buttons. Nonstaff never receive those controls. The server rechecks permissions on every click. Staff may still set a status and response directly with /suggest review. Public suggestion embeds show only the voting controls.
+
+**Informational tag shortcuts:** /tag save and /tag show are still registered as subcommands. PhoenixCore additionally provides top-level /pc-tag-save for staff and /pc-tag-show for members in case another app's /tag command or Discord client search obscures the grouped subcommands. Restart the bot to refresh registered commands.
+
+**Owner suggestion removal:** Community now has Remove suggestion and Restore suggestion actions. Removed suggestions disappear from ordinary website listings, cannot be voted on, and are deleted from their canonical Discord channel after the delivery worker runs. The audit trail and votes remain privately stored; restoring a suggestion makes it visible and republishes it in the central channel. This is reversible archival, not permanent data erasure.
+
+New additive tables: pc_suggestion_posts and pc_suggestion_removals. No pre-existing RP, economy, or character records are replaced.

@@ -216,7 +216,7 @@ export async function handleInteraction(db:Store, config:Config, body:any,discor
     }
     return run();
   }
-  if((body.type===2&&communityCommand(body.data?.name))||(body.type===3&&String(body.data?.custom_id||'').startsWith('pcs:vote:'))){
+  if((body.type===2&&communityCommand(body.data?.name))||(body.type===3&&String(body.data?.custom_id||'').startsWith('pcs:vote:')||String(body.data?.custom_id||'').startsWith('pcs:staff:'))){
     return communityInteraction(db,config,body);
   }
   if((body.type===2||body.type===4) && ['Character sheet','transform','revert-form'].includes(body.data?.name))return characterCommand(db,config.guild,config.dashboard,body);

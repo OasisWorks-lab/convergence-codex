@@ -476,12 +476,14 @@ function formList(raw){
       '<article class="panel dossier"><h3>'+h(item.title)+'</h3><p class="prewrap">'+h(item.body)+'</p>'+
       '<p><strong>'+h(item.status)+'</strong> · 👍 '+h(item.upvotes)+' · 👎 '+h(item.downvotes)+'</p>'+
       (item.staff_response?'<p class="prewrap"><b>Staff response:</b> '+h(item.staff_response)+'</p>':'')+
+      (item.removed_ms?'<p class="muted"><strong>Removed from the community directory.</strong> An audit record is preserved.</p>':
       '<div class="actions"><button type="button" data-community-vote="1" data-suggestion-id="'+h(item.id)+'">👍 Upvote</button>'+
       '<button type="button" data-community-vote="-1" data-suggestion-id="'+h(item.id)+'">👎 Downvote</button>'+
-      '<button type="button" data-community-vote="0" data-suggestion-id="'+h(item.id)+'">Remove vote</button></div>'+
-      (staff?'<form class="community-review-form form" data-id="'+h(item.id)+'"><label class="field"><span>Decision</span><select name="status">'+
+      '<button type="button" data-community-vote="0" data-suggestion-id="'+h(item.id)+'">Remove vote</button></div>')+
+      (staff&&!item.removed_ms?'<form class="community-review-form form" data-id="'+h(item.id)+'"><label class="field"><span>Decision</span><select name="status">'+
         ['Pending','Under Review','Approved','Denied','Implemented'].map(option=>'<option value="'+h(option)+'"'+(item.status===option?' selected':'')+'>'+h(option)+'</option>').join('')+
         '</select></label>'+field('response','Official staff response',item.staff_response||'',{area:true,max:950,wide:true})+'<button class="primary">Save decision</button></form>':'')+
+      (owner?'<div class="actions"><button type="button" data-community-suggestion-action="'+(item.removed_ms?'restore':'remove')+'" data-suggestion-id="'+h(item.id)+'">'+(item.removed_ms?'Restore suggestion':'Remove suggestion')+'</button></div>':'')+
       '</article>').join('');
     const proposalCards=staff?(data.proposals||[]).map(p=>'<article class="panel dossier"><h3>'+h(p.name)+'</h3><p class="prewrap">'+h(p.body)+'</p>'+
       '<p class="muted">Submitted by '+h(p.author_id)+'</p><div class="actions"><button type="button" data-community-proposal="approve" data-proposal-id="'+h(p.id)+'">Approve</button>'+
@@ -500,7 +502,7 @@ function formList(raw){
           '<form id="community-rollback-form" class="panel form">'+field('name','Tag to restore','',{required:true,max:40})+
           field('revision','Previous revision','',{required:true,max:8,numeric:true})+'<button class="primary">Restore version</button></form></section>':'')+'</section>':
         '<section class="panel"><h2>Informational tags</h2><p>This module is disabled.</p></section>')+
-      (active.suggestions?'<section class="stack"><h2>Member suggestions</h2>'+(suggestions||'<section class="panel"><p>No suggestions have been submitted yet.</p></section>')+
+      (active.suggestions?'<section class="stack"><h2>Member suggestions</h2><p class="muted">New submissions from Discord or this website appear in the designated suggestions channel (ID '+h(data.suggestionChannelId||'1573908218260885614')+').</p>'+(suggestions||'<section class="panel"><p>No suggestions have been submitted yet.</p></section>')+
         '<section class="panel dossier"><h3>Submit a suggestion</h3><form id="community-suggest-form" class="form">'+
         field('title','Suggestion title','',{required:true,max:120})+
         field('content','What should be improved?','',{required:true,area:true,wide:true,max:1800})+
@@ -639,6 +641,16 @@ function formList(raw){
       try{
         await call('/api/community','POST',{action:'suggest-vote',id:communityVote.dataset.suggestionId,choice:Number(communityVote.dataset.communityVote)});
         communityData=null;await communityRefresh();tell('Your vote was saved.');
+      }catch(error){tell(error.message,true);}
+      return;
+    }
+    const suggestionAction=e.target.closest('[data-community-suggestion-action]');
+    if(suggestionAction){
+      try{
+        const action=suggestionAction.dataset.communitySuggestionAction,id=suggestionAction.dataset.suggestionId;
+        if(!confirm(action==='remove'?'Remove this suggestion from the website and its central Discord channel? The audit record will remain.':'Restore this suggestion and repost it to the central channel?'))return;
+        await call('/api/community','POST',{action:action==='remove'?'suggest-remove':'suggest-restore',id});
+        communityData=null;await communityRefresh();tell(action==='remove'?'Suggestion removed.':'Suggestion restored.');
       }catch(error){tell(error.message,true);}
       return;
     }

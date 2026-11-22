@@ -3,6 +3,7 @@ import {requireThat,textValue} from './domain.ts';
 import type {Store,Query} from './db.ts';
 
 export const communityModules=['tags','suggestions'] as const;
+export const suggestionChannelId='1573908218260885614';
 export type CommunityModule=typeof communityModules[number];
 export type CommunityActor={id:string;isOwner:boolean;isStaff:boolean};
 export const suggestionStatuses=['Pending','Under Review','Approved','Denied','Implemented'] as const;
@@ -127,17 +128,19 @@ export async function createSuggestion(db:Store,actor:CommunityActor,heading:str
       [id,actor.id,textValue(heading,120,'Title',true),textValue(body,1800,'Suggestion',true),anonymous?1:0,'Pending',now]);
     await q('INSERT INTO pc_suggestion_history(suggestion_id,revision,event,actor_id,detail,occurred_ms) VALUES($1,1,$2,$3,$4,$5)',
       [id,'created',actor.id,'',now]);
+    await q('INSERT INTO pc_suggestion_posts(suggestion_id,channel_id) VALUES($1,$2)',[id,suggestionChannelId]);
   });
   return id;
 }
-export async function getSuggestion(db:Store,id:string){
+export async function getSuggestion(db:Store,id:string,includeRemoved=false){
   requireThat(idPattern.test(id),400,'Invalid suggestion ID.');
   const [row]=await db.query('SELECT s.*,COALESCE(SUM(CASE WHEN v.choice=1 THEN 1 ELSE 0 END),0) AS upvotes,COALESCE(SUM(CASE WHEN v.choice=-1 THEN 1 ELSE 0 END),0) AS downvotes FROM pc_suggestions s LEFT JOIN pc_suggestion_votes v ON v.suggestion_id=s.id WHERE s.id=$1 GROUP BY s.id',[id]);
   requireThat(row,404,'Suggestion unavailable.');
+  if(!includeRemoved){const [removed]=await db.query('SELECT suggestion_id FROM pc_suggestion_removals WHERE suggestion_id=$1',[id]);requireThat(!removed,404,'This suggestion has been removed.');}
   return row;
 }
-export async function listSuggestions(db:Store){
-  return db.query('SELECT s.id,s.title,s.body,s.staff_response,s.anonymous,s.status,s.created_ms,COALESCE(SUM(CASE WHEN v.choice=1 THEN 1 ELSE 0 END),0) AS upvotes,COALESCE(SUM(CASE WHEN v.choice=-1 THEN 1 ELSE 0 END),0) AS downvotes FROM pc_suggestions s LEFT JOIN pc_suggestion_votes v ON v.suggestion_id=s.id GROUP BY s.id ORDER BY s.created_ms DESC LIMIT 15');
+export async function listSuggestions(db:Store,includeRemoved=false){
+  return db.query("SELECT s.id,s.title,s.body,s.staff_response,s.anonymous,s.status,s.created_ms, r.removed_ms, COALESCE(SUM(CASE WHEN v.choice=1 THEN 1 ELSE 0 END),0) AS upvotes,COALESCE(SUM(CASE WHEN v.choice=-1 THEN 1 ELSE 0 END),0) AS downvotes FROM pc_suggestions s LEFT JOIN pc_suggestion_votes v ON v.suggestion_id=s.id LEFT JOIN pc_suggestion_removals r ON r.suggestion_id=s.id "+(includeRemoved?'':"WHERE r.suggestion_id IS NULL ")+"GROUP BY s.id,r.removed_ms ORDER BY s.created_ms DESC LIMIT 40");
 }
 export async function voteSuggestion(db:Store,actor:CommunityActor,id:string,choice:number){
   requireThat(idPattern.test(id),400,'Invalid suggestion ID.');
@@ -145,9 +148,11 @@ export async function voteSuggestion(db:Store,actor:CommunityActor,id:string,cho
   return db.transaction(async q=>{
     const [row]=await q('SELECT status FROM pc_suggestions WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
     requireThat(row,404,'Suggestion unavailable.');
+    requireThat(!(await q('SELECT suggestion_id FROM pc_suggestion_removals WHERE suggestion_id=$1',[id])).length,404,'This suggestion has been removed.');
     requireThat(!['Denied','Implemented'].includes(row.status),409,'Voting is closed.');
     if(choice===0)await q('DELETE FROM pc_suggestion_votes WHERE suggestion_id=$1 AND voter_id=$2',[id,actor.id]);
     else await q('INSERT INTO pc_suggestion_votes(suggestion_id,voter_id,choice,updated_ms) VALUES($1,$2,$3,$4) ON CONFLICT(suggestion_id,voter_id) DO UPDATE SET choice=excluded.choice,updated_ms=excluded.updated_ms',[id,actor.id,choice,Date.now()]);
+    await q('UPDATE pc_suggestion_posts SET revision=revision+1,retry_at=0 WHERE suggestion_id=$1',[id]);
     return true;
   });
 }
@@ -158,6 +163,7 @@ export async function reviewSuggestion(db:Store,actor:CommunityActor,id:string,s
   return db.transaction(async q=>{
     const [row]=await q('SELECT * FROM pc_suggestions WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
     requireThat(row,404,'Suggestion unavailable.');
+    requireThat(!(await q('SELECT suggestion_id FROM pc_suggestion_removals WHERE suggestion_id=$1',[id])).length,404,'This suggestion has been removed.');
     const answer=textValue(response,950,'Staff response'),now=Date.now();
     if(row.status===status&&row.staff_response===answer)return {status,anonymous:Number(row.anonymous)===1,authorId:row.author_id};
     await q('UPDATE pc_suggestions SET status=$1,staff_response=$2,reviewed_by=$3,updated_ms=$4 WHERE id=$5',[status,answer,actor.id,now,id]);
@@ -166,9 +172,48 @@ export async function reviewSuggestion(db:Store,actor:CommunityActor,id:string,s
       [id,Number(last.next),'status:'+status,actor.id,answer,now]);
     await q('INSERT INTO pc_community_notifications(id,suggestion_id,user_id,payload,status,not_before) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING',
       ['suggestion:'+id+':'+Number(last.next),id,row.author_id,JSON.stringify({title:row.title,status,response:answer}), 'pending', now]);
+    await q('UPDATE pc_suggestion_posts SET revision=revision+1,retry_at=0 WHERE suggestion_id=$1',[id]);
     return {status,anonymous:Number(row.anonymous)===1,authorId:row.author_id};
   });
 }
+
+export async function removeSuggestion(db:Store,actor:CommunityActor,id:string,reason=''){
+  requireThat(actor.isOwner,403,'Only the server owner may remove suggestions.');
+  requireThat(idPattern.test(id),400,'Invalid suggestion ID.');
+  return db.transaction(async q=>{
+    const [row]=await q('SELECT id FROM pc_suggestions WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
+    requireThat(row,404,'Suggestion unavailable.');
+    const inserted=await q('INSERT INTO pc_suggestion_removals(suggestion_id,removed_by,removed_ms,reason) VALUES($1,$2,$3,$4) ON CONFLICT(suggestion_id) DO NOTHING RETURNING suggestion_id',
+      [id,actor.id,Date.now(),textValue(reason,300,'Removal reason')]);
+    if(!inserted.length)return false;
+    const [last]=await q('SELECT COALESCE(MAX(revision),0)+1 AS next FROM pc_suggestion_history WHERE suggestion_id=$1',[id]);
+    await q('INSERT INTO pc_suggestion_history(suggestion_id,revision,event,actor_id,detail,occurred_ms) VALUES($1,$2,$3,$4,$5,$6)',
+      [id,Number(last.next),'removed',actor.id,textValue(reason,300,'Removal reason'),Date.now()]);
+    await q('UPDATE pc_suggestion_posts SET revision=revision+1,retry_at=0 WHERE suggestion_id=$1',[id]);
+    await q("UPDATE pc_community_notifications SET status='suppressed' WHERE suggestion_id=$1 AND status='pending'",[id]);
+    return true;
+  });
+}
+export async function restoreSuggestion(db:Store,actor:CommunityActor,id:string){
+  requireThat(actor.isOwner,403,'Only the server owner may restore suggestions.');
+  requireThat(idPattern.test(id),400,'Invalid suggestion ID.');
+  return db.transaction(async q=>{
+    const [row]=await q('SELECT id FROM pc_suggestions WHERE id=$1'+(db.dialect==='postgres'?' FOR UPDATE':''),[id]);
+    requireThat(row,404,'Suggestion unavailable.');
+    const restored=await q('DELETE FROM pc_suggestion_removals WHERE suggestion_id=$1 RETURNING suggestion_id',[id]);
+    if(!restored.length)return false;
+    const [last]=await q('SELECT COALESCE(MAX(revision),0)+1 AS next FROM pc_suggestion_history WHERE suggestion_id=$1',[id]);
+    await q('INSERT INTO pc_suggestion_history(suggestion_id,revision,event,actor_id,detail,occurred_ms) VALUES($1,$2,$3,$4,$5,$6)',
+      [id,Number(last.next),'restored',actor.id,'',Date.now()]);
+    await q('UPDATE pc_suggestion_posts SET revision=revision+1,retry_at=0 WHERE suggestion_id=$1',[id]);
+    return true;
+  });
+}
+export async function suggestionPost(db:Store,id:string){
+  const [row]=await db.query('SELECT channel_id,message_id,revision,delivered_revision FROM pc_suggestion_posts WHERE suggestion_id=$1',[id]);
+  return row||null;
+}
+
 export function suggestionDisplay(row:any){
   const author=Number(row.anonymous)===1?'Anonymous':'<@'+row.author_id+'>';
   return {embeds:[{title:'Suggestion · '+row.title,description:row.body,color:0x7566c9,
