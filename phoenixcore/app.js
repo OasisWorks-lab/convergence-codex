@@ -153,7 +153,7 @@
       traits.map(k=>'<div class="stat-row"><span>'+h(label[k])+'</span><strong>'+h(effective[k]||'Unrecorded')+'</strong></div>').join('')+'</section></div>'+
       '<div class="stack"><section class="panel"><h3>Wallet &amp; gear</h3><p>Cash · <b>'+h(num(account?.cash??s.wallet))+'</b> '+h(state.currency)+'</p>'+
        (account?'<p>Bank · <b>'+h(num(account.bank))+'</b> '+h(state.currency)+'</p>':'')+
-       (own&&account?'<div class="actions">'+btn('bank-deposit','Deposit to bank')+btn('bank-withdraw','Withdraw from bank')+'</div>':'')+
+       (own&&account?'<div class="actions">'+btn('bank-deposit','Deposit to bank')+btn('bank-withdraw','Withdraw from bank')+'</div>':'')+(account?'<div class="actions">'+btn('bank-statement','Transaction history')+'</div><div id="statement" class="muted" role="region" aria-label="Character transaction history" hidden></div>':'')+
        '<div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section></div></div><section class="panel dossier"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section>'+
       (s.progress?.length?'<section class="panel dossier"><h3>Training stats</h3>'+s.progress.filter(x=>x.name.toLowerCase()!=='strength').map(x=>'<div class="stat-row"><span>'+h(x.name)+'</span><strong>'+h(num(x.amount))+'</strong></div>').join('')+'</section>':'')+
       '<div class="stack sheet-dossier">'+formsPanel(c)+displayGroups('create',s,['name','lineage','portrait','tag','bio','bpl','attainedForms',...traits])+'</div>'+
@@ -587,6 +587,16 @@ function formList(raw){
         await load();go('archived');tell('Archived request deleted.');return;
       }
       if(action==='login'){await login();return;}
+      if(action==='bank-statement'){
+        const id=route().slice(6),target=$('#statement');if(!target)return;
+        const records=demo?[]:(await call('/api/economy/characters/'+id+'/statement')).transactions;
+        target.hidden=false;
+        target.innerHTML=records.length?'<h4>Recent transactions</h4><div class="stack">'+records.slice(0,25).map(t=>
+          '<p class="stat-row"><span>'+h(new Date(t.created).toLocaleString())+' · '+h(t.kind.replaceAll('_',' '))+
+          '</span><strong>'+h(num(t.cashAfter))+' cash · '+h(num(t.bankAfter))+' bank</strong></p>').join('')+'</div>':
+          '<p>No transactions recorded yet.</p>';
+        return;
+      }
       if(action==='bank-deposit'||action==='bank-withdraw'){
         const id=route().slice(6),character=state.characters.find(c=>c.id===id);
         if(!character||character.ownerId!==state.actor.id)return;
