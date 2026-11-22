@@ -580,10 +580,22 @@ function formList(raw){
     if(e.target.closest('.attained-row'))syncForms(e.target.form);
     if(e.target.name==='lineage')refreshChoices(e.target.form);
     if(e.target.id==='filter')filterPlayers();
+    if(e.target.id==='community-search'){
+      const word=e.target.value.trim().toLowerCase();
+      document.querySelectorAll('.community-tag').forEach(card=>{card.hidden=!card.dataset.communityName.includes(word)&&!card.textContent.toLowerCase().includes(word);});
+    }
     if(e.target.form?.id==='submissionForm' && !e.target.matches('[data-media-file]')){recordDraft();tierFeedback();syncEditMode(e.target.form);}
     if(e.target.form?.id==='awardForm')estimate();
   });
   document.addEventListener('change',async e=>{
+    if(e.target.matches('[data-community-toggle]')){
+      const control=e.target,module=control.dataset.communityToggle;
+      try{
+        await call('/api/community','POST',{action:'module-set',module,enabled:control.checked});
+        communityData=null;await communityRefresh();tell(module+' module updated.');
+      }catch(error){control.checked=!control.checked;tell(error.message,true);}
+      return;
+    }
     if(e.target.matches('[data-lineage]')){
       const f=e.target.form,custom=e.target.value==='__custom',input=f.elements.lineage;
       input.closest('label').hidden=!custom;input.value=custom?'':e.target.value;if(custom)input.focus();
@@ -622,6 +634,24 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const communityVote=e.target.closest('[data-community-vote]');
+    if(communityVote){
+      try{
+        await call('/api/community','POST',{action:'suggest-vote',id:communityVote.dataset.suggestionId,choice:Number(communityVote.dataset.communityVote)});
+        communityData=null;await communityRefresh();tell('Your vote was saved.');
+      }catch(error){tell(error.message,true);}
+      return;
+    }
+    const communityProposal=e.target.closest('[data-community-proposal]');
+    if(communityProposal){
+      try{
+        const decision=communityProposal.dataset.communityProposal,id=communityProposal.dataset.proposalId;
+        if(!confirm((decision==='approve'?'Publish':'Decline')+' this informational tag proposal?'))return;
+        await call('/api/community','POST',{action:'tag-review',id,decision});
+        communityData=null;await communityRefresh();tell('Tag proposal reviewed.');
+      }catch(error){tell(error.message,true);}
+      return;
+    }
     const move=e.target.closest('[data-move-form]');
     if(move){
       const row=move.closest('.attained-row'),parent=row.parentElement,up=move.dataset.moveForm==='up',sibling=up?row.previousElementSibling:row.nextElementSibling;
@@ -717,6 +747,27 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(!['community-tag-form','community-suggest-form','community-rollback-form'].includes(f.id)&&!f.classList.contains('community-review-form'))return;
+    e.preventDefault();
+    if(demo){tell('Practice mode cannot publish community content.');return;}
+    const fields=Object.fromEntries(new FormData(f));
+    const action=f.id==='community-tag-form'?(communityData?.staff?'tag-save':'tag-propose'):
+      f.id==='community-suggest-form'?'suggest-create':
+      f.id==='community-rollback-form'?'tag-rollback':'suggest-review';
+    const payload={action,...fields};
+    if(action==='tag-save'||action==='tag-propose')payload.content=fields.content;
+    if(action==='suggest-create')payload.anonymous=fields.anonymous==='on';
+    if(action==='tag-rollback')payload.revision=Number(fields.revision);
+    if(action==='suggest-review')payload.id=f.dataset.id;
+    const submit=f.querySelector('button.primary');if(submit?.disabled)return;if(submit)submit.disabled=true;
+    try{
+      await call('/api/community','POST',payload);
+      communityData=null;await communityRefresh();tell('Community changes saved.');
+    }catch(error){tell(error.message,true);}
+    finally{if(submit)submit.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;if(!['submissionForm','awardForm','settingsForm','defaultForm','attributionForm'].includes(f.id)&&!f.matches('.tag-form,.race-path-form,.embed-form'))return;
     e.preventDefault();const submit=f.querySelector('button.primary');if(submit.disabled)return;
