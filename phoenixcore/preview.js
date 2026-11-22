@@ -14,7 +14,7 @@
     {id:'a4a12b86-6d0c-4aa9-80f1-c219352fb93f',ownerId:ids.judge,version:1,sheet:{...base,name:'Vey',lineage:'Cerealian',bio:'A scout learning to trust a partner.',bpl:'8600',wallet:'70'}}
   ];
   const forms=window.PhoenixForms, sampleChannel='555555555555555555';
-  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'1100315893864603649',commandPrefixes:'pc!',submissionMessage:'{helper} A {type} submission for {character} is ready for review.',reviewChannel:'',...forms.reviewRoutes,currency:'Credits',rpChannels:sampleChannel,rpDivider:''}};
+  let requests=[],role='player',settings={revision:1,value:{playerRole:'',judgeRole:'1100315893864603649',commandPrefixes:'pc!',submissionMessage:'{helper} A {type} submission for {character} is ready for review.',reviewChannel:'',...forms.reviewRoutes,currency:'Zeni',rpChannels:sampleChannel,rpDivider:''}};
   const embeds=[],designs=[],tags=[],defaults=[],favorites=[],banks=new Map(),clone=x=>JSON.parse(JSON.stringify(x));
   function state() {
     const id=ids[role],owner=role==='owner',judge=owner||role==='judge',channels=settings.value.rpChannels.split(/\s+/).filter(Boolean);
