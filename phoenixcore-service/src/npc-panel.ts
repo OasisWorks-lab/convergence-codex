@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import type {Query,Store} from './db.ts';
 import type {Scene} from './npc-voice.ts';
-import {controls,lockedScene,noMentions,order} from './npc-turns.ts';
+import {controls,noMentions,order} from './npc-turns.ts';
 
 type PanelRecord={scene_id:string;message_id?:string;embed:string;revision:number;delivered_revision:number;lease?:string;channel_id:string;state:string};
 const fallback=(s:Scene)=>({
@@ -32,10 +32,10 @@ export async function deliverScenePanel(db:Store,send:(channel:string,payload:an
   });
   if(!job)return false;
   const scene:Scene=JSON.parse(job.state);
-  const payload=scenePanel(scene,JSON.parse(job.embed));
+  const payload:any=scenePanel(scene,JSON.parse(job.embed));
   if(!job.message_id){
-    payload['nonce' as keyof typeof payload]=createHash('sha256').update('panel:'+job.scene_id).digest('base64url').slice(0,24) as never;
-    payload['enforce_nonce' as keyof typeof payload]=true as never;
+    payload.nonce=createHash('sha256').update('panel:'+job.scene_id).digest('base64url').slice(0,24);
+    payload.enforce_nonce=true;
   }
   try{
     const result=await send(job.channel_id,payload,job.message_id||undefined);
