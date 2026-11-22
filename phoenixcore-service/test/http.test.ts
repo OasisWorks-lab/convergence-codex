@@ -100,6 +100,16 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await click(ids.judge,control)).type,4);
   assert.equal((await click(ids.owner,control)).type,7);
   assert.equal((await state(writer)).characters[0].sheet.name,'Rin');
+  assert.deepEqual((await state(writer)).favoriteCharacterIds,[]);
+  assert.equal((await post('/api/favorites',{characterId:form.id,favorite:true})).status,401);
+  assert.equal((await post('/api/favorites',{characterId:form.id,favorite:'yes'},writer)).status,400);
+  assert.equal((await post('/api/favorites',{characterId:randomUUID(),favorite:true},writer)).status,404);
+  assert.equal((await post('/api/favorites',{characterId:form.id,favorite:true},writer)).status,200);
+  assert.equal((await post('/api/favorites',{characterId:form.id,favorite:true},writer)).status,200);
+  assert.deepEqual((await state(writer)).favoriteCharacterIds,[form.id]);
+  assert.deepEqual((await state(extra)).favoriteCharacterIds,[]);
+  assert.equal((await post('/api/favorites',{characterId:form.id,favorite:false},writer)).status,200);
+  assert.deepEqual((await state(writer)).favoriteCharacterIds,[]);
   const edit={id:randomUUID(),kind:'edit',characterId:form.id,version:1,fields:{speed:'Patient and precise'},reason:'Correct description'};
   assert.equal((await post('/api/requests',edit,extra)).status,403);
   assert.equal((await post('/api/requests',edit,writer)).status,200);

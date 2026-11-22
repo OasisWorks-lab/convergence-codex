@@ -127,15 +127,17 @@
     const players=state.players.filter(p=>(p.display+' '+p.username+' '+p.id).toLowerCase().includes(query)).sort((a,b)=>a.display.localeCompare(b.display));
     $('#players').innerHTML=players.map(playerCard).join('')||(lookup&&isPost?'':'<p class="empty">No players match this view.</p>');
   }
-  function characterCard(c){return '<a class="card char-card" href="#sheet-'+h(c.id)+'"><div class="char-art">'+avatar(c.sheet.name,c.id,c.sheet.portrait)+'</div><div class="card-copy"><h3>'+h(c.sheet.name)+'</h3><p class="muted">'+h(c.sheet.lineage||'Lineage unlisted')+'</p><span class="bpl">'+h(num(c.sheet.bpl))+' BPL</span></div></a>';}
+  const isFavorite=id=>(state.favoriteCharacterIds||[]).includes(id);
+  const byFavorite=(a,b)=>Number(isFavorite(b.id))-Number(isFavorite(a.id))||a.sheet.name.localeCompare(b.sheet.name);
+  function characterCard(c){return '<a class="card char-card" href="#sheet-'+h(c.id)+'"><div class="char-art">'+avatar(c.sheet.name,c.id,c.sheet.portrait)+'</div><div class="card-copy"><h3>'+h(c.sheet.name)+(isFavorite(c.id)?' ★':'')+'</h3><p class="muted">'+h(c.sheet.lineage||'Lineage unlisted')+'</p><span class="bpl">'+h(num(c.sheet.bpl))+' BPL</span></div></a>';}
   function npcDirectory(){
-    const npcs=state.characters.filter(c=>c.sheet.characterType==='NPC').sort((a,b)=>a.sheet.name.localeCompare(b.sheet.name));
+    const npcs=state.characters.filter(c=>c.sheet.characterType==='NPC').sort(byFavorite);
     return breadcrumbs([link('directory','Directory'),'NPC catalog'])+title('NPC catalog','Choose one of these names in /roleplay-start in a Convergence RP channel or forum post.')+
       (npcs.length?'<div class="grid">'+npcs.map(characterCard).join('')+'</div>':'<p class="empty">Approved NPCs will appear here.</p>');
   }
   function player(id){
     const p=state.players.find(p=>p.id===id);if(!p)return missing();
-    const chars=state.characters.filter(c=>c.ownerId===id).sort((a,b)=>a.sheet.name.localeCompare(b.sheet.name));
+    const chars=state.characters.filter(c=>c.ownerId===id).sort(byFavorite);
     return breadcrumbs([link('directory','Directory'),h(p.display)])+'<div class="sheet-head">'+avatar(p.display,p.id,p.avatar)+title(p.display,'@'+p.username)+(p.updatesUrl?'<a class="button" href="'+h(p.updatesUrl)+'" target="_blank" rel="noopener">Open OC Updates ↗</a>':'')+'</div>'+
       '<div class="section-head"><h2>Characters</h2>'+(id===state.actor.id&&state.actor.isPlayer?link('new','New Submission','button primary'):'')+'</div>'+
       (chars.length?'<div class="grid">'+chars.map(characterCard).join('')+'</div>':'<p class="empty">This player has no approved characters yet.</p>');
@@ -146,7 +148,7 @@
     const own=c.ownerId===state.actor.id,active=forms.readForms(s.attainedForms).find(f=>f.id===c.activeForm),effective=forms.effectiveSheet(s,active);
     return breadcrumbs([link('directory','Directory'),(s.characterType==='NPC'?link('npcs','NPC catalog'):link('player-'+c.ownerId,ownerName(c.ownerId))),h(s.name)])+
       '<div class="sheet-head">'+avatar(s.name,c.id,active?.portrait||s.portrait)+'<div><p class="eyeline">Character sheet · Revision '+h(c.version)+'</p><h1>'+h(s.name)+'</h1><p class="muted">'+h(s.lineage||'Lineage unlisted')+'</p><p>RP posting tag · '+(c.tag?'<code>'+h(c.tag)+'</code>':'Unassigned')+'</p></div></div>'+
-      '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+(own?link('edit-'+id,'Propose edit','button primary')+link('forms-'+id,'Add attained transformation','button')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
+      '<div class="section-head"><h2>Approved stats</h2><div class="tools">'+btn('favorite-character',isFavorite(id)?'★ Remove favorite':'☆ Favorite')+(own?link('edit-'+id,'Propose edit','button primary')+link('forms-'+id,'Add attained transformation','button')+link('train-'+id,'Submit training','button'):'')+(state.actor.isJudge?link('award-'+id,'Judge a reward','button'):'')+'</div></div>'+
       '<div class="two"><div class="stack"><section class="panel"><h3>Base Power Level</h3><div class="big-number">'+h(num(s.bpl))+'</div>'+(active?'<h3>Power Level · '+h(active.name)+'</h3><div class="big-number">'+h(num(effective.bpl))+'</div>':'')+'</section><section class="panel"><h3>Attributes</h3>'+
       traits.map(k=>'<div class="stat-row"><span>'+h(label[k])+'</span><strong>'+h(effective[k]||'Unrecorded')+'</strong></div>').join('')+'</section></div>'+
       '<div class="stack"><section class="panel"><h3>Wallet &amp; gear</h3><p><b>'+h(num(s.wallet))+'</b> '+h(state.currency)+'</p><div class="pills">'+(s.gear.length?s.gear.map(g=>'<span class="pill">'+h(g)+'</span>').join(''):'<span class="muted">No gear recorded.</span>')+'</div></section></div></div><section class="panel dossier"><h3>Background</h3><p class="prewrap">'+h(s.bio||'No background recorded.')+'</p></section>'+
@@ -582,6 +584,12 @@ function formList(raw){
         await load();go('archived');tell('Archived request deleted.');return;
       }
       if(action==='login'){await login();return;}
+      if(action==='favorite-character'){
+        const id=route().slice(6),on=!isFavorite(id);
+        if(!state.characters.some(c=>c.id===id))return;
+        if(demo)preview.favorite(id,on);else await call('/api/favorites','POST',{characterId:id,favorite:on});
+        await load();tell(on?'Character added to favorites.':'Character removed from favorites.');return;
+      }
       if(action==='remove-character'&&state.actor.isOwner){
         const c=state.characters.find(c=>c.id===route().slice(6));
         if(!c||!confirm('Remove '+c.sheet.name+' from '+ownerName(c.ownerId)+'’s profile? This closes open requests and clears posting defaults for this character.'))return;

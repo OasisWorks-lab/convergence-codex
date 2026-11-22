@@ -102,6 +102,7 @@ const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_settings_history (revision INTEGER PRIMARY KEY, actor TEXT NOT NULL, old_value TEXT NOT NULL, new_value TEXT NOT NULL, at_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_characters (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision INTEGER NOT NULL, sheet TEXT NOT NULL)',
   'CREATE INDEX IF NOT EXISTS pc_characters_owner ON pc_characters(owner_id)',
+  'CREATE TABLE IF NOT EXISTS pc_character_favorites (user_id TEXT NOT NULL, character_id TEXT NOT NULL REFERENCES pc_characters(id) ON DELETE CASCADE, created_ms BIGINT NOT NULL, PRIMARY KEY(user_id,character_id))',
   `CREATE TABLE IF NOT EXISTS pc_requests (
     id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, kind TEXT NOT NULL, character_id TEXT NOT NULL,
     owner_id TEXT NOT NULL, author_id TEXT NOT NULL, base_revision INTEGER NOT NULL,
