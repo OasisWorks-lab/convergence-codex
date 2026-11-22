@@ -696,6 +696,19 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const staffAction=e.target.closest('[data-support-action]');
+    if(staffAction){
+      const action=staffAction.dataset.supportAction,caseId=staffAction.dataset.supportId;
+      if(['close','resolve','sensitive'].includes(action)&&!confirm(action==='sensitive'?
+        'Restrict staff visibility to the Owner only?':'Apply '+action+' to this SupportCase?'))return;
+      staffAction.disabled=true;
+      try{
+        await call('/api/support','POST',{action,caseId});
+        supportDetail=null;await supportRefresh();tell('SupportCase updated.');
+      }catch(error){tell(error.message,true);}
+      finally{staffAction.disabled=false;}
+      return;
+    }
     const communityVote=e.target.closest('[data-community-vote]');
     if(communityVote){
       try{
@@ -819,6 +832,29 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(f.id!=='support-open-form'&&!f.classList.contains('support-message-form'))return;
+    e.preventDefault();
+    if(demo){tell('Practice mode cannot submit private support messages.');return;}
+    const button=f.querySelector('button.primary');if(button?.disabled)return;
+    const fields=Object.fromEntries(new FormData(f)),receipt=f.dataset.receipt||crypto.randomUUID();
+    f.dataset.receipt=receipt;
+    const payload=f.id==='support-open-form'?
+      {action:'create',kind:fields.kind,message:fields.message,anonymous:fields.anonymous==='on'&&fields.kind==='report',receipt}:
+      {action:f.dataset.mode,caseId:f.dataset.id,message:fields.message,signed:fields.signed==='on',receipt};
+    if(button)button.disabled=true;
+    try{
+      const result=await call('/api/support','POST',payload);
+      delete f.dataset.receipt;
+      supportDetail=null;supportData=null;
+      if(f.id==='support-open-form'&&result.result?.id)location.hash='support-'+result.result.id;
+      await supportRefresh();tell(f.id==='support-open-form'?'Private SupportCase created.':
+        payload.action==='note'?'Private staff note saved; no member DM sent.':
+        payload.action==='send'?'Explicit staff reply queued for a DM.':'Message added to the case.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;
     if(!['community-tag-form','community-suggest-form','community-rollback-form'].includes(f.id)&&!f.classList.contains('community-review-form'))return;
