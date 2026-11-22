@@ -159,6 +159,15 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal((await post('/api/support',{action:'sensitive',caseId:reportId},owner)).status,200);
   assert.equal((await get('/api/support/'+reportId,{headers:{authorization:'Bearer '+judge,origin}})).status,403);
   const shopPath='/api/economy/shops';
+  const salesPath='/api/economy/shops/sales';
+  assert.equal((await get(salesPath)).status,401);
+  assert.equal((await get(salesPath,{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+  const helperSales=await get(salesPath,{headers:{authorization:'Bearer '+judge,origin}});
+  assert.equal(helperSales.status,200);
+  const initialSales=await helperSales.json();
+  assert.equal(initialSales.overall.all.zeni,'0');
+  assert.equal(initialSales.overall.all.receipts,'0');
+
   assert.equal((await get(shopPath)).status,401);
   assert.equal((await get(shopPath,{headers:{authorization:'Bearer '+writer,origin}})).status,200);
   assert.equal((await post(shopPath,{action:'create-item',name:'Injected Sword',kind:'equipment',basePrice:'100'},writer)).status,403);
