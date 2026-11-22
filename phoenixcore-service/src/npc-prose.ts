@@ -7,7 +7,7 @@ export type ReplyDepth='brief'|'conversational'|'detailed'|'immersive';
 export type ReplyProfile={depth:ReplyDepth;minParagraphs:number;maxParagraphs:number;targetWords:number;minWords:number;maxWords:number;substantialWords:number;unintelligiblePosts:number};
 function repetitive(text:string,tokens:string[]){
   const compact=text.toLowerCase().normalize('NFKC').replace(/[\W_]+/gu,'');
-  if(compact.length<140)return false;
+  if(compact.length<140&&tokens.length<30)return false;
   const chunks:string[]=[];
   for(let i=0;i+18<=compact.length;i+=6)chunks.push(compact.slice(i,i+18));
   const variety=chunks.length?new Set(chunks).size/chunks.length:1;
