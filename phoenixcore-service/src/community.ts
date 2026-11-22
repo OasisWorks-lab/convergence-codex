@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {requireThat,textValue} from './domain.ts';
 import type {Store,Query} from './db.ts';
 
-export const communityModules=['tags','suggestions','moderation','reminders','support','giveaways'] as const;
+export const communityModules=['tags','suggestions','moderation','reminders','support','giveaways','roles'] as const;
 export const suggestionChannelId='1573908218260885614';
 export type CommunityModule=typeof communityModules[number];
 export type CommunityActor={id:string;isOwner:boolean;isStaff:boolean};
@@ -34,6 +34,7 @@ export async function communitySetModule(db:Store,actor:CommunityActor,module:Co
       [module,enabled?1:0,Number(old?.revision||0)+1,actor.id,Date.now()]);
     await q('INSERT INTO pc_community_module_history(module,revision,previous_enabled,enabled,actor_id,occurred_ms) VALUES($1,$2,$3,$4,$5,$6)',
       [module,Number(old?.revision||0)+1,old?Number(old.enabled):null,enabled?1:0,actor.id,Date.now()]);
+    if(module==='roles')await q('UPDATE pc_role_panels SET revision=revision+1,retry_ms=0');
   });
   return enabled;
 }

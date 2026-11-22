@@ -255,6 +255,19 @@ with sync_playwright() as p:
                     "isStaff":False,"sensitive":False,"assignedId":None},
                     "events":[{"type":"opened","text":"Could you explain the guideline?",
                                "createdMs":1700000000000,"authorId":"writer"}]})
+            elif url.path=="/api/community/roles":
+                if route.request.method=="GET":
+                    route.fulfill(json={"owner":owner,"enabled":True,"panels":[{
+                        "id":"a31c01cb-3f65-4b16-9178-c9d247de983e",
+                        "channelId":"1573908218260885614","title":"Member Badges",
+                        "description":"Choose a role to display your interests.","style":"buttons",
+                        "color":11000000,"active":True,"revision":3,"messageId":"920000000000000030",
+                        "options":[{"roleId":"920000000000000006",
+                          "label":"<img src=x onerror=window.roleInjection=true>",
+                          "recordedSelections":4,"position":0}]}]})
+                else:
+                    assert owner, "Role panel administration should be owner-only."
+                    route.fulfill(json={"ok":True,"result":{"id":"a31c01cb-3f65-4b16-9178-c9d247de983e"}})
             elif url.path=="/api/economy/shops":
                 if route.request.method=="GET":
                     route.fulfill(json={"staff":owner,"owner":owner,"items":[{
@@ -403,6 +416,12 @@ with sync_playwright() as p:
     again.get_by_role("link",name="A rules clarification",exact=False).click()
     expect(again.get_by_role("heading",name="SupportCase",exact=False)).to_be_visible()
     expect(again.get_by_text("Could you explain the guideline?")).to_be_visible()
+    again.goto("https://codex.test/phoenixcore/index.html#roles")
+    expect(again.get_by_role("heading",name="Role Panels",exact=True)).to_be_visible()
+    again.get_by_role("link",name="Member Badges",exact=False).click()
+    expect(again.get_by_role("heading",name="Member Badges",exact=True)).to_be_visible()
+    assert again.get_by_role("heading",name="Owner controls").count()==0
+    assert again.locator('img[src="x"]').count()==0
     again.goto("https://codex.test/phoenixcore/index.html#shops")
     expect(again.get_by_role("heading",name="Shops & Inventory",exact=True)).to_be_visible()
     again.get_by_role("link",name="Portal Store",exact=False).click()
@@ -433,6 +452,13 @@ with sync_playwright() as p:
     expect(owner_dashboard.get_by_text("Page 1 of 1")).to_be_visible()
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"giveaway-owner-participants-mobile.png")
+    owner_dashboard.goto("https://codex.test/phoenixcore/index.html#roles")
+    expect(owner_dashboard.get_by_role("heading",name="Create a role panel")).to_be_visible()
+    owner_dashboard.get_by_role("link",name="Member Badges",exact=False).click()
+    expect(owner_dashboard.get_by_role("heading",name="Owner controls")).to_be_visible()
+    expect(owner_dashboard.get_by_text("4 recorded selections",exact=False)).to_be_visible()
+    assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
+    screenshot(owner_dashboard,"role-panels-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#shops")
     expect(owner_dashboard.get_by_role("heading",name="Staff: create a shop")).to_be_visible()
     owner_dashboard.get_by_role("link",name="Portal Store",exact=False).click()

@@ -86,6 +86,12 @@ const ddl = [
   'CREATE TABLE IF NOT EXISTS pc_rp_receipts (id TEXT PRIMARY KEY, created_ms BIGINT NOT NULL, result TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_npc_ai_usage (day TEXT PRIMARY KEY, used INTEGER NOT NULL)',
 
+  'CREATE TABLE IF NOT EXISTS pc_role_panels (id TEXT PRIMARY KEY,channel_id TEXT NOT NULL,title TEXT NOT NULL,description TEXT NOT NULL,style TEXT NOT NULL,color INTEGER NOT NULL,creator_id TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 1,delivered_revision INTEGER NOT NULL DEFAULT 0,message_id TEXT,retry_ms BIGINT NOT NULL DEFAULT 0,lease TEXT,lease_until BIGINT NOT NULL DEFAULT 0,last_error TEXT,created_ms BIGINT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS pc_role_panel_options (panel_id TEXT NOT NULL REFERENCES pc_role_panels(id) ON DELETE CASCADE,role_id TEXT NOT NULL,label TEXT NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(panel_id,role_id))',
+  'CREATE TABLE IF NOT EXISTS pc_role_receipts (id TEXT PRIMARY KEY,panel_id TEXT NOT NULL,role_id TEXT NOT NULL,user_id TEXT NOT NULL,desired INTEGER NOT NULL,status TEXT NOT NULL,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL,last_error TEXT)',
+  'CREATE TABLE IF NOT EXISTS pc_role_assignments (panel_id TEXT NOT NULL,role_id TEXT NOT NULL,user_id TEXT NOT NULL,active INTEGER NOT NULL,updated_ms BIGINT NOT NULL,PRIMARY KEY(panel_id,role_id,user_id))',
+  'CREATE TABLE IF NOT EXISTS pc_role_audit (id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,panel_id TEXT NOT NULL,role_id TEXT,detail TEXT NOT NULL,created_ms BIGINT NOT NULL)',
+  'CREATE INDEX IF NOT EXISTS pc_role_panels_delivery ON pc_role_panels(retry_ms,lease_until)',
   'CREATE TABLE IF NOT EXISTS pc_community_modules (module TEXT PRIMARY KEY,enabled INTEGER NOT NULL,revision INTEGER NOT NULL,actor_id TEXT NOT NULL,updated_ms BIGINT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS pc_community_module_history (module TEXT NOT NULL,revision INTEGER NOT NULL,previous_enabled INTEGER,enabled INTEGER NOT NULL,actor_id TEXT NOT NULL,occurred_ms BIGINT NOT NULL,PRIMARY KEY(module,revision))',
   'CREATE TABLE IF NOT EXISTS pc_info_tags (id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,body TEXT NOT NULL,author_id TEXT NOT NULL,revision INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_ms BIGINT NOT NULL,updated_ms BIGINT NOT NULL)',

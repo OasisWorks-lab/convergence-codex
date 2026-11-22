@@ -178,6 +178,18 @@ test('Codex sign-in, current directory, player edit, Discord approval, and staff
   assert.equal(shopCatalog.shops.find((row:any)=>row.id===shopId).stock[0].price,'125');
   assert.equal(shopCatalog.shops.find((row:any)=>row.id===shopId).channels[0],prizeChannel);
   assert.equal((await get('/api/economy/inventory/'+randomUUID(),{headers:{authorization:'Bearer '+writer,origin}})).status,403);
+  const roleUrl='/api/community/roles';
+  assert.equal((await get(roleUrl)).status,401);
+  const denied=await post(roleUrl,{action:'create',channelId:prizeChannel,title:'Panel',style:'buttons'},judge);
+  assert.equal(denied.status,403);
+  const allowed=await post(roleUrl,{action:'create',channelId:prizeChannel,title:'Community Roles',style:'buttons'},owner);
+  assert.equal(allowed.status,200);
+  const rolePanelId=(await allowed.json()).result.id;
+  const review=await (await get(roleUrl,{headers:{authorization:'Bearer '+owner,origin}})).json();
+  assert.equal(review.panels[0].id,rolePanelId);
+  const publicPanels=await (await get(roleUrl,{headers:{authorization:'Bearer '+writer,origin}})).json();
+  assert.equal(publicPanels.panels.length,0);
+  assert.equal((await post(roleUrl,{action:'publish',panelId:rolePanelId,revision:1,active:true},owner)).status,409);
   const publicGiveaways=await get('/api/giveaways',{headers:{authorization:'Bearer '+writer,origin}});
   assert.equal(publicGiveaways.status,200);
   assert.equal((await publicGiveaways.json()).staff,false);

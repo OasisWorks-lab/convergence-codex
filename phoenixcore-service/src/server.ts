@@ -16,6 +16,7 @@ import { accountAvatar, Discord, DiscordFailure, CommandRegistrationError, deliv
 import {nicknameJob,announcement} from './bot-tools.ts';
 import {bankAction,visibleAccounts,statement} from './economy.ts';
 import {listShopCatalog,characterInventory,createShop,createShopItem,setShopOpen,setShopStock,setShopLocations} from './shop.ts';
+import {listRolePanels,createRolePanel,addRoleOption,removeRoleOption,publishRolePanel,verifyAssignableRole,deliverRolePanel} from './role-panels.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
 import { aiOptions } from './npc-voice.ts';
 import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
@@ -443,6 +444,32 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         });
         json(res,200,{ok:true});return;
       }
+      if(path==='/api/community/roles'&&['GET','POST'].includes(String(method))){
+        if(method==='GET'){
+          json(res,200,{panels:await listRolePanels(db,actor),owner:actor.isOwner,
+            enabled:await communityEnabled(db,'roles')});return;
+        }
+        requireThat(actor.isOwner,403,'Only the configured Convergence Owner can manage role panels.');
+        const input=parse(await rawBody(req,8000));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,'Choose a role panel action.');
+        let result:any;
+        if(input.action==='create'){
+          const channelId=String(input.channelId||''),c=await discord.guildChannel(channelId);
+          requireThat(c.guild_id===config.guild&&[0,5].includes(Number(c.type)),400,'Choose a Convergence text or announcement channel.');
+          result=await createRolePanel(db,actor,{channelId,title:input.title,description:input.description||'',style:input.style,color:input.color});
+        }else if(input.action==='add'){
+          const roleId=String(input.roleId||''),[roles,bot]=await Promise.all([
+            discord.call('/guilds/'+config.guild+'/roles'),discord.call('/guilds/'+config.guild+'/members/'+config.clientId)]);
+          requireThat(Array.isArray(roles),503,'Could not verify Discord roles.');
+          verifyAssignableRole(roleId,roles,bot,config,settings.value.judgeRole);
+          result=await addRoleOption(db,actor,String(input.panelId||''),Number(input.revision),roleId,input.label);
+        }else if(input.action==='remove'){
+          result=await removeRoleOption(db,actor,String(input.panelId||''),Number(input.revision),String(input.roleId||''));
+        }else if(input.action==='publish'){
+          result=await publishRolePanel(db,actor,String(input.panelId||''),Number(input.revision),input.active);
+        }else throw new Problem(400,'Unknown role panel action.');
+        json(res,200,{ok:true,result});wake();return;
+      }
       if(path==='/api/economy/shops'&&['GET','POST'].includes(String(method))){
         if(method==='GET'){
           const catalog=await listShopCatalog(db);
@@ -566,6 +593,7 @@ async function start() {
       for(let i=0;i<8;i++) if(!await deliverSupportOutbox(db,discord)) break;
       for(let i=0;i<5;i++) if(!await advanceGiveaways(db,discord,config)) break;
       for(let i=0;i<8;i++) if(!await deliverGiveawayPost(db,discord)) break;
+      for(let i=0;i<8;i++) if(!await deliverRolePanel(db,discord)) break;
     }
     catch(e) {console.error('Review delivery check failed:',e instanceof Error?e.name:'Unknown error');}
     finally {working=false;}

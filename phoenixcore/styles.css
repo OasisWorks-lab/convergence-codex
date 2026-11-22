@@ -457,6 +457,27 @@ h3 {
   gap:20px;
 }
 
+.role-panel-option {
+  flex-wrap:wrap;
+  align-items:center;
+}
+
+.role-panel-option span:first-child {
+  min-width:0;
+  flex:1 1 170px;
+  overflow-wrap:anywhere;
+}
+
+.role-panel-option small {
+  display:block;
+  overflow-wrap:anywhere;
+}
+
+.role-panel-option button {
+  max-width:100%;
+  flex:0 1 auto;
+}
+
 .stat-row:last-child {
   border:0;
 }
