@@ -339,3 +339,33 @@ The Support Center is a **single authoritative case system**, separate from char
 This is the **foundation**, not the full 60-answer support specification. Private Discord ticket-channel/thread provisioning and customizable opening panels, staff-thread interaction surfaces, robust bidirectional attachment and edit/delete synchronization, owner-configured Modmail acknowledgments, support templates, staff alerts, participant invitations, analytics UI, surveys, and the reusable drag-and-drop visual editor remain future milestones. Transcript format, destination, default generation, retention, and member copies are expressly unresolved in the handoff; no retention policy was invented.
 
 Back up the Bot-Hosting database before restarting to apply a new release. Validate staff access, Owner-only cases, ordinary member isolation, a direct DM, and the new Support Center tab against a consenting test account before broad rollout.
+
+## Giveaways — fair draws, member entries and character-bank rewards
+
+PhoenixCore has a new **Giveaways** site section plus the single `/giveaway` Discord slash-command group. This is the implementation foundation for the owner's November 21 GiveawayBot handoff, integrated with the existing economy and staff-role architecture.
+
+### Setup and participation
+
+- The **Owner** must designate one or more real Convergence text/announcement channels using `/giveaway channel-add` or the website's Owner channel settings. Staff cannot create giveaways in non-designated channels.
+- The **Owner, native Discord Admins and configured Helpers** can create giveaways with an explicit duration, per-giveaway claim deadline, winner count, and Zeni or manual prize. Creation supports an optional delayed start.
+- The bot posts one durable public giveaway embed in its designated Discord channel; the embedded **Enter** and **Withdraw** buttons record one entry per real Discord account. Members may also use `/giveaway join` and `/giveaway withdraw`, or the website.
+- Required and excluded role IDs may be configured on the website. The engine rechecks them when drawing and claiming; no minimum account age, membership tenure or activity threshold is imposed.
+- **Boosters get 3 total drawing tickets** at the time of the draw (1 normal + 2 bonus). Other members receive 1. This changes win probability only: the draw picks **distinct Discord users without replacement**, so one booster cannot win multiple winner slots.
+
+### Drawing, claims, and audit
+
+- Active giveaways automatically close/draw when their end time arrives. Staff can end early, pause, resume or cancel; a paused giveaway resumes with its remaining entry duration. The scheduler and public embed posting survive bot restarts.
+- Winners have the explicitly entered claim window. **Unclaimed** positions automatically reroll after expiry, excluding **all previous winners**. If no eligible entrant remains, the slot is recorded as exhausted without manufacturing a winner.
+- The system snapshots participant eligibility and booster tickets, records the random draw and timestamps, and uses cryptographically secure random selection. The Owner may identify a manual winner using a clearly **MANUAL** event instead of pretending a random result.
+- **Zeni** awards are not paid at entry or drawing. At claim, the winning member selects one of their approved characters; the existing economy ledger atomically credits that character's **bank**, leaving on-hand cash and the approved character sheet unchanged. Every winner has a unique payout transaction; retrying a claim cannot double credit.
+- **Manual prizes** (titles, external rewards, etc.) are claimed but remain marked **pending staff delivery** until staff explicitly confirm. The engine deliberately does not pretend an inventory item, rank, or role has been automatically awarded if no authoritative integration exists.
+
+### Commands
+
+`/giveaway channels`, `channel-add`, `channel-remove`, `create`, `list`, `view`, `join`, `withdraw`, `claim`, `pause`, `resume`, `end`, `cancel`, `reroll`, `manual-winner`, and `confirm` are registered as Convergence-guild commands. Website controls expose designated channels, staff creation, entry, monitoring, Zeni claims, and essential draw actions. The Owner can independently switch the `giveaways` module on or off.
+
+### Deliberately incomplete features
+
+Owner-approved reusable event templates, custom embed presentations/themes, reaction-based entry, scheduled reminders, editing/extending event definitions, multiple physical-item/role prize integrations, interactive modal wizard, auto-retention deletion, richer history/statistics screens and role-specific reward grants are **not yet finished**. Retention **defaults to seven days in stored configuration** but the deletion worker is not activated until an audit-safe cleanup of delivered rewards and pending claims is verified. Do not claim full GiveawayBot parity yet.
+
+**Operational requirements:** Back up the database before pulling this additive schema. Keep channel permissions (view, send, embeds and messages) available to PhoenixCore. Test with a consenting member, a short claim window, an approved character and a small Zeni amount; verify the bank statement. No real currency or prizes should be distributed to test accounts without the Owner's agreement. No additional paid AI provider is involved.
