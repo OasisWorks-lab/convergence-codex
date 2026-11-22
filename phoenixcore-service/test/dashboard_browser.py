@@ -268,6 +268,23 @@ with sync_playwright() as p:
                 else:
                     assert owner, "Role panel administration should be owner-only."
                     route.fulfill(json={"ok":True,"result":{"id":"a31c01cb-3f65-4b16-9178-c9d247de983e"}})
+            elif url.path=="/api/economy/shops/sales":
+                assert owner, "Shop revenue reports are restricted to configured staff."
+                all_time={"receipts":"3","units":"5","zeni":"625","cashZeni":"375","bankZeni":"250"}
+                last7={"receipts":"1","units":"1","zeni":"125","cashZeni":"125","bankZeni":"0"}
+                last30={"receipts":"2","units":"3","zeni":"375","cashZeni":"125","bankZeni":"250"}
+                route.fulfill(json={"generatedMs":1700000000000,"receiptCount":3,
+                    "overall":{"all":all_time,"last7":last7,"last30":last30},
+                    "shops":[{"id":"f21c01cb-3f65-4b16-9178-c9d247de983e","name":"Portal Store",
+                        "all":all_time,"last7":last7,"last30":last30,
+                        "topItems":[{"itemId":"e21c01cb-3f65-4b16-9178-c9d247de983e",
+                            "name":"Guardian Potion","receipts":"3","units":"5","zeni":"625",
+                            "cashZeni":"375","bankZeni":"250"}]}],
+                    "recent":[{"receiptId":"fb1c01cb-3f65-4b16-9178-c9d247de983e",
+                        "shopId":"f21c01cb-3f65-4b16-9178-c9d247de983e",
+                        "itemId":"e21c01cb-3f65-4b16-9178-c9d247de983e",
+                        "itemName":"Guardian Potion","characterId":"a1000000-0000-4000-8000-000000000001",
+                        "quantity":1,"payment":"cash","totalZeni":"125","createdMs":1700000000000}]})
             elif url.path=="/api/economy/shops":
                 if route.request.method=="GET":
                     route.fulfill(json={"staff":owner,"owner":owner,"items":[{
@@ -433,6 +450,8 @@ with sync_playwright() as p:
     expect(again.get_by_role("heading",name="Portal Store",exact=True)).to_be_visible()
     expect(again.get_by_text("125 Zeni",exact=False)).to_be_visible()
     assert again.get_by_role("heading",name="Staff controls").count()==0
+    assert again.get_by_role("heading",name="Sales overview").count()==0
+    assert again.get_by_role("heading",name="Shop sales report").count()==0
     assert again.locator('img[src="x"]').count()==0
     again.goto("https://codex.test/phoenixcore/index.html#giveaways")
     expect(again.get_by_role("heading",name="Giveaways",exact=True)).to_be_visible()
@@ -465,6 +484,8 @@ with sync_playwright() as p:
     assert owner_dashboard.evaluate("document.body.scrollWidth <= innerWidth")
     screenshot(owner_dashboard,"role-panels-owner-mobile.png")
     owner_dashboard.goto("https://codex.test/phoenixcore/index.html#shops")
+    expect(owner_dashboard.get_by_role("heading",name="Sales overview")).to_be_visible()
+    expect(owner_dashboard.get_by_text("625 Zeni",exact=False)).to_be_visible()
     expect(owner_dashboard.get_by_role("heading",name="Staff: create a shop")).to_be_visible()
     create_keeper=owner_dashboard.locator('#shop-create-form select[name="shopkeeperChoice"]')
     expect(create_keeper.locator('option')).to_have_count(4)
@@ -480,6 +501,9 @@ with sync_playwright() as p:
     owner_dashboard.get_by_role("link",name="Portal Store",exact=False).click()
     expect(owner_dashboard.get_by_role("heading",name="Staff controls")).to_be_visible()
     expect(owner_dashboard.get_by_role("heading",name="Shopkeeper",exact=True)).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Shop sales report")).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Most purchased items")).to_be_visible()
+    expect(owner_dashboard.get_by_role("heading",name="Recent purchases")).to_be_visible()
     expect(owner_dashboard.locator('#shop-keeper-form select[name="shopkeeperChoice"]')).to_have_value("f4aa99d3-4a75-40c7-8737-adb4b7e31300")
     expect(owner_dashboard.get_by_role("button",name="Remove from shop")).to_be_visible()
     owner_dashboard.locator('#shop-keeper-form select[name="shopkeeperChoice"]').select_option("custom")
