@@ -75,9 +75,9 @@ test('repeat spam detection serializes observations, ignores Owner and excluded 
   assert.equal((await observeAutomod(db,config,sample(message,'930000000000000080',{userId:ownerId}))).recorded,false);
   assert.equal((await observeAutomod(db,config,sample(message,'930000000000000081',{guildId:'930000000000000088'}))).recorded,false);
   await setAutomodPolicy(db,owner,1,policy({excludedChannels:[channel],excludedRoles:[staffRole]}));
-  assert.equal((await observeAutomod(db,config,sample(message,'930000000000000082')).recorded,false);
+  assert.equal((await observeAutomod(db,config,sample(message,'930000000000000082'))).recorded,false);
   assert.equal((await observeAutomod(db,config,sample(message,'930000000000000083',
-    {channelId:otherChannel,roles:[staffRole]})).recorded,false);
+    {channelId:otherChannel,roles:[staffRole]}))).recorded,false);
 });
 test('preview never stores evidence, dispatches alerts, deletes posts or changes moderation cases',async t=>{
   const db=await fresh(t);
