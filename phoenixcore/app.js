@@ -369,7 +369,13 @@ function formList(raw){
     const images=image||oldImage?'<figure class="panel request-portrait"><figcaption>'+h(design?'Submitted artwork':'Character portrait')+'</figcaption>'+artwork(image,'Proposed artwork')+(oldImage&&oldImage!==image?'<details><summary>Previously approved artwork</summary>'+artwork(oldImage,'Approved artwork')+'</details>':'')+'</figure>':'';
     const meanings={archived:'Review is paused.',pending:'Ready for a Helper or the owner to decide.',awaiting_judge:'A Helper needs to assess the scene and calculate the award.',owner_review:'A Helper denied this submission. Gabe has the final decision.',needs_details:'Complete the template from the original Discord post before approval.',stale:'The sheet changed. Review the current sheet before submitting again.',approved:design?'Published in approved designs.':'Applied to the character.',declined:'The submission was declined.'};
     const checks=r.assessment&&state.actor.isJudge?'<section class="panel staff-checks"><h2>Private staff checks</h2><p>'+h(r.assessment.summary)+'</p>'+r.assessment.checks.map(c=>'<div><strong>'+h(c.label)+'</strong><small>'+h(({met:'Met',review:'Reviewer judgment',attention:'Needs attention'})[c.state])+'</small><p>'+h(c.detail)+'</p></div>').join('')+'</section>':'';
-    const review=state.actor.isJudge&&(pending||waiting||incomplete)?'<div class="actions">'+(pending?btn('review-approve',demo?'Practice approve':'Approve','primary'):'')+btn('review-decline',demo?'Practice decline':'Deny','danger')+'</div>':'';
+    const ownerOnlyDesign=['race','transformation'].includes(r.kind);
+    const canApprove=state.actor.isOwner||!ownerOnlyDesign;
+    const review=state.actor.isJudge&&(pending||waiting||incomplete)?'<div class="actions">'+
+      (pending&&canApprove?btn('review-approve',demo?'Practice approve':'Approve','primary'):'')+
+      btn('review-decline',demo?'Practice decline':'Deny','danger')+'</div>'+
+      (pending&&ownerOnlyDesign&&!state.actor.isOwner?'<p class="muted">Race and Transformation approvals require the server Owner. You may review or recommend denial.</p>':''):'';
+
     const ownerReview=state.actor.isOwner&&appeal?'<div class="actions">'+btn('review-uphold','Uphold denial','danger')+btn('review-veto','Veto denial','primary')+'</div>':'';
     const denial=appeal&&r.denial?'<p>Helper · '+h(ownerName(r.denial.helper))+(r.denial.note?' · '+h(r.denial.note):'')+'</p>'+(state.actor.isOwner?'<p>Owner DM · '+(r.denial.delivered?'Delivered':'Queued for delivery')+'</p>':''):'';
     const archive=state.actor.isOwner&&!appeal?'<div class="actions">'+(!r.archived?btn('archive-request','Archive request','quiet'):((r.status==='archived'?btn('restore-request','Restore request','quiet'):'')+btn('delete-request','Delete archived request','danger')))+'</div>':'';
