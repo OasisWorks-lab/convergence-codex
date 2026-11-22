@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all';
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,supportData=null,supportDetail=null,supportLoading=false,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,inventoryData=null;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|shops|shop-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['shops','Shops & Inventory']]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -712,6 +712,82 @@ function formList(raw){
       configure+creation+'<section class="stack"><h2>Giveaway events</h2>'+
       (cards||'<p>No giveaway events have been created yet.</p>')+'</section>';
   }
+  async function shopsRefresh(){
+    if(shopsLoading||demo||!session)return;
+    shopsLoading=true;
+    try{
+      shopsData=await call('/api/economy/shops');
+      if(route()==='shops'||/^shop-[\da-f-]{36}$/.test(route()))render();
+    }catch(e){tell(e.message,true);}
+    finally{shopsLoading=false;}
+  }
+  function shopPage(){
+    if(demo)return title('Shops & Inventory','Staff-approved merchandise and character-owned possessions')+
+      '<section class="panel">Live shops and purchases require Discord sign-in. Practice mode never spends Zeni.</section>';
+    if(!shopsData){void shopsRefresh();return title('Shops & Inventory','Loading shops and merchandise…');}
+    const data=shopsData,shopMatch=/^shop-([\da-f-]{36})$/.exec(route()),
+      itemMap=new Map(data.items.map(item=>[item.id,item]));
+    const money=value=>h(String(value||'0'))+' Zeni';
+    const inventoryChars=state.characters.filter(c=>c.ownerId===state.actor.id&&c.sheet.characterType!=='NPC');
+    const ownInventory='<section class="panel dossier"><h2>Your character inventory</h2>'+
+      '<form id="shop-inventory-form" class="form"><label class="field"><span>Approved character</span><select name="characterId" required>'+
+      '<option value="">Choose a character</option>'+inventoryChars.map(c=>'<option value="'+h(c.id)+'">'+h(c.sheet.name)+'</option>').join('')+
+      '</select></label><button class="primary">View inventory</button></form>'+
+      (inventoryData?'<div class="stack"><h3>Owned items</h3>'+(inventoryData.items.length?
+      inventoryData.items.map(x=>'<div class="stat-row"><span>'+h(x.name)+' · '+h(x.kind)+'</span><strong>×'+h(x.quantity)+'</strong></div>').join(''):
+      '<p>No purchased items yet.</p>')+'</div>':'')+'</section>';
+    if(shopMatch){
+      const shop=data.shops.find(s=>s.id===shopMatch[1]);
+      if(!shop)return title('Shop not found','The shop may have been removed.');
+      const lines=shop.stock.map(stock=>{
+        const item=itemMap.get(stock.itemId);
+        return item?'<div class="stat-row"><span><b>'+h(item.name)+'</b> · '+h(item.kind)+
+          '<small class="muted">'+h(item.description)+'</small></span>'+
+          '<span>'+money(stock.price)+' · '+h(stock.remaining===null?'Unlimited':stock.remaining+' available')+'</span></div>':'';
+      }).join('');
+      const admin=data.staff?'<section class="panel dossier"><h2>Staff controls</h2>'+
+        '<p>Shop revision '+h(shop.revision)+' · Only approved Helpers or Owner can save changes.</p>'+
+        '<div class="actions"><button type="button" data-shop-action="status" data-shop-id="'+h(shop.id)+'" data-shop-revision="'+h(shop.revision)+'" data-shop-open="'+(shop.status!=='open')+'">'+
+        (shop.status==='open'?'Close shop':'Open shop')+'</button></div>'+
+        '<form id="shop-stock-form" class="form" data-id="'+h(shop.id)+'" data-revision="'+h(shop.revision)+'">'+
+        '<h3>Add stock or update price</h3><label class="field"><span>Registered item</span><select name="itemId" required>'+
+        data.items.map(item=>'<option value="'+h(item.id)+'">'+h(item.name)+'</option>').join('')+'</select></label>'+
+        field('price','Price per item (Zeni)','100',{required:true,max:60,numeric:true})+
+        field('remaining','Stock quantity (blank = unlimited)','',{max:10,numeric:true})+
+        '<button class="primary">Save item stock</button></form>'+
+        (shop.kind==='location'?'<form id="shop-locations-form" class="form" data-id="'+h(shop.id)+'" data-revision="'+h(shop.revision)+'">'+
+          field('channels','Allowed Discord RP channel IDs (one per line)',shop.channels.join('\n'),{area:true,wide:true,max:1100})+
+          '<button class="primary">Save shop locations</button></form>':'')+
+        '</section>':'';
+      return breadcrumbs([link('shops','Shops & Inventory'),h(shop.name)])+title(shop.name,shop.description)+
+        '<section class="panel dossier"><p><b>'+h(shop.status.toUpperCase())+'</b> · '+h(shop.kind==='general'?'Available in eligible RP channels':'Restricted to configured RP locations')+
+        ' · Shopkeeper: '+h(shop.ownerName||'Unlisted')+'</p>'+
+        '<p>Purchases must be made through /shop in an eligible in-character Discord RP channel. The dashboard cannot bypass location rules.</p>'+
+        (shop.kind==='location'?'<p>Location channel IDs: '+h(shop.channels.join(', ')||'Not configured')+'</p>':'')+
+        (lines||'<p>No merchandise listed yet.</p>')+'</section>'+admin+ownInventory;
+    }
+    const create=data.staff?'<section class="panel dossier"><h2>Staff: create a shop</h2>'+
+      '<form id="shop-create-form" class="form">'+field('name','Shop name','',{required:true,max:100})+
+      field('description','Description','',{area:true,wide:true,max:1200})+
+      field('ownerName','Shopkeeper display name','',{max:100})+
+      '<label class="field"><span>Location type</span><select name="kind">'+
+      '<option value="general">General Store (all eligible RP channels)</option>'+
+      '<option value="location">Restricted shop (specific channels/threads)</option></select></label>'+
+      '<button class="primary">Create closed shop</button></form></section>'+
+      '<section class="panel dossier"><h2>Staff: define an item</h2><form id="shop-item-form" class="form">'+
+      field('name','Item name','',{required:true,max:100})+
+      field('description','Item description','',{area:true,wide:true,max:1200})+
+      '<label class="field"><span>Item class</span><select name="kind"><option value="consumable">Consumable or material</option>'+
+      '<option value="equipment">Equipment</option></select></label>'+
+      field('basePrice','Base Zeni price','100',{required:true,max:60,numeric:true})+
+      '<button class="primary">Create staff item definition</button></form></section>':'';
+    const cards=data.shops.map(shop=>'<a class="request-row" href="#shop-'+h(shop.id)+'"><span class="summary"><b>'+
+      h(shop.name)+'</b><small class="muted">'+h(shop.description||'No shop description')+' · '+
+      h(shop.kind==='general'?'General Store access':'Location restricted')+'</small></span>'+
+      '<span class="pill">'+h(shop.status)+'</span></a>').join('');
+    return title('Shops & Inventory','Browse staff-managed merchandise. Purchases require your character to be present in the appropriate RP channel.')+
+      ownInventory+'<section class="stack"><h2>Shops</h2>'+(cards||'<p>No shops configured yet.</p>')+'</section>'+create;
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
@@ -721,6 +797,7 @@ function formList(raw){
     else if(r==='community')view.innerHTML=community();
     else if(r==='support'||/^support-[\da-f-]{36}$/i.test(r))view.innerHTML=supportPage();
     else if(r==='giveaways'||/^giveaway-[\da-f-]{36}$/i.test(r))view.innerHTML=giveawayPage();
+    else if(r==='shops'||/^shop-[\da-f-]{36}$/i.test(r))view.innerHTML=shopPage();
     else if(r==='requests'||r==='archived')view.innerHTML=requestList(r==='archived');
     else if(r==='settings')view.innerHTML=settings();
     else if(r==='new'||r.startsWith('new-'))view.innerHTML=editor(r==='new'?'create':r.slice(4));
@@ -839,6 +916,18 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const shopButton=e.target.closest('[data-shop-action]');
+    if(shopButton){
+      if(!confirm('Change this shop open/closed status?'))return;
+      shopButton.disabled=true;
+      try{
+        await call('/api/economy/shops','POST',{action:'status',shopId:shopButton.dataset.shopId,
+          revision:Number(shopButton.dataset.shopRevision),open:shopButton.dataset.shopOpen==='true'});
+        shopsData=null;await shopsRefresh();tell('Shop status saved.');
+      }catch(error){tell(error.message,true);}
+      finally{shopButton.disabled=false;}
+      return;
+    }
     const rosterFilter=e.target.closest('[data-giveaway-roster-filter]');
     const rosterPage=e.target.closest('[data-giveaway-roster-page]');
     if(rosterFilter||rosterPage){
@@ -1026,6 +1115,33 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;
+    if(!['shop-create-form','shop-item-form','shop-stock-form','shop-locations-form','shop-inventory-form'].includes(f.id))return;
+    e.preventDefault();
+    const fields=Object.fromEntries(new FormData(f));
+    const button=f.querySelector('button.primary');if(button?.disabled)return;
+    if(button)button.disabled=true;
+    try{
+      if(f.id==='shop-inventory-form'){
+        inventoryData=await call('/api/economy/inventory/'+encodeURIComponent(String(fields.characterId||'')));
+        render();tell('Inventory loaded.');return;
+      }
+      let payload;
+      if(f.id==='shop-create-form')payload={action:'create-shop',name:fields.name,description:fields.description,
+        ownerName:fields.ownerName,kind:fields.kind};
+      else if(f.id==='shop-item-form')payload={action:'create-item',name:fields.name,description:fields.description,
+        kind:fields.kind,basePrice:fields.basePrice};
+      else if(f.id==='shop-stock-form')payload={action:'stock',shopId:f.dataset.id,revision:Number(f.dataset.revision),
+        itemId:fields.itemId,price:fields.price,remaining:String(fields.remaining).trim()===''?null:Number(fields.remaining)};
+      else payload={action:'locations',shopId:f.dataset.id,revision:Number(f.dataset.revision),
+        channels:String(fields.channels||'').split(/[\s,]+/).filter(Boolean)};
+      await call('/api/economy/shops','POST',payload);
+      shopsData=null;await shopsRefresh();
+      tell('Shop configuration saved.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;
     if(!['giveaway-channels-form','giveaway-create-form','giveaway-claim-form','giveaway-edit-form'].includes(f.id))return;
