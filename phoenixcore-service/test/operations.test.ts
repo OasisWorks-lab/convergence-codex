@@ -188,4 +188,11 @@ test('PostgreSQL moderation commands and queued job delivery stay idempotent acr
   const send=fakeDiscord();
   await Promise.all(Array.from({length:12},()=>deliverScheduledJob(db,send as any)));
   assert.equal(send.messages.length,1);
+  await Promise.all(Array.from({length:9},(_,i)=>recordCase(db,admin,'warn',memberId,'concurrent-'+i,'Parallel warning '+i)));
+  assert.equal(await activeWarnings(db,memberId),10);
+  const [threshold]=await db.query("SELECT COUNT(*) AS n FROM pc_mod_case_events WHERE event='five-warning-review'");
+  assert.equal(Number(threshold.n),1);
+  const reminders=await Promise.allSettled(Array.from({length:25},(_,i)=>createReminder(db,memberId,'bulk-'+i,60,'Check scene '+i)));
+  assert.equal(reminders.filter(x=>x.status==='fulfilled').length,20);
+  assert.equal((await listReminders(db,memberId)).length,20);
 });
