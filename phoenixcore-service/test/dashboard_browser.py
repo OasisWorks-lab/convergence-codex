@@ -483,7 +483,7 @@ with sync_playwright() as p:
     expect(again.get_by_role("heading",name="Search accessible cases")).to_be_visible()
     assert again.get_by_role("heading",name="Staff saved replies").count()==0
     assert again.get_by_role("heading",name="Support operations").count()==0
-    again.get_by_role("link",name="A rules clarification",exact=False).click()
+    again.locator('a.request-row[href="#support-b21c01cb-3f65-4b16-9178-c9d247de983e"]').first.click()
     expect(again.get_by_role("heading",name="SupportCase",exact=False)).to_be_visible()
     expect(again.get_by_text("Could you explain the guideline?")).to_be_visible()
     again.goto("https://codex.test/phoenixcore/index.html#support-b21c01cb-3f65-4b16-9178-c9d247de983f")
