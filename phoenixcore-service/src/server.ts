@@ -17,7 +17,7 @@ import {nicknameJob,announcement} from './bot-tools.ts';
 import {bankAction,visibleAccounts,statement} from './economy.ts';
 import {listShopCatalog,characterInventory,createShop,createShopItem,setShopOpen,setShopStock,setShopLocations,setShopkeeper,unlistShopItem} from './shop.ts';
 import {shopSalesReport} from './shop-sales.ts';
-import {listRolePanels,createRolePanel,addRoleOption,removeRoleOption,publishRolePanel,verifyAssignableRole,deliverRolePanel} from './role-panels.ts';
+import {listRolePanels,createRolePanel,addRoleOption,removeRoleOption,publishRolePanel,verifyAssignableRole,deliverRolePanel,styleRolePanel,setRoleReaction} from './role-panels.ts';
 import { seedAzurik,ruleSheet,isAzurik } from './npc-catalog.ts';
 import { aiOptions } from './npc-voice.ts';
 import {expireTurn,deliverTurnNotice,restoreTurnClocks} from './npc-turns.ts';
@@ -505,7 +505,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         if(input.action==='create'){
           const channelId=String(input.channelId||''),c=await discord.guildChannel(channelId);
           requireThat(c.guild_id===config.guild&&[0,5].includes(Number(c.type)),400,'Choose a Convergence text or announcement channel.');
-          result=await createRolePanel(db,actor,{channelId,title:input.title,description:input.description||'',style:input.style,color:input.color});
+          result=await createRolePanel(db,actor,{channelId,title:input.title,description:input.description||'',style:input.style,color:input.color,imageUrl:input.imageUrl});
         }else if(input.action==='add'){
           const roleId=String(input.roleId||''),[roles,bot]=await Promise.all([
             discord.call('/guilds/'+config.guild+'/roles'),discord.call('/guilds/'+config.guild+'/members/'+config.clientId)]);
@@ -514,6 +514,14 @@ export function application(db:Store, config:Config, discord=new Discord(config)
           result=await addRoleOption(db,actor,String(input.panelId||''),Number(input.revision),roleId,input.label);
         }else if(input.action==='remove'){
           result=await removeRoleOption(db,actor,String(input.panelId||''),Number(input.revision),String(input.roleId||''));
+        }else if(input.action==='style'){
+          result=await styleRolePanel(db,actor,String(input.panelId||''),Number(input.revision),input);
+        }else if(input.action==='emoji'){
+          const roleId=String(input.roleId||''),[roles,bot]=await Promise.all([
+            discord.call('/guilds/'+config.guild+'/roles'),discord.call('/guilds/'+config.guild+'/members/'+config.clientId)]);
+          requireThat(Array.isArray(roles),503,'Could not verify Discord roles.');
+          verifyAssignableRole(roleId,roles,bot,config,settings.value.judgeRole);
+          result=await setRoleReaction(db,actor,String(input.panelId||''),Number(input.revision),roleId,String(input.emoji||''));
         }else if(input.action==='publish'){
           result=await publishRolePanel(db,actor,String(input.panelId||''),Number(input.revision),input.active);
         }else throw new Problem(400,'Unknown role panel action.');
