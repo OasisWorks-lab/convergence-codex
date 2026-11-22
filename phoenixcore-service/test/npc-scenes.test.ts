@@ -305,3 +305,32 @@ test('Azurik greets a writer in every mode, answers the next turn and only respo
     const defence=say('I throw a punch at Azurik.');assert.match(defence.text,/incoming strike|attack|line of the blow/);
   }
 });
+
+
+test('one Discord writer can join twice with distinct approved characters and each slot requires matching character posts',async t=>{
+  const {db,command,start,run,ctx}=await setup(t);
+  const first=await start('audience');
+  assert.ok(first.data.embeds);
+  const rin=randomUUID(),sola=randomUUID();
+  for(const [id,name] of [[rin,'Rin'],[sola,'Sola']]){
+    await db.query('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3)',[id,guest,JSON.stringify({name,characterType:'OC',bpl:'10000',wallet:'0',gear:[]})]);
+  }
+  const option=(id:string)=>({options:[{name:'character',value:id}]});
+  assert.match((await command('roleplay-join',guest,option(rin))).data.content,/Rin/);
+  assert.match((await command('roleplay-join',guest,option(sola))).data.content,/Sola/);
+  assert.match((await command('roleplay-join',guest,option(rin))).data.content,/already/);
+  const [row]=await db.query('SELECT state FROM pc_rp_scenes WHERE channel_id=$1',[thread]);
+  const scene=JSON.parse(row.state);
+  assert.deepEqual(scene.cast.map((p:any)=>p.characterId||null),[null,rin,sola]);
+  assert.match((await command('roleplay-status')).data.content,/Rin/);
+  await run(ctx(host,{custom_id:first.data.components[0].components.find((b:any)=>b.custom_id.includes(':pass:')).custom_id},3));
+  assert.equal(await captureTurn(db,thread,guest,'wrong-one',async()=>({name:'Sola',characterId:sola,text:'I speak too early.'})),undefined);
+  assert.equal(await captureTurn(db,thread,guest,'rin-one',async()=>({name:'Rin',characterId:rin,text:'Hello, Azurik.'})),'added');
+  assert.match((await command('finish-turn',guest)).data.content,new RegExp(guest));
+  assert.equal(await captureTurn(db,thread,guest,'wrong-two',async()=>({name:'Rin',characterId:rin,text:'Wrong turn.'})),undefined);
+  assert.match((await command('finish-turn',guest)).data.content,/Post in character first/);
+  assert.equal(await captureTurn(db,thread,guest,'sola-one',async()=>({name:'Sola',characterId:sola,text:'I have a question too.'})),'added');
+  assert.match((await command('finish-turn',guest)).data.content,/responding/);
+  const [done]=await db.query('SELECT state FROM pc_rp_scenes WHERE channel_id=$1',[thread]);
+  assert.deepEqual(JSON.parse(done.state).posts.map((p:any)=>p.characterId),[rin,sola]);
+});
