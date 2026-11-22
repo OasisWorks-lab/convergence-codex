@@ -9,7 +9,7 @@
   const traits=['speed','durability','intelligence','control'];
   const formatter=new Intl.NumberFormat('en-US');
   const num=s=>formatter.format(BigInt(s||'0'));
-  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false,moderationData=null,moderationLoading=false,moderationMember='',moderationPageNumber=1,moderationCase=null,automodData=null,automodLoading=false,automodPageNumber=1,automodPreview=null,pollsData=null,pollDetailData=null,pollAuditData=null,pollsLoading=false;
+  let state=null,session='',loadGeneration=0,preferenceChannel='',communityData=null,communityLoading=false,richTagName='',supportData=null,supportDetail=null,supportLoading=false,supportSearch=null,supportSearchLoading=false,supportSearchPage=1,supportSearchFilters={query:'',kind:'',status:''},supportTemplateId='',supportTemplateHistoryData=null,giveawayData=null,giveawayDetail=null,giveawayLoading=false,giveawayRoster=null,giveawayRosterError='',giveawayRosterEvent='',giveawayRosterPage=1,giveawayRosterFilter='all',shopsData=null,shopsLoading=false,shopSalesData=null,shopSalesLoading=false,inventoryData=null,rolePanelData=null,rolePanelLoading=false,moderationData=null,moderationLoading=false,moderationMember='',moderationPageNumber=1,moderationCase=null,automodData=null,automodLoading=false,automodPageNumber=1,automodPreview=null,pollsData=null,pollDetailData=null,pollAuditData=null,pollsLoading=false,schedulesData=null,scheduleDetailData=null,scheduleLoading=false;
   const pathKey='pc:'+location.pathname.replace(/index\.html$/,'')+':';
   const store={
     get(k){
@@ -85,7 +85,7 @@
           const data=await call('/api/exchange','POST',{ticket,verifier});
           session=data.session;store.set('session',session);
           const previous=store.get('route')||'directory';store.remove('route');
-          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|polls|poll-[\da-f-]{36}|moderation|automod|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
+          if(/^(directory|npcs|community|support|support-[\da-f-]{36}|giveaways|giveaway-[\da-f-]{36}|polls|poll-[\da-f-]{36}|schedules|schedule-[\da-f-]{36}|moderation|automod|shops|shop-[\da-f-]{36}|roles|roles-[\da-f-]{36}|requests|settings|posting|catalogue|new(?:-[a-z]+)?|edit-[\w-]+|train-[\w-]+|design-[\w-]+|player-[\w-]+|sheet-[\w-]+|request-[\w-]+)$/.test(previous)) history.replaceState(null,'','#'+previous);
         } catch(e){tell(e.message,true);}
       } else if(['login-cancelled','member-required'].includes(hash)) {
         history.replaceState(null,'','#directory');tell(hash==='member-required'?'Sign in with an account that belongs to Convergence.':'Sign-in cancelled.',true);
@@ -102,7 +102,7 @@
   function hashIsSignIn(){return route()==='signin';}
   function chrome(){
     const active=route(),nav=$('#nav');
-    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['polls','Polls'],['shops','Shops & Inventory'],['roles','Role Panels'],...(state?.canModerate||state?.actor.isOwner?[['moderation','Moderation'],['automod','AutoMod']]:[])]:[]),...(state?.actor.isOwner?[['settings','Bot settings']]:[])];
+    const tabs=[['directory','Directory'],...(state?[['requests','Requests'],['community','Community'],['support','Support Center'],['giveaways','Giveaways'],['polls','Polls'],['shops','Shops & Inventory'],['roles','Role Panels'],...(state?.canModerate||state?.actor.isOwner?[['moderation','Moderation'],['automod','AutoMod']]:[])]:[]),...(state?.actor.isOwner?[['schedules','Schedules'],['settings','Bot settings']]:[])];
     nav.innerHTML=tabs.map(([key,n])=>'<a href="#'+key+'"'+((active===key||(key==='directory'&&/^(npcs$|player-|sheet-|edit-|new|award-)/.test(active))||(key==='requests'&&/^(request-|catalogue|design-|archived)/.test(active)))?' aria-current="page"':'')+'>'+n+'</a>').join('');
     $('#identity').innerHTML=state?'<span>'+h(ownerName(state.actor.id))+'</span>'+(demo?'':btn('logout','Sign out','quiet')):'';
     const banner=$('#practice');banner.hidden=!demo;
@@ -1277,6 +1277,109 @@ function formList(raw){
       ' ballot(s) · Ends '+h(new Date(p.endsMs).toLocaleString())+'</p>'+
       choices+'</section>'+ballot+options;
   }
+
+  async function schedulesRefresh(){
+    if(scheduleLoading||demo||!session||!state?.actor.isOwner)return;
+    scheduleLoading=true;
+    try{
+      schedulesData=await call('/api/schedules');
+      const selected=/^schedule-([a-f0-9-]{36})$/.exec(route());
+      scheduleDetailData=selected?await call('/api/schedules/'+selected[1]):null;
+      if(route()==='schedules'||route().startsWith('schedule-'))render();
+    }catch(error){tell(error.message,true);}
+    finally{scheduleLoading=false;}
+  }
+  function scheduleEditor(s){
+    const creating=!s,delay=s?Math.max(1,Math.ceil((s.nextDueMs-Date.now())/60000)):60;
+    return '<section class="panel dossier"><h2>'+
+      h(creating?'Create a schedule draft':'Edit a paused or unpublished schedule')+'</h2>'+
+      '<form id="schedule-editor" class="form" data-id="'+h(s?.id||'')+
+      '" data-revision="'+h(s?.revision||0)+'">'+
+      field('name','Schedule name',s?.name||'',{required:true,max:100})+
+      '<label class="field"><span>Purpose</span><select name="kind">'+
+      '<option value="announcement"'+((s?.kind||'announcement')==='announcement'?' selected':'')+
+      '>Server announcement</option><option value="bump-reminder"'+(s?.kind==='bump-reminder'?' selected':'')+
+      '>DISBOARD bump reminder (human action only)</option></select></label>'+
+      field('body','Message to post (optional for a bump reminder)',s?.body||'',
+        {area:true,wide:true,max:1800})+
+      field('channelId','Destination Convergence text channel ID',s?.channelId||'',{required:true,max:20})+
+      field('mentionRole','Optional role ID to notify',s?.mentionRole||'',{max:20})+
+      field('delay','Minutes until first/next delivery (1–525600)',String(delay),
+        {required:true,max:6,numeric:true})+
+      field('intervalMinutes','Repeat every N minutes (0 = once; 15–43200 = repeat)',
+        String(s?.intervalMinutes||0),{required:true,max:5,numeric:true})+
+      field('maxRuns','Maximum runs (1 = once, 0 = unlimited recurring)',
+        String(s?.maxRuns??1),{required:true,max:3,numeric:true})+
+      '<label class="field"><span>Appearance</span><select name="style">'+
+      '<option value="text"'+((s?.style||'text')==='text'?' selected':'')+'>Plain text</option>'+
+      '<option value="embed"'+(s?.style==='embed'?' selected':'')+'>Styled Discord embed</option>'+
+      '</select></label>'+
+      field('color','Embed color (0–16777215)',String(s?.color??5793266),{max:8,numeric:true})+
+      field('imageUrl','Optional embed image URL',s?.imageUrl||'',{max:500})+
+      '<button class="primary">'+h(creating?'Save schedule draft':'Save future delivery settings')+'</button>'+
+      '</form><p class="muted">Drafts do not post automatically. Only you can publish and configure these messages. DISBOARD bump reminders never run /bump on your behalf.</p></section>';
+  }
+  function schedulePage(){
+    if(demo)return title('Schedules','Live scheduling is unavailable in practice mode.')+
+      '<section class="panel">Sign in to your Owner account to create schedules.</section>';
+    if(!state?.actor?.isOwner)return missing();
+    if(!schedulesData){void schedulesRefresh();return title('Schedules','Loading Owner announcements…');}
+    const selected=/^schedule-([a-f0-9-]{36})$/.exec(route()),data=schedulesData;
+    if(!selected){
+      const cards=data.schedules.map(s=>'<a class="request-row" href="#schedule-'+h(s.id)+'">'+
+        '<span class="summary"><b>'+h(s.name)+'</b><small class="muted">'+
+        h(s.kind==='bump-reminder'?'Manual DISBOARD reminder':'Scheduled announcement')+
+        ' · '+h(s.sentCount)+' sent · '+h(new Date(s.nextDueMs).toLocaleString())+
+        '</small></span><span class="pill">'+h(s.status)+'</span></a>').join('');
+      return title('Schedules','Owner-controlled announcements and manual bump reminders, without unattended bot actions.')+
+        (!data.moduleEnabled?'<section class="panel">The Schedules module is disabled. Nothing will be posted until you enable it.</section>':'')+
+        '<section class="stack"><h2>Saved schedules</h2>'+
+        (cards||'<p>No scheduled messages yet.</p>')+'</section>'+scheduleEditor(null);
+    }
+    const d=scheduleDetailData;
+    if(!d||d.schedule.id!==selected[1]){
+      void schedulesRefresh();return title('Schedules','Loading the schedule record…');
+    }
+    const s=d.schedule;
+    const control=(action,label,choice='')=>'<button type="button" data-schedule-action="'+h(action)+
+      '" data-schedule-id="'+h(s.id)+'" data-revision="'+h(s.revision)+
+      '"'+(choice?' data-recovery="'+h(choice)+'"':'')+'>'+h(label)+'</button>';
+    const actions='<section class="panel dossier"><h2>Owner controls</h2>'+
+      '<p>Revision '+h(s.revision)+' · '+h(s.sentCount)+' deliveries recorded · '+
+      'Next: '+h(new Date(s.nextDueMs).toLocaleString())+'</p>'+
+      (s.lastError?'<p class="error">Delivery issue: '+h(s.lastError)+'</p>':'')+
+      '<div class="actions">'+(s.status==='draft'?control('publish','Publish and activate'):'')+
+      (s.status==='active'?control('pause','Pause future messages'):'')+
+      (s.status==='paused'&&!['failed','needs-review'].includes(s.pendingStatus)?
+        control('resume','Resume schedule'):'')+
+      (['draft','active','paused'].includes(s.status)?control('cancel','Cancel schedule'):'')+
+      '</div>'+
+      (['failed','needs-review'].includes(s.pendingStatus)?
+        '<section><h3>Unconfirmed delivery requires your decision</h3>'+
+        '<p>Check the Discord channel first. Retrying could create a duplicate message.</p>'+
+        '<div class="actions">'+control('recover','Retry this delivery','retry')+
+        control('recover','Skip this occurrence','skip')+'</div></section>':'')+
+      '</section>';
+    const events='<section class="panel dossier"><h2>Private schedule audit</h2>'+
+      d.events.map(e=>'<p>'+h(e.event)+' · '+h(e.actor_id)+' · '+
+        h(new Date(Number(e.at_ms)).toLocaleString())+' · '+h(e.detail)+'</p>').join('')+
+      '</section>';
+    const deliveries='<section class="panel dossier"><h2>Delivery history</h2>'+
+      (d.deliveries.length?d.deliveries.map(x=>'<p>Occurrence '+h(x.occurrence)+
+        ' · '+h(x.status)+' · '+h(new Date(Number(x.due_ms)).toLocaleString())+
+        (x.last_error?' · '+h(x.last_error):'')+
+        '</p>').join(''):'<p>No delivery attempts yet.</p>')+'</section>';
+    return breadcrumbs([link('schedules','Schedules'),h(s.name)])+
+      title(s.name,s.kind==='bump-reminder'?'A reminder for human DISBOARD bumps.':'Scheduled Convergence announcement.')+
+      '<section class="panel dossier"><p><b>'+h(s.status)+'</b> · Channel '+h(s.channelId)+
+      (s.mentionRole?' · Notify role '+h(s.mentionRole):'')+'</p>'+
+      '<p class="prewrap">'+h(s.body||'Default DISBOARD manual bump reminder')+'</p>'+
+      '<p>Frequency: '+h(s.intervalMinutes===0?'Once':s.intervalMinutes+' minute intervals')+
+      ' · '+h(s.maxRuns===0?'Unlimited recurring':s.maxRuns+' maximum sends')+'</p></section>'+
+      actions+(s.status==='draft'||s.status==='paused'&&
+        !['needs-review','failed','pending'].includes(s.pendingStatus)?scheduleEditor(s):'')+
+      deliveries+events;
+  }
   function render(){
     chrome();const view=$('#view');
     if(!state){view.innerHTML=hero('Player directory','Sign in with your Discord account to view Convergence players and their character sheets.')+'<div class="signin">'+btn('login','Sign in with Discord','primary')+'</div>';return;}
@@ -1287,6 +1390,7 @@ function formList(raw){
     else if(r==='support'||/^support-[\da-f-]{36}$/i.test(r))view.innerHTML=supportPage();
     else if(r==='giveaways'||/^giveaway-[\da-f-]{36}$/i.test(r))view.innerHTML=giveawayPage();
     else if(r==='polls'||/^poll-[\da-f-]{36}$/i.test(r))view.innerHTML=pollPage();
+    else if(r==='schedules'||/^schedule-[\da-f-]{36}$/i.test(r))view.innerHTML=schedulePage();
     else if(r==='shops'||/^shop-[\da-f-]{36}$/i.test(r))view.innerHTML=shopPage();
     else if(r==='roles'||/^roles-[\da-f-]{36}$/i.test(r))view.innerHTML=rolePanelPage();
     else if(r==='moderation')view.innerHTML=moderationPage();
@@ -1409,6 +1513,24 @@ function formList(raw){
   window.addEventListener('focus',refreshReview);
   window.setInterval(refreshReview,30000);
   document.addEventListener('click',async e=>{
+    const scheduleButton=e.target.closest('[data-schedule-action]');
+    if(scheduleButton){
+      const action=scheduleButton.dataset.scheduleAction,choice=scheduleButton.dataset.recovery||'';
+      const warning=action==='recover'&&choice==='retry'?
+        'You must inspect the original Discord channel first. Retrying an unconfirmed send could create a duplicate. Continue?':
+        'Confirm Owner action: '+action+' this schedule?';
+      if(!confirm(warning))return;
+      scheduleButton.disabled=true;
+      try{
+        const result=await call('/api/schedules','POST',{action,
+          scheduleId:scheduleButton.dataset.scheduleId,
+          revision:Number(scheduleButton.dataset.revision),...(choice?{choice}:{})});
+        schedulesData=null;scheduleDetailData=null;await schedulesRefresh();
+        tell('Schedule updated: '+(result.result?.status||result.result?.recovery||'saved')+'.');
+      }catch(error){tell(error.message,true);}
+      finally{scheduleButton.disabled=false;}
+      return;
+    }
     const pollAction=e.target.closest('[data-poll-action]');
     if(pollAction){
       const action=pollAction.dataset.pollAction;
@@ -1715,6 +1837,31 @@ function formList(raw){
     }else data.fields=forms.normalize(kind,fields);
     return data;
   }
+  document.addEventListener('submit',async e=>{
+    const f=e.target;if(f.id!=='schedule-editor')return;
+    e.preventDefault();
+    const button=f.querySelector('button.primary');if(button?.disabled)return;
+    if(button)button.disabled=true;
+    if(!f.dataset.receipt)f.dataset.receipt=crypto.randomUUID();
+    try{
+      const v=Object.fromEntries(new FormData(f)),delay=Number(v.delay),
+        intervalMinutes=Number(v.intervalMinutes),maxRuns=Number(v.maxRuns);
+      if(!Number.isSafeInteger(delay)||delay<1||delay>525600||!Number.isSafeInteger(intervalMinutes)||
+        !Number.isSafeInteger(maxRuns))throw Error('Enter valid whole-number schedule intervals.');
+      const schedule={receipt:f.dataset.receipt,name:String(v.name),kind:String(v.kind),
+        channelId:String(v.channelId),body:String(v.body||''),
+        mentionRole:String(v.mentionRole||''),firstDueMs:Date.now()+delay*60000,
+        intervalMinutes,maxRuns,style:String(v.style),color:Number(v.color),
+        imageUrl:String(v.imageUrl||'')};
+      const result=await call('/api/schedules','POST',{action:f.dataset.id?'edit':'create',
+        scheduleId:f.dataset.id||undefined,revision:Number(f.dataset.revision||0),schedule});
+      delete f.dataset.receipt;
+      if(!f.dataset.id&&result.result?.id)location.hash='schedule-'+result.result.id;
+      schedulesData=null;scheduleDetailData=null;await schedulesRefresh();
+      tell('Schedule saved as a draft or future configuration. Nothing posts until published.');
+    }catch(error){tell(error.message,true);}
+    finally{if(button)button.disabled=false;}
+  });
   document.addEventListener('submit',async e=>{
     const f=e.target;if(!['poll-editor','poll-vote-form'].includes(f.id))return;
     e.preventDefault();
