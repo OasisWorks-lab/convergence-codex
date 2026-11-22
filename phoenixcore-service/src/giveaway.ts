@@ -195,9 +195,9 @@ export async function rerollGiveawaySlot(db:Store,id:string,slot:number,actorId:
     requireThat(previous.status==='awaiting_claim'||previous.status==='expired',409,'Claimed awards cannot be rerolled.');
     const prevExpired=previous.status==='expired';
     await q("UPDATE pc_giveaway_winners SET status='expired' WHERE id=$1",[previous.id]);
-    const [past]=await q('SELECT user_id FROM pc_giveaway_winners WHERE giveaway_id=$1',[id]);
+    const past=await q('SELECT user_id FROM pc_giveaway_winners WHERE giveaway_id=$1',[id]);
     const blocked=new Set(past.map(row=>row.user_id));
-    const [entries]=await q('SELECT user_id FROM pc_giveaway_entries WHERE giveaway_id=$1 AND active=1',[id]);
+    const entries=await q('SELECT user_id FROM pc_giveaway_entries WHERE giveaway_id=$1 AND active=1',[id]);
     const validEntries=new Set(entries.map(e=>e.user_id));
     const pool=snapshot.filter(s=>s.eligible&&!blocked.has(s.userId)&&validEntries.has(s.userId))
       .map(s=>({userId:s.userId,tickets:s.tickets}));
