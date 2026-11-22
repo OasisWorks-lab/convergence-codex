@@ -12,7 +12,7 @@ function repetitive(text:string,tokens:string[]){
   for(let i=0;i+18<=compact.length;i+=6)chunks.push(compact.slice(i,i+18));
   const variety=chunks.length?new Set(chunks).size/chunks.length:1;
   const distinct=tokens.length?new Set(tokens).size/tokens.length:1;
-  return variety<0.47||(tokens.length>=35&&distinct<0.25)||
+  return variety<0.47||(tokens.length>=35&&distinct<0.18)||
     (tokens.length>=12&&tokens.filter(t=>t.length>44).length/tokens.length>0.45);
 }
 export function meaningfulWords(text:string){
@@ -34,8 +34,8 @@ export function replyProfile(s:Scene):ReplyProfile{
   const substantialWords=ranked.length?Math.min(600,ranked[0]+ranked.slice(1).reduce((a,b)=>a+b*0.4,0)):0;
   const common={substantialWords:Math.round(substantialWords),unintelligiblePosts};
   if(substantialWords<32)return {depth:'brief',minParagraphs:1,maxParagraphs:2,targetWords:60,minWords:15,maxWords:120,...common};
-  if(substantialWords<96)return {depth:'conversational',minParagraphs:2,maxParagraphs:3,targetWords:165,minWords:65,maxWords:270,...common};
-  if(substantialWords<195)return {depth:'detailed',minParagraphs:4,maxParagraphs:5,targetWords:330,minWords:180,maxWords:470,...common};
+  if(substantialWords<80)return {depth:'conversational',minParagraphs:2,maxParagraphs:3,targetWords:165,minWords:65,maxWords:270,...common};
+  if(substantialWords<160)return {depth:'detailed',minParagraphs:4,maxParagraphs:5,targetWords:330,minWords:180,maxWords:470,...common};
   return {depth:'immersive',minParagraphs:4,maxParagraphs:6,targetWords:420,minWords:230,maxWords:580,...common};
 }
 export function replyLength(s:Scene){return replyProfile(s).targetWords;}
