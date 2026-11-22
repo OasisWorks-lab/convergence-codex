@@ -74,15 +74,15 @@ export async function operationInteraction(db:Store,config:Config,body:any,disco
       requireThat(await communityEnabled(db,'moderation'),403,'Moderation records are disabled by the Owner.');
       if(operation==='automod-status'){
         const [state,incidents]=await Promise.all([automodPolicy(db),automodIncidents(db,who)]);
-        return respond('**Automod audit-only settings**\\n'+
+        return respond('**Automod audit-only settings**\n'+
           'Enabled: '+(state.policy.enabled?'yes':'no')+
           ' · Owner alerts: '+(state.policy.ownerAlerts?'on':'off')+
-          '\\nInvite filter: '+(state.policy.invites?'on':'off')+
+          '\nInvite filter: '+(state.policy.invites?'on':'off')+
           ' · Blocklisted hosts: '+state.policy.blockedHosts.length+
           ' · Repeated-post threshold: '+state.policy.duplicateThreshold+
           ' · Mention threshold: '+state.policy.mentionThreshold+
-          '\\nRecorded incident matches: '+incidents.total+
-          '\\nNo automated deletions or punitive actions are available in this milestone.');
+          '\nRecorded incident matches: '+incidents.total+
+          '\nNo automated deletions or punitive actions are available in this milestone.');
       }
       if(operation==='automod-test'){
         requireThat(who.isOwner,403,'Only the Owner may test private automod settings.');
@@ -90,9 +90,9 @@ export async function operationInteraction(db:Store,config:Config,body:any,disco
           id:'000000000000000001',guildId:config.guild,
           userId:who.id,channelId:String(value('channel')||''),
           roles:[],content:String(value('sample')||'')});
-        return respond('**Automod preview — no action taken**\\n'+
+        return respond('**Automod preview — no action taken**\n'+
           (result.rules.length?'Would match: '+result.rules.join(', '):'No configured rules matched.')+
-          '\\nNo log, warning, deletion or DM was created.');
+          '\nNo log, warning, deletion or DM was created.');
       }
       if(operation==='warn'||operation==='note'){
         const target=String(value('member')||'');
