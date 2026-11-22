@@ -96,8 +96,8 @@ export async function expireTurn(db:Store,now=Date.now()){
     return true;
   });
 }
-export async function deliverTurnNotice(db:Store,send:(channel:string,payload:any)=>Promise<unknown>){
-  const now=Date.now(),lease=randomUUID();
+export async function deliverTurnNotice(db:Store,send:(channel:string,payload:any)=>Promise<unknown>,now=Date.now()){
+  const lease=randomUUID();
   const job=await db.transaction(async q=>{
     const [n]=await q('SELECT n.*,s.channel_id,s.state FROM pc_rp_notices n JOIN pc_rp_scenes s ON n.scene_id=s.scene_id WHERE n.retry_at<=$1 ORDER BY n.retry_at,n.id LIMIT 1'+(db.dialect==='postgres'?' FOR UPDATE OF n SKIP LOCKED':''),[now]);
     if(!n)return;
