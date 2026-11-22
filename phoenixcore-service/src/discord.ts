@@ -3,7 +3,7 @@ import {communityCommand,communityCommands,communityInteraction} from './communi
 import {operationCommand,operationCommands,operationInteraction} from './operations-discord.ts';
 import {isSupportCommand,supportCommands,supportInteraction} from './support-discord.ts';
 import {giveawayCommand,giveawayCommands,giveawayInteraction,giveawayButton} from './giveaway-discord.ts';
-import {shopCommand,shopCommands,shopInteraction,shopComponent} from './shop-discord.ts';
+import {shopCommand,shopCommands,shopInteraction,shopComponent,shopAutocomplete} from './shop-discord.ts';
 import {roleCommand,roleCommands,roleInteraction,roleComponent} from './role-panels-discord.ts';
 import type { RoleplayScope } from './scope.ts';
 import servicePackage from '../package.json' with {type:'json'};
@@ -230,10 +230,12 @@ export async function handleInteraction(db:Store, config:Config, body:any,discor
     }
     return run();
   }
+  if(body.type===4&&shopCommand(body.data?.name))
+    return shopAutocomplete(db,config,body);
   if((body.type===2&&shopCommand(body.data?.name))||
      (body.type===3&&String(body.data?.custom_id||'').startsWith('pcshop:'))){
     const work=()=>body.type===2?shopInteraction(db,config,body,discord,scope):shopComponent(db,config,body,discord,scope);
-    if(defer&&body.type===2&&['buy','admin-item','admin-create','admin-stock','admin-open','admin-location'].includes(String(body.data?.options?.[0]?.name))){
+    if(defer&&body.type===2&&['buy','admin-item','admin-create','admin-keeper','admin-unlist','admin-stock','admin-open','admin-location'].includes(String(body.data?.options?.[0]?.name))){
       defer(async()=>String((await work()).data?.content||'Shop operation completed.'));
       return {type:5,data:{flags:64}};
     }
