@@ -127,7 +127,9 @@ test('slash commands and vote components enforce signed Guild roles and private 
   const shortcut=await communityInteraction(db,config,{type:2,guild_id:guild,channel_id:'130000000000000001',member:{user:{id:helper},roles:[helperRole],permissions:'0'},data:{name:'pc-tag-save',options:[arg('name','guide'),arg('content','Here is the guide.')]}});
   assert.match(shortcut.data.content,/Published guide/);
   const shortcutShow=await communityInteraction(db,config,{type:2,guild_id:guild,channel_id:'130000000000000001',member:{user:{id:member},roles:[],permissions:'0'},data:{name:'pc-tag-show',options:[arg('name','guide')]}});
-  assert.match(shortcutShow.data.content,/Here is the guide/);
+  assert.match(shortcutShow.data.embeds[0].description,/Here is the guide/);
+  assert.deepEqual(shortcutShow.data.allowed_mentions.parse,[]);
+  assert.equal(shortcutShow.data.flags,undefined);
   const reviewed=await communityInteraction(db,config,cmd('suggest','review',helper,[helperRole],[arg('id',id),arg('status','Approved'),arg('response','Planned.')]));
   assert.match(reviewed.data.content,/Approved/);
   const nonowner=await communityInteraction(db,config,cmd('community-module','set',helper,[helperRole],[arg('module','suggestions'),arg('enabled',false)]));
