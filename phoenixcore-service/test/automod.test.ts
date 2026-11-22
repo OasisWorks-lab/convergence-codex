@@ -55,6 +55,8 @@ test('invitation, exact/subdomain blocklist and mention flooding create private 
   assert.equal((await db.query('SELECT COUNT(*) AS n FROM pc_mod_cases'))[0].n,0);
   assert.equal((await db.query('SELECT COUNT(*) AS n FROM pc_core_jobs'))[0].n,0);
   assert.deepEqual(await observeAutomod(db,config,sample(text)),{rules:[],recorded:false});
+  const bare=await observeAutomod(db,config,sample('I posted discord.gg/abc in the chat','930000000000000054'));
+  assert.deepEqual(bare.rules,['invite']);
   assert.equal((await automodIncidents(db,owner)).total,3);
   await assert.rejects(automodIncidents(db,helper),{status:403});
   assert.equal((await observeAutomod(db,config,sample('https://notscam.example/',
@@ -93,6 +95,8 @@ test('optional Owner alerts use existing durable DM jobs without mentioning or p
   const db=await fresh(t);await setAutomodPolicy(db,owner,0,policy({ownerAlerts:true}));
   const now=Date.now();
   await observeAutomod(db,config,sample('https://discord.gg/abc'),now);
+  await observeAutomod(db,config,sample('https://discord.gg/def','930000000000000051'),now+1000);
+  assert.equal((await automodIncidents(db,owner)).total,2);
   assert.equal((await db.query("SELECT COUNT(*) AS n FROM pc_core_jobs WHERE job_type='automod-alert'"))[0].n,1);
   let sends:any[]=[];
   const discord:any={call:async(path:string,options:any={})=>{
