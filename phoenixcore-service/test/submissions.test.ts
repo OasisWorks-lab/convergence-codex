@@ -52,7 +52,7 @@ test('four design types respect Helper approval except Owner-only races and tran
   for(const [kind,fields] of Object.entries(designs)){
     const r=await propose(db,writer,submit(kind,fields),active);assert.equal(r.status,'pending');
     if(['race','transformation'].includes(kind)){
-      await assert.rejects(decide(db,judge.id,owner.id,r.id,true),/Only the Convergence Owner can approve Race or Transformation/);
+      await assert.rejects(decide(db,judge.id,owner.id,r.id,true,[role]),/Only the Convergence Owner can approve Race or Transformation/);
       assert.equal((await db.query('SELECT status FROM pc_requests WHERE id=$1',[r.id]))[0].status,'pending');
       assert.equal((await decide(db,owner.id,owner.id,r.id,true)).status,'approved');
     }else{
