@@ -4,8 +4,8 @@ import {randomUUID} from 'node:crypto';
 import {openSqlite,openPostgres,initialize} from '../src/db.ts';
 import type {Actor} from '../src/domain.ts';
 import {createShop,createShopItem,setShopOpen,setShopLocations,setShopStock,
-  listShopCatalog,shopAccess,characterInventory,purchaseShopItem} from '../src/shop.ts';
-import {shopCommands,shopInteraction,shopComponent} from '../src/shop-discord.ts';
+  setShopkeeper,unlistShopItem,shopNpcOptions,listShopCatalog,shopAccess,characterInventory,purchaseShopItem} from '../src/shop.ts';
+import {shopCommands,shopInteraction,shopComponent,shopAutocomplete} from '../src/shop-discord.ts';
 
 const guild='890000000000000001',ownerId='890000000000000002',playerId='890000000000000003',
   otherId='890000000000000004',helperId='890000000000000005',channel='890000000000000006',
@@ -161,4 +161,106 @@ test('PostgreSQL shop purchases serialize stock and repeated identical receipts'
   const second={...input,id:randomUUID()};
   await assert.rejects(purchaseShopItem(db,player,second,general()),{status:409});
   assert.equal((await db.query('SELECT cash FROM pc_economy_accounts WHERE character_id=$1',[c]))[0].cash,'900');
+});
+
+test('every approved NPC appears in the shop dropdown; selecting one preserves identity through renames',async t=>{
+  const db=await setup(t);
+  const characterId=await character(db);
+  const npcIds:string[]=[];
+  for(let n=0;n<31;n++){
+    const npcId=randomUUID();npcIds.push(npcId);
+    await db.query('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3)',
+      [npcId,ownerId,JSON.stringify({name:'NPC Merchant '+String(n).padStart(2,'0'),characterType:'NPC',portrait:''})]);
+  }
+  const options=await shopNpcOptions(db);
+  assert.equal(options.length,31);
+  assert.deepEqual(options.map(x=>x.name),[...options.map(x=>x.name)].sort());
+  assert.ok(!options.some(x=>x.id===characterId));
+  const first=await createShop(db,helper,{name:'NPC-linked bazaar',description:'',kind:'general',ownerNpcId:npcIds[14]});
+  assert.equal(first.ownerNpcId,npcIds[14]);
+  const initial=(await listShopCatalog(db)).shops.find(s=>s.id===first.id)!;
+  assert.equal(initial.ownerName,'NPC Merchant 14');
+  assert.equal(initial.npcAvailable,true);
+  await db.query('UPDATE pc_characters SET sheet=$1 WHERE id=$2',
+    [JSON.stringify({name:'Wandering Archmerchant',characterType:'NPC',portrait:'/art/npc.png'}),npcIds[14]]);
+  const renamed=(await listShopCatalog(db)).shops.find(s=>s.id===first.id)!;
+  assert.equal(renamed.ownerName,'Wandering Archmerchant');
+  assert.equal(renamed.ownerPortrait,'/art/npc.png');
+  assert.equal(renamed.ownerNpcId,npcIds[14]);
+  await assert.rejects(createShop(db,helper,{name:'Imposter',kind:'general',ownerNpcId:characterId}),{status:409});
+  await assert.rejects(createShop(db,helper,{name:'Missing',kind:'general',ownerNpcId:randomUUID()}),{status:404});
+  await assert.rejects(createShop(db,helper,{name:'Conflict',kind:'general',ownerNpcId:npcIds[14],ownerName:'Fake NPC'}),{status:400});
+  assert.equal((await db.query('SELECT COUNT(*) AS total FROM pc_shops'))[0].total,1);
+});
+test('staff can switch existing shopkeepers between NPC and a custom name, not invent an NPC',async t=>{
+  const db=await setup(t);
+  const npcId=randomUUID();
+  await db.query('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3)',
+    [npcId,ownerId,JSON.stringify({name:'King Azurik',characterType:'NPC'})]);
+  const shop=await createShop(db,helper,{name:'Portal Merchant',kind:'general',ownerNpcId:npcId});
+  await assert.rejects(setShopkeeper(db,player,shop.id,1,{ownerName:'Unapproved'}),{status:403});
+  await assert.rejects(setShopkeeper(db,helper,shop.id,1,{ownerName:'',shopkeeperMode:'custom'}),{status:400});
+  const changed=await setShopkeeper(db,helper,shop.id,1,{ownerNpcId:null,ownerName:'The Mysterious Trader',shopkeeperMode:'custom'});
+  assert.equal(changed.revision,2);
+  assert.equal(changed.ownerNpcId,null);
+  assert.equal((await listShopCatalog(db)).shops[0].ownerName,'The Mysterious Trader');
+  assert.equal((await shopNpcOptions(db)).length,1);
+  await assert.rejects(setShopkeeper(db,helper,shop.id,1,{ownerNpcId:npcId}),{status:409});
+  const second=await setShopkeeper(db,boss,shop.id,2,{ownerNpcId:npcId});
+  assert.equal(second.ownerName,'King Azurik');
+  const unchanged=await setShopkeeper(db,boss,shop.id,3,{ownerNpcId:npcId});
+  assert.equal(unchanged.changed,false);
+  assert.equal(unchanged.revision,3);
+  const custom=await createShop(db,helper,{name:'Another Shop',kind:'location',ownerName:'Custom Keeper',shopkeeperMode:'custom'});
+  assert.equal(custom.ownerNpcId,null);
+  assert.equal((await db.query("SELECT COUNT(*) AS total FROM pc_shop_audit WHERE kind='shopkeeper-set'"))[0].total,2);
+});
+test('unlisting shop merchandise preserves earlier character inventory and its financial ledger',async t=>{
+  const db=await setup(t),char=await character(db),{shop,item}=await shopWithItem(db);
+  await purchaseShopItem(db,player,{id:randomUUID(),characterId:char,shopId:shop.id,itemId:item.id,quantity:1,payment:'cash'},general());
+  await assert.rejects(unlistShopItem(db,player,shop.id,item.id,shop.revision),{status:403});
+  const changed=await unlistShopItem(db,helper,shop.id,item.id,shop.revision);
+  assert.equal(changed.revision,shop.revision+1);
+  assert.equal((await listShopCatalog(db)).shops[0].stock.length,0);
+  assert.equal((await characterInventory(db,player,char)).items[0].quantity,1);
+  assert.equal((await db.query('SELECT COUNT(*) AS total FROM pc_shop_purchases'))[0].total,1);
+  assert.equal((await db.query("SELECT COUNT(*) AS total FROM pc_economy_transactions WHERE kind='shop_purchase'"))[0].total,1);
+  await assert.rejects(unlistShopItem(db,helper,shop.id,item.id,shop.revision),{status:409});
+  await assert.rejects(purchaseShopItem(db,player,{id:randomUUID(),characterId:char,shopId:shop.id,
+    itemId:item.id,quantity:1,payment:'cash'},general()),{status:404});
+  await setShopStock(db,helper,shop.id,item.id,changed.revision,'500',2);
+  assert.equal((await listShopCatalog(db)).shops[0].stock[0].price,'500');
+});
+test('staff Discord shopkeeper autocomplete is live, paginated by query and offers Custom Entry',async t=>{
+  const db=await setup(t),npcId=randomUUID();
+  await db.query('INSERT INTO pc_characters(id,owner_id,revision,sheet) VALUES($1,$2,1,$3)',
+    [npcId,ownerId,JSON.stringify({name:'Captain Juniper',characterType:'NPC'})]);
+  const config:any={guild,owner:ownerId,clientId:'890000000000000010'};
+  await db.query('UPDATE pc_config SET value=$1 WHERE slot=1',[JSON.stringify({
+    ...(await import('../src/db.ts')).defaultSettings,judgeRole:helperRole
+  })]);
+  const autocomplete=(who:string,query='')=>({
+    type:4,guild_id:guild,member:{user:{id:who},roles:who===helperId?[helperRole]:[]},
+    data:{name:'shop',options:[{name:'admin-create',options:[
+      {name:'shopkeeper',value:query,focused:true}]}]}
+  });
+  const staff:any=await shopAutocomplete(db,config,autocomplete(helperId,'captain'));
+  assert.equal(staff.type,8);
+  assert.equal(staff.data.choices[0].value,'custom');
+  assert.deepEqual(staff.data.choices.slice(1).map((o:any)=>o.value),[npcId]);
+  assert.deepEqual((await shopAutocomplete(db,config,autocomplete(playerId))).data.choices,[]);
+  const commandOptions=(await shopCommands())[0].options;
+  assert.ok(commandOptions.find((o:any)=>o.name==='admin-create').options
+    .some((o:any)=>o.name==='shopkeeper'&&o.autocomplete===true));
+  const slash=(command:string,options:any[])=>({guild_id:guild,member:{user:{id:helperId},roles:[helperRole]},
+    data:{name:'shop',options:[{name:command,options}]}});
+  const nop:any={call:async()=>{throw Error('Unexpected Discord call');}};
+  const created:any=await shopInteraction(db,config,slash('admin-create',[
+    {name:'name',value:'Forest Post'},{name:'kind',value:'general'},
+    {name:'shopkeeper',value:npcId}]),nop);
+  assert.match(created.data.content,/Captain Juniper/);
+  const bad:any=await shopInteraction(db,config,slash('admin-create',[
+    {name:'name',value:'No Name'},{name:'kind',value:'general'},
+    {name:'shopkeeper',value:'custom'}]),nop);
+  assert.match(bad.data.content,/requires the new shopkeeper name/);
 });
