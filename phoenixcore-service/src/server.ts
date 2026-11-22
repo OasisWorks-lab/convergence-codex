@@ -544,6 +544,42 @@ export function application(db:Store, config:Config, discord=new Discord(config)
         json(res,200,{ok:true,result});wake();return;
       }
 
+      const schedulePath=/^\/api\/schedules\/([a-f\d-]{36})$/.exec(path);
+      if((path==='/api/schedules'||schedulePath)&&['GET','POST'].includes(String(method))){
+        requireThat(actor.isOwner,403,'Only the Convergence Owner can inspect or change scheduled messages.');
+        if(method==='GET'){
+          if(schedulePath)json(res,200,await scheduleDetail(db,actor,schedulePath[1]));
+          else json(res,200,{schedules:await listSchedules(db,actor),
+            moduleEnabled:await communityEnabled(db,'schedules')});
+          return;
+        }
+        requireThat(path==='/api/schedules',404,'Unknown schedule operation.');
+        const input=parse(await rawBody(req,12000));
+        requireThat(input&&typeof input==='object'&&!Array.isArray(input),400,
+          'Choose a schedule operation.');
+        let result:any;
+        if(input.action==='create'||input.action==='edit'){
+          const value=input.schedule;
+          requireThat(value&&typeof value==='object',400,'Choose valid schedule settings.');
+          const channel=await discord.guildChannel(String(value.channelId||''));
+          requireThat(channel?.guild_id===config.guild&&[0,5].includes(Number(channel.type)),403,
+            'Select a Convergence text or announcement channel.');
+          if(value.mentionRole){
+            const roles=await discord.call('/guilds/'+config.guild+'/roles');
+            requireThat(Array.isArray(roles)&&roles.some((r:any)=>r.id===String(value.mentionRole)),
+              403,'Select an existing Convergence mention role.');
+          }
+          result=input.action==='create'?await createSchedule(db,actor,value):
+            await editSchedule(db,actor,String(input.scheduleId||''),Number(input.revision),value);
+        }else if(['publish','pause','resume','cancel'].includes(input.action)){
+          result=await transitionSchedule(db,actor,String(input.scheduleId||''),
+            Number(input.revision),input.action);
+        }else if(input.action==='recover'){
+          result=await recoverSchedule(db,actor,String(input.scheduleId||''),
+            Number(input.revision),String(input.choice) as 'retry'|'skip');
+        }else throw new Problem(400,'Unknown schedule action.');
+        json(res,200,{ok:true,result});wake();return;
+      }
       const pollPath=/^\/api\/polls\/([a-f\d-]{36})(?:\/(audit))?$/.exec(path);
       if((path==='/api/polls'||pollPath)&&['GET','POST'].includes(String(method))){
         if(method==='GET'){
