@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import type {Store} from './db.ts';
 import type {Discord,Config} from './discord.ts';
 import type {RoleplayScope} from './scope.ts';
+import {shopSalesReport} from './shop-sales.ts';
 import {Problem,actorFor,readSettings,requireThat,discordId} from './domain.ts';
 import {createShop,createShopItem,setShopOpen,setShopLocations,setShopStock,setShopkeeper,unlistShopItem,
   listShopCatalog,shopNpcOptions,shopAccess,characterInventory,purchaseShopItem,type ShopContext} from './shop.ts';
@@ -46,6 +47,8 @@ export const shopCommands=()=>[{name:'shop',type:1,description:'Convergence shop
   sub('admin-unlist','Owner/Helper: remove merchandise without deleting purchased items.',[
     identifier('shop','Shop UUID'),identifier('item','Stocked item UUID'),
     number('revision','Current shop revision',1,100000000)]),
+  sub('admin-sales','Owner/Helper: review actual shop purchases and Zeni spent.',[
+    str('shop','Optional shop UUID (omit to summarize all shops)',false,36)]),
   sub('admin-stock','Owner/Helper: list or restock an item.',[
     identifier('shop','Shop UUID'),identifier('item','Item UUID'),number('revision','Current shop revision',1,100000000),
     str('price','Per-item Zeni price'),number('remaining','-1 unlimited, 0 sold out, or quantity',-1,1000000000)]),
@@ -124,6 +127,23 @@ export async function shopInteraction(db:Store,config:Config,body:any,discord:Pi
     if(action==='admin-unlist'){
       const r=await unlistShopItem(db,actor,shopId,String(value('item')||''),Number(value('revision')));
       return ephemeral('Item removed from the shop catalog. Existing character purchases are safe. Revision '+r.revision+'.');
+    }
+    if(action==='admin-sales'){
+      const report=await shopSalesReport(db,actor,shopId||undefined);
+      if(shopId){
+        const shop=report.shops[0];
+        return ephemeral('**'+shop.name+' · Sales report**\\nAll-time: '+shop.all.receipts+' purchase(s), '+
+          shop.all.units+' units, '+shop.all.zeni+' Zeni spent\\nLast 30 days: '+
+          shop.last30.receipts+' purchase(s), '+shop.last30.zeni+' Zeni spent\\nCash: '+
+          shop.all.cashZeni+' · Bank: '+shop.all.bankZeni+' Zeni\\n'+
+          (shop.topItems.length?'Top merchandise:\\n'+shop.topItems.slice(0,7)
+            .map(i=>i.name+' · '+i.units+' units').join('\\n'):'No purchases yet.'));
+      }
+      return ephemeral('**Shop sales · all-time**\\n'+report.overall.all.receipts+' purchase(s), '+
+        report.overall.all.units+' units, '+report.overall.all.zeni+' Zeni spent\\n'+
+        (report.shops.length?report.shops.slice(0,10)
+          .map(x=>'**'+x.name+'** · '+x.all.zeni+' Zeni · '+x.all.receipts+' transactions').join('\\n'):
+          'No shops configured.'));
     }
     if(action==='admin-stock'){
       const r=await setShopStock(db,actor,shopId,String(value('item')),Number(value('revision')),String(value('price')),
