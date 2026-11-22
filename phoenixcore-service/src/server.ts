@@ -395,7 +395,7 @@ export function application(db:Store, config:Config, discord=new Discord(config)
       if (res.headersSent) {res.end();return;}
       if (e instanceof Problem) json(res,e.status,{error:e.message});
       else if (e instanceof DiscordFailure) json(res,503,{error:'Discord is unavailable ('+e.status+'). Check bot installation and Server Members Intent, then retry.'});
-      else {console.error('PhoenixCore request failed:',e instanceof Error?e.name:'Unknown error');json(res,500,{error:'PhoenixCore could not complete the request. Please retry.'});}
+      else {console.error('PhoenixCore request failed:',e instanceof ReferenceError?e.stack:e instanceof Error?e.name:'Unknown error');json(res,500,{error:'PhoenixCore could not complete the request. Please retry.'});}
     }
   });
 }
